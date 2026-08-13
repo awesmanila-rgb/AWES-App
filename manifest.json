@@ -1,0 +1,15 @@
+{
+  "name": "AWES Service Report",
+  "short_name": "AWES SR",
+  "description": "Digital field service report for AWES technicians",
+  "start_url": "./service_report_app.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F5F2",
+  "theme_color": "#154D34",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
