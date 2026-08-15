@@ -663,8 +663,10 @@
   </div>
 </div>
 
-<!-- Login gate (blocking) -->
-<div class="overlay" id="loginOverlay" style="align-items:center; z-index:80; background:var(--bg);">
+<!-- Login gate (blocking). Open by default so it covers the page instantly on
+     load/reopen, before any JS/network work finishes — prevents a flash of the
+     underlying form. checkLoginGate() closes it once a saved session is verified. -->
+<div class="overlay open" id="loginOverlay" style="align-items:center; z-index:80; background:var(--bg);">
   <div class="sheet" style="border-radius:16px; max-height:70vh;">
     <div class="sheet-head" style="justify-content:center;">
       <h3>Sign In</h3>
@@ -1143,6 +1145,7 @@
       enterAdminMode();
       updateUserBadge();
       applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
       return;
     }
     if(saved){
@@ -1151,6 +1154,7 @@
         currentUser = {id:fresh.id, name:fresh.name, role:'tech', restrictions: fresh.restrictions||{}};
         updateUserBadge();
         applyUserRestrictions();
+        $('loginOverlay').classList.remove('open');
         return;
       }
       localStorage.removeItem('current-user');
@@ -2486,6 +2490,34 @@
   $('menuLogout').addEventListener('click', ()=>{
     closeMainMenu();
     doLogout();
+  });
+
+  // ---------- Auto-logout admin when app is closed or minimized ----------
+  // Runs fully synchronously (no awaits) so the login screen is guaranteed to be
+  // covering the page the instant the app is hidden — mobile OSes can freeze JS
+  // mid-way through an async function once backgrounded, which was leaving a stale
+  // page visible behind the sign-in sheet until a manual refresh.
+  function forceClearAdminSessionSync(){
+    try{
+      const saved = JSON.parse(localStorage.getItem('current-user')||'null');
+      if(saved && saved.role==='admin') localStorage.removeItem('current-user');
+    }catch(e){}
+  }
+  function syncAdminLogout(){
+    if(!(currentUser && currentUser.role==='admin')) return;
+    forceClearAdminSessionSync();
+    exitAdminModeUI();
+    currentUser = null;
+    updateUserBadge();
+    $('loginOverlay').classList.add('open');
+    showRoleChooser();
+  }
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden) syncAdminLogout();
+  });
+  window.addEventListener('pagehide', ()=>{
+    forceClearAdminSessionSync();
+    syncAdminLogout();
   });
 
 })();
