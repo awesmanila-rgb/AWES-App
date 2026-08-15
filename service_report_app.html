@@ -6,6 +6,7 @@
 <title>AWES Service Report</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -336,6 +337,7 @@
     <button class="icon-btn" id="settingsBtn">Email Setup</button>
     <button class="icon-btn" id="historyBtn">History</button>
     <button class="icon-btn" id="newBtn">New</button>
+    <button class="icon-btn" id="logoutBtn" style="display:none; background:#5C2A20; border-color:rgba(255,255,255,.4);">Logout</button>
   </div>
 </header>
 
@@ -343,7 +345,7 @@
   <span>SR No. <b id="metaSrNo">—</b></span>
   <span>Date <b id="metaDate">—</b></span>
   <span class="status-pill status-draft" id="statusPill">Draft</span>
-  <span class="status-pill" id="metaUser" style="display:none; background:#DCEAE0; color:var(--green-dark); cursor:pointer;"></span>
+  <span class="status-pill" id="metaUser" style="display:none; background:#DCEAE0; color:var(--green-dark);"></span>
 </div>
 
 <main>
@@ -586,7 +588,9 @@
       <h3>Report Preview</h3>
       <button class="sheet-close" id="closePreview">&times;</button>
     </div>
-    <iframe id="previewFrame" style="flex:1; width:100%; border:1px solid var(--border); border-radius:8px; background:#fff;"></iframe>
+    <div id="previewFrame" style="flex:1; width:100%; overflow-y:auto; border:1px solid var(--border); border-radius:8px; background:#eee; padding:10px; text-align:center;">
+      <div id="previewLoading" class="empty-state" style="display:none;">Rendering preview…</div>
+    </div>
     <div style="padding-top:12px;">
       <button class="btn btn-primary" id="previewOkBtn" style="width:100%;" type="button">Looks Good — Continue to Signatures</button>
     </div>
@@ -597,7 +601,7 @@
 <div class="overlay" id="loginOverlay" style="align-items:center; z-index:80;">
   <div class="sheet" style="border-radius:16px; max-height:70vh;">
     <div class="sheet-head" style="justify-content:center;">
-      <h3>Who's using this device?</h3>
+      <h3>Sign In</h3>
     </div>
     <div id="loginList"></div>
   </div>
@@ -665,7 +669,7 @@
     </p>
     <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap;">
       <button class="icon-btn" style="background:var(--green-light); color:var(--green-dark); border-color:var(--border);" id="openUsersBtn">Manage Technicians</button>
-      <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border);" id="changePinBtn">Change Admin PIN</button>
+      <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border);" id="changePinBtn">Change Admin Password</button>
       <button class="icon-btn" style="background:#FBEAE5; color:var(--danger); border-color:var(--border);" id="exitAdminBtn">Exit Admin Mode</button>
     </div>
     <div id="adminListsBody"></div>
@@ -807,40 +811,156 @@
   function slugifyName(name){
     return name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || ('tech-'+Date.now());
   }
-  async function cloudListUsers(){
-    if(!(await ensureCloud())) return null;
+  // Technician accounts live in the shared cloud when connected, so every phone
+  // sees the same list. When there's no cloud (or it's unreachable), we fall
+  // back to a device-local list so the login gate still works standalone.
+  async function localListUsers(){
     try{
-      const snap = await db.collection('users').get();
-      return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
-    }catch(e){ console.error('list users failed', e); return null; }
+      const res = await window.storage.get('local-users', false);
+      return res ? JSON.parse(res.value) : [];
+    }catch(e){ return []; }
   }
-  async function cloudGetUser(id){
-    if(!(await ensureCloud())) return null;
-    try{ const snap = await db.collection('users').doc(id).get(); return snap.exists ? Object.assign({id}, snap.data()) : null; }
-    catch(e){ return null; }
-  }
-  async function cloudSetUser(id, data){
-    if(!(await ensureCloud())) return false;
-    try{ await db.collection('users').doc(id).set(data, {merge:true}); return true; }
-    catch(e){ console.error('save user failed', e); return false; }
-  }
-  async function cloudDeleteUser(id){
-    if(!(await ensureCloud())) return false;
-    try{ await db.collection('users').doc(id).delete(); return true; }
+  async function localSaveUsers(users){
+    try{ await window.storage.set('local-users', JSON.stringify(users), false); return true; }
     catch(e){ return false; }
   }
+  async function cloudListUsers(){
+    if(await ensureCloud()){
+      try{
+        const snap = await db.collection('users').get();
+        return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+      }catch(e){ console.error('list users failed', e); }
+    }
+    return await localListUsers();
+  }
+  async function cloudGetUser(id){
+    if(await ensureCloud()){
+      try{ const snap = await db.collection('users').doc(id).get(); if(snap.exists) return Object.assign({id}, snap.data()); }
+      catch(e){}
+    }
+    const users = await localListUsers();
+    return users.find(u=>u.id===id) || null;
+  }
+  async function cloudSetUser(id, data){
+    if(await ensureCloud()){
+      try{ await db.collection('users').doc(id).set(data, {merge:true}); return true; }
+      catch(e){ console.error('save user failed', e); }
+    }
+    const users = await localListUsers();
+    const idx = users.findIndex(u=>u.id===id);
+    if(idx>=0) users[idx] = Object.assign({}, users[idx], data, {id});
+    else users.push(Object.assign({id}, data));
+    return await localSaveUsers(users);
+  }
+  async function cloudDeleteUser(id){
+    if(await ensureCloud()){
+      try{ await db.collection('users').doc(id).delete(); return true; }
+      catch(e){}
+    }
+    const users = (await localListUsers()).filter(u=>u.id!==id);
+    return await localSaveUsers(users);
+  }
 
-  let currentUser = null; // {id, name}
+  let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
   function updateUserBadge(){
     const el = $('metaUser');
+    const logoutEl = $('logoutBtn');
     if(!el) return;
-    if(currentUser){ el.style.display=''; el.textContent = 'Tech: '+currentUser.name+' (switch)'; }
+    if(currentUser && currentUser.role==='admin'){ el.style.display=''; el.textContent = 'Admin'; }
+    else if(currentUser){ el.style.display=''; el.textContent = 'Tech: '+currentUser.name; }
     else{ el.style.display='none'; }
+    if(logoutEl) logoutEl.style.display = currentUser ? '' : 'none';
   }
 
-  function renderLoginList(users, container, message){
+  function enterAdminMode(){
+    adminMode = true;
+    $('adminBtn').textContent = 'Admin: ON';
+    $('adminBtn').classList.add('admin-badge');
+  }
+  function exitAdminModeUI(){
+    adminMode = false;
+    $('adminBtn').textContent = 'Admin';
+    $('adminBtn').classList.remove('admin-badge');
+  }
+
+  function showRoleChooser(message){
+    const container = $('loginList');
     container.innerHTML = '';
+    if(message){
+      const m = document.createElement('div');
+      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
+      m.textContent = message;
+      container.appendChild(m);
+    }
+    const techBtn = document.createElement('button');
+    techBtn.type='button'; techBtn.className='login-user-btn';
+    techBtn.textContent = '👷 Technician';
+    techBtn.addEventListener('click', async ()=>{
+      container.innerHTML = '<div class="empty-state">Loading…</div>';
+      const users = await cloudListUsers();
+      renderTechnicianList(users || []);
+    });
+    const adminLoginBtn = document.createElement('button');
+    adminLoginBtn.type='button'; adminLoginBtn.className='login-user-btn';
+    adminLoginBtn.textContent = '🔑 Admin';
+    adminLoginBtn.addEventListener('click', ()=> renderAdminLoginForm());
+    container.appendChild(techBtn);
+    container.appendChild(adminLoginBtn);
+  }
+
+  function loginBackButton(){
+    const back = document.createElement('button');
+    back.type='button'; back.className='login-user-btn';
+    back.style.cssText = 'background:#EEF1ED; color:var(--text);';
+    back.textContent = '← Back';
+    back.addEventListener('click', ()=> showRoleChooser());
+    return back;
+  }
+
+  function renderAdminLoginForm(message){
+    const container = $('loginList');
+    container.innerHTML = '';
+    container.appendChild(loginBackButton());
+    if(message){
+      const m = document.createElement('div');
+      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
+      m.textContent = message;
+      container.appendChild(m);
+    }
+    const field = document.createElement('div');
+    field.className = 'field';
+    field.innerHTML = '<label>Admin Password</label>';
+    const input = document.createElement('input');
+    input.type = 'password'; input.inputMode = 'numeric'; input.id = 'loginAdminPw';
+    input.placeholder = 'Enter password';
+    field.appendChild(input);
+    container.appendChild(field);
+
+    const submit = document.createElement('button');
+    submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
+    submit.textContent = 'Sign In';
+    const doSubmit = ()=>{
+      const pw = input.value;
+      if(!pw){ toast('Enter the admin password'); return; }
+      if(pw !== adminPin){ renderAdminLoginForm('Incorrect password — try again.'); return; }
+      currentUser = {id:'admin', name:'Admin', role:'admin'};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      enterAdminMode();
+      updateUserBadge();
+      $('loginOverlay').classList.remove('open');
+      toast('Welcome, Admin');
+    };
+    submit.addEventListener('click', doSubmit);
+    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    container.appendChild(submit);
+    setTimeout(()=> input.focus(), 50);
+  }
+
+  function renderTechnicianList(users, message){
+    const container = $('loginList');
+    container.innerHTML = '';
+    container.appendChild(loginBackButton());
     if(message){
       const m = document.createElement('div');
       m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
@@ -860,68 +980,111 @@
       btn.type='button';
       btn.className='login-user-btn';
       btn.textContent = u.name;
-      btn.addEventListener('click', async ()=>{
-        const pin = prompt('Enter your PIN, '+u.name+':');
-        if(pin===null) return;
-        if(pin !== (u.pin||'')){ toast('Incorrect PIN'); return; }
-        currentUser = {id:u.id, name:u.name};
-        localStorage.setItem('current-user', JSON.stringify(currentUser));
-        updateUserBadge();
-        $('loginOverlay').classList.remove('open');
-        toast('Welcome, '+u.name);
-      });
+      btn.addEventListener('click', ()=> renderTechnicianPinForm(u));
       container.appendChild(btn);
     });
   }
 
-  async function showLoginScreen(users, message){
+  function renderTechnicianPinForm(u, message){
+    const container = $('loginList');
+    container.innerHTML = '';
+    const back = document.createElement('button');
+    back.type='button'; back.className='login-user-btn';
+    back.style.cssText = 'background:#EEF1ED; color:var(--text);';
+    back.textContent = '← Back';
+    back.addEventListener('click', async ()=>{
+      container.innerHTML = '<div class="empty-state">Loading…</div>';
+      const users = await cloudListUsers();
+      renderTechnicianList(users || []);
+    });
+    container.appendChild(back);
+    if(message){
+      const m = document.createElement('div');
+      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
+      m.textContent = message;
+      container.appendChild(m);
+    }
+    const field = document.createElement('div');
+    field.className = 'field';
+    field.innerHTML = '<label>PIN for '+u.name+'</label>';
+    const input = document.createElement('input');
+    input.type = 'password'; input.inputMode = 'numeric'; input.id = 'loginTechPin';
+    input.placeholder = 'Enter your PIN';
+    field.appendChild(input);
+    container.appendChild(field);
+
+    const submit = document.createElement('button');
+    submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
+    submit.textContent = 'Sign In';
+    const doSubmit = ()=>{
+      const pin = input.value;
+      if(!pin){ toast('Enter your PIN'); return; }
+      if(pin !== (u.pin||'')){ renderTechnicianPinForm(u, 'Incorrect PIN — try again.'); return; }
+      currentUser = {id:u.id, name:u.name, role:'tech'};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      $('loginOverlay').classList.remove('open');
+      toast('Welcome, '+u.name);
+    };
+    submit.addEventListener('click', doSubmit);
+    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    container.appendChild(submit);
+    setTimeout(()=> input.focus(), 50);
+  }
+
+  async function showLoginScreen(message){
     $('loginOverlay').classList.add('open');
-    renderLoginList(users || (await cloudListUsers()) || [], $('loginList'), message);
+    showRoleChooser(message);
   }
 
   async function checkLoginGate(){
-    if(!(await ensureCloud())) return; // no shared cloud yet — gating stays off
-    const users = await cloudListUsers();
-    if(!users || users.length===0) return; // admin hasn't created any technician accounts yet
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
+    if(saved && saved.role==='admin'){
+      currentUser = saved;
+      enterAdminMode();
+      updateUserBadge();
+      return;
+    }
     if(saved){
       const fresh = await cloudGetUser(saved.id);
       if(fresh && fresh.active!==false){
-        currentUser = {id:fresh.id, name:fresh.name};
+        currentUser = {id:fresh.id, name:fresh.name, role:'tech'};
         updateUserBadge();
         return;
       }
       localStorage.removeItem('current-user');
       currentUser = null;
       if(fresh && fresh.active===false){
-        await showLoginScreen(users, 'Your access was deactivated. Ask your admin, or sign in as someone else.');
+        await showLoginScreen('Your access was deactivated. Ask your admin, or sign in as someone else.');
         return;
       }
     }
-    await showLoginScreen(users);
+    await showLoginScreen();
   }
 
   // returns false (and re-shows login) if this technician was deactivated mid-session
   async function verifyStillActive(){
-    if(!currentUser) return true; // gating not in use on this device
+    if(!currentUser || currentUser.role==='admin') return true; // admin sessions aren't gated this way
     const fresh = await cloudGetUser(currentUser.id);
     if(fresh && fresh.active===false){
       localStorage.removeItem('current-user');
       currentUser = null;
       updateUserBadge();
-      await showLoginScreen(null, 'Your access was deactivated. Ask your admin, or sign in as someone else.');
+      await showLoginScreen('Your access was deactivated. Ask your admin, or sign in as someone else.');
       return false;
     }
     return true;
   }
 
-  $('metaUser').addEventListener('click', async ()=>{
+  async function doLogout(){
+    if(currentUser && currentUser.role==='admin') exitAdminModeUI();
     currentUser = null;
     localStorage.removeItem('current-user');
     updateUserBadge();
     await showLoginScreen();
-  });
+  }
+  $('logoutBtn').addEventListener('click', doLogout);
 
   $('cloudBtn').addEventListener('click', ()=>{
     const cfg = getCloudConfig();
@@ -1134,7 +1297,7 @@
 
   let fieldLists = {};
   let adminMode = false;
-  let adminPin = '1234';
+  let adminPin = '180902';
 
   async function loadFieldLists(){
     if(await ensureCloud()){
@@ -1379,12 +1542,10 @@
 
   $('adminBtn').addEventListener('click', ()=>{
     if(!adminMode){
-      const pin = prompt('Enter Admin PIN to manage dropdown lists:');
+      const pin = prompt('Enter Admin Password to manage dropdown lists:');
       if(pin===null) return;
-      if(pin !== adminPin){ toast('Incorrect PIN'); return; }
-      adminMode = true;
-      $('adminBtn').textContent = 'Admin: ON';
-      $('adminBtn').classList.add('admin-badge');
+      if(pin !== adminPin){ toast('Incorrect password'); return; }
+      enterAdminMode();
       toast('Admin mode on — dropdowns are now editable');
     }
     renderManageLists();
@@ -1397,16 +1558,22 @@
   async function renderUsersList(){
     const body = $('usersList');
     body.innerHTML = '<div class="empty-state">Loading…</div>';
-    if(!(await ensureCloud())){
-      body.innerHTML = '<div class="empty-state">Connect Cloud Setup first — technician accounts are stored in the shared cloud.</div>';
-      return;
-    }
+    const cloudOn = await ensureCloud();
     const users = (await cloudListUsers()) || [];
+    body.innerHTML = '';
+    if(!cloudOn){
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px; color:var(--amber); margin-bottom:10px;';
+      note.textContent = 'Not connected to Shared Cloud — technician accounts are saved on this device only.';
+      body.appendChild(note);
+    }
     if(users.length===0){
-      body.innerHTML = '<div class="empty-state">No technicians added yet.</div>';
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No technicians added yet.';
+      body.appendChild(empty);
       return;
     }
-    body.innerHTML = '';
     users.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
       const row = document.createElement('div');
       row.className = 'user-row' + (u.active===false ? ' inactive' : '');
@@ -1447,7 +1614,6 @@
     const name = $('newUserName').value.trim();
     const pin = $('newUserPin').value.trim();
     if(!name || !pin){ toast('Enter a name and PIN'); return; }
-    if(!(await ensureCloud())){ toast('Connect Cloud Setup first'); return; }
     const id = slugifyName(name);
     const existing = await cloudGetUser(id);
     if(existing){ toast('A technician with that name already exists'); return; }
@@ -1460,25 +1626,23 @@
   });
 
   $('exitAdminBtn').addEventListener('click', ()=>{
-    adminMode = false;
-    $('adminBtn').textContent = 'Admin';
-    $('adminBtn').classList.remove('admin-badge');
+    exitAdminModeUI();
     $('adminOverlay').classList.remove('open');
     toast('Admin mode off');
   });
   $('changePinBtn').addEventListener('click', async ()=>{
-    const cur = prompt('Enter current Admin PIN:');
+    const cur = prompt('Enter current Admin Password:');
     if(cur===null) return;
-    if(cur !== adminPin){ toast('Incorrect PIN'); return; }
-    const next = prompt('Enter new Admin PIN:');
+    if(cur !== adminPin){ toast('Incorrect password'); return; }
+    const next = prompt('Enter new Admin Password:');
     if(!next) return;
     adminPin = next;
     if(await ensureCloud()){
       const ok = await cloudSetDoc('settings/adminPin', {pin: adminPin});
-      if(ok){ toast('PIN updated for all devices'); return; }
+      if(ok){ toast('Password updated for all devices'); return; }
     }
-    try{ await window.storage.set('settings:adminPin', JSON.stringify({pin:adminPin}), false); toast('PIN updated on this device'); }
-    catch(e){ toast('Could not save PIN'); }
+    try{ await window.storage.set('settings:adminPin', JSON.stringify({pin:adminPin}), false); toast('Password updated on this device'); }
+    catch(e){ toast('Could not save password'); }
   });
 
   // ---------- EmailJS settings ----------
@@ -1904,22 +2068,58 @@
     return 'downloaded';
   }
 
-  let previewObjectUrl = null;
+  // Mobile browsers (iOS Safari, Android Chrome, and installed PWAs) don't have
+  // a built-in PDF viewer for <iframe src="blob:...">, unlike desktop browsers —
+  // the frame just renders blank. So instead we render each PDF page to a
+  // <canvas> ourselves using pdf.js, which works consistently everywhere.
+  if(window.pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  let previewRenderToken = 0;
   function closePreview(){
     $('previewOverlay').classList.remove('open');
-    if(previewObjectUrl){ URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
-    $('previewFrame').src = 'about:blank';
+    previewRenderToken++; // invalidate any in-flight render
+    const frame = $('previewFrame');
+    frame.innerHTML = '<div id="previewLoading" class="empty-state" style="display:none;">Rendering preview…</div>';
+  }
+  async function renderPdfPreview(doc){
+    const myToken = ++previewRenderToken;
+    const frame = $('previewFrame');
+    frame.innerHTML = '';
+    const loading = document.createElement('div');
+    loading.className = 'empty-state';
+    loading.textContent = 'Rendering preview…';
+    frame.appendChild(loading);
+
+    const arrayBuffer = doc.output('arraybuffer');
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    if(myToken !== previewRenderToken) return; // overlay was closed / superseded
+    frame.innerHTML = '';
+
+    for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+      if(myToken !== previewRenderToken) return;
+      const page = await pdf.getPage(pageNum);
+      const scale = Math.min(2, (frame.clientWidth || 700) / page.getViewport({ scale: 1 }).width);
+      const viewport = page.getViewport({ scale: Math.max(scale, 1) });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.cssText = 'max-width:100%; height:auto; display:block; margin:0 auto 12px; box-shadow:0 1px 4px rgba(0,0,0,.2); background:#fff;';
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      if(myToken !== previewRenderToken) return;
+      frame.appendChild(canvas);
+    }
   }
   $('previewBtn').addEventListener('click', async ()=>{
     if(!validate()){ toast('Please fill required fields before previewing'); return; }
+    if(!window.pdfjsLib){ toast('Preview library failed to load — check your connection'); return; }
     $('previewBtn').disabled = true; $('previewBtn').textContent = 'Building preview…';
     try{
       const data = await gatherDataForOutput();
       const doc = await buildPdf(data);
-      const blob = doc.output('blob');
-      previewObjectUrl = URL.createObjectURL(blob);
-      $('previewFrame').src = previewObjectUrl;
       $('previewOverlay').classList.add('open');
+      await renderPdfPreview(doc);
     }catch(e){
       console.error(e);
       toast('Could not build preview');
