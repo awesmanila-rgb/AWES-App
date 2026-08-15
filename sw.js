@@ -1,4 +1,4 @@
-const CACHE_NAME = 'awes-sr-v1';
+const CACHE_NAME = 'awes-sr-v2';
 const APP_SHELL = [
   './service_report_app.html',
   './manifest.json',
@@ -12,6 +12,10 @@ const APP_SHELL = [
   'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js'
 ];
+
+function isAppShellDoc(url){
+  return url.endsWith('service_report_app.html') || url.endsWith('manifest.json') || url.endsWith('/');
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -31,6 +35,23 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = event.request.url;
+
+  if (event.request.mode === 'navigate' || isAppShellDoc(url)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request)
