@@ -94,6 +94,25 @@
   }
   .icon-btn:active{background:rgba(255,255,255,.25);}
 
+  .menu-wrap{position:relative;}
+  .menu-dropdown{
+    position:absolute; top:calc(100% + 6px); right:0;
+    background:#fff; border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.22);
+    min-width:230px; overflow:hidden; z-index:70;
+    display:none;
+  }
+  .menu-dropdown.open{display:block;}
+  .menu-dropdown button{
+    display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+    padding:12px 14px; background:none; border:none; border-bottom:1px solid var(--border);
+    font-size:13px; font-weight:600; color:var(--text); cursor:pointer;
+  }
+  .menu-dropdown button:last-child{border-bottom:none;}
+  .menu-dropdown button:active{background:var(--green-light);}
+  .menu-dropdown button.menu-danger{color:var(--danger);}
+  .menu-dropdown .menu-ico{width:18px; text-align:center; flex-shrink:0;}
+
   .meta-bar{
     background:var(--surface); border-bottom:1px solid var(--border);
     padding:10px 16px; display:flex; gap:16px; flex-wrap:wrap; align-items:center;
@@ -370,11 +389,21 @@
   </div>
   <div class="top-actions">
     <button class="icon-btn" id="cloudBtn">☁ Not Connected</button>
-    <button class="icon-btn" id="adminBtn">Admin</button>
-    <button class="icon-btn" id="settingsBtn">Email Setup</button>
-    <button class="icon-btn" id="historyBtn">History</button>
     <button class="icon-btn" id="newBtn">New</button>
-    <button class="icon-btn" id="logoutBtn" style="display:none; background:#5C2A20; border-color:rgba(255,255,255,.4);">Logout</button>
+    <div class="menu-wrap">
+      <button class="icon-btn" id="menuBtn">☰ Menu</button>
+      <div class="menu-dropdown" id="menuDropdown">
+        <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
+        <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
+        <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
+        <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
+        <button type="button" id="menuEmailSetup"><span class="menu-ico">✉️</span>Email Setup</button>
+        <button type="button" id="menuLogout" class="menu-danger"><span class="menu-ico">🚪</span>Logout</button>
+      </div>
+    </div>
+    <!-- Legacy controls kept off-screen: existing app logic is wired to these ids -->
+    <button class="icon-btn" id="adminBtn" style="display:none;">Admin</button>
+    <button class="icon-btn" id="settingsBtn" style="display:none;">Email Setup</button>
   </div>
 </header>
 
@@ -904,12 +933,12 @@
 
   function updateUserBadge(){
     const el = $('metaUser');
-    const logoutEl = $('logoutBtn');
     if(!el) return;
     if(currentUser && currentUser.role==='admin'){ el.style.display=''; el.textContent = 'Admin'; }
     else if(currentUser){ el.style.display=''; el.textContent = 'Tech: '+currentUser.name; }
     else{ el.style.display='none'; }
-    if(logoutEl) logoutEl.style.display = currentUser ? '' : 'none';
+    const menuLogoutEl = $('menuLogout');
+    if(menuLogoutEl) menuLogoutEl.style.display = currentUser ? '' : 'none';
   }
 
   // Applies per-user access restrictions set by the admin. Admins bypass all restrictions.
@@ -923,7 +952,7 @@
       el.style.pointerEvents = dis ? 'none' : '';
     };
     // History access
-    setVis('historyBtn', !r.noHistory);
+    setVis('menuManageReports', !r.noHistory);
     // Report generation / preview
     setVis('previewBtn', !r.noReport);
     setVis('genPdfBtn', !r.noReport);
@@ -945,11 +974,15 @@
     adminMode = true;
     $('adminBtn').textContent = 'Admin: ON';
     $('adminBtn').classList.add('admin-badge');
+    const menuBtnEl = $('menuBtn');
+    if(menuBtnEl){ menuBtnEl.textContent = '☰ Menu • Admin ON'; menuBtnEl.classList.add('admin-badge'); }
   }
   function exitAdminModeUI(){
     adminMode = false;
     $('adminBtn').textContent = 'Admin';
     $('adminBtn').classList.remove('admin-badge');
+    const menuBtnEl = $('menuBtn');
+    if(menuBtnEl){ menuBtnEl.textContent = '☰ Menu'; menuBtnEl.classList.remove('admin-badge'); }
   }
 
   function showRoleChooser(message){
@@ -1163,7 +1196,6 @@
     updateUserBadge();
     await showLoginScreen();
   }
-  $('logoutBtn').addEventListener('click', doLogout);
 
   $('cloudBtn').addEventListener('click', ()=>{
     const cfg = getCloudConfig();
@@ -2415,9 +2447,60 @@
     $('historyOverlay').classList.remove('open');
     window.scrollTo({top:0, behavior:'smooth'});
   }
-  $('historyBtn').addEventListener('click', ()=>{ $('historyOverlay').classList.add('open'); loadHistory(); });
   $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));
   $('historyOverlay').addEventListener('click', (e)=>{ if(e.target.id==='historyOverlay') $('historyOverlay').classList.remove('open'); });
+
+  // ---------- Main Menu (consolidates Admin / History / Email Setup / Logout) ----------
+  function closeMainMenu(){ $('menuDropdown').classList.remove('open'); }
+  function openMainMenu(){ $('menuDropdown').classList.add('open'); }
+  function ensureAdminAuthenticated(){
+    if(adminMode) return true;
+    const pin = prompt('Enter Admin Password:');
+    if(pin===null) return false;
+    if(pin !== adminPin){ toast('Incorrect password'); return false; }
+    enterAdminMode();
+    toast('Admin mode on');
+    return true;
+  }
+
+  $('menuBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    $('menuDropdown').classList.toggle('open');
+  });
+  document.addEventListener('click', (e)=>{
+    if(!$('menuDropdown').classList.contains('open')) return;
+    if(!$('menuDropdown').contains(e.target) && e.target.id!=='menuBtn') closeMainMenu();
+  });
+
+  $('menuManageUsers').addEventListener('click', ()=>{
+    closeMainMenu();
+    if(!ensureAdminAuthenticated()) return;
+    $('usersOverlay').classList.add('open');
+    renderUsersList();
+  });
+  $('menuManageDropdowns').addEventListener('click', ()=>{
+    closeMainMenu();
+    if(!ensureAdminAuthenticated()) return;
+    renderManageLists();
+    $('adminOverlay').classList.add('open');
+  });
+  $('menuChangePin').addEventListener('click', ()=>{
+    closeMainMenu();
+    $('changePinBtn').click();
+  });
+  $('menuManageReports').addEventListener('click', ()=>{
+    closeMainMenu();
+    $('historyOverlay').classList.add('open');
+    loadHistory();
+  });
+  $('menuEmailSetup').addEventListener('click', ()=>{
+    closeMainMenu();
+    $('settingsBtn').click();
+  });
+  $('menuLogout').addEventListener('click', ()=>{
+    closeMainMenu();
+    doLogout();
+  });
 
 })();
 </script>
