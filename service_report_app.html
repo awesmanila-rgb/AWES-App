@@ -319,6 +319,43 @@
     border:1px solid var(--border); background:#fff; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;
   }
   .user-row.inactive{opacity:.55;}
+  .user-card{
+    border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px; background:#fff;
+  }
+  .user-card.inactive{opacity:.65; background:#F7F7F5;}
+  .user-card-head{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .user-card-head .u-name{font-size:14px; font-weight:700;}
+  .user-card-head .u-status{font-size:11px; color:var(--text-muted);}
+  .user-card-head .u-status.deact{color:var(--danger);}
+  .user-card-actions{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
+  .user-card-actions button{
+    border:1px solid var(--border); background:#fff; border-radius:6px;
+    padding:6px 10px; font-size:12px; cursor:pointer; font-weight:600;
+  }
+  .user-card-actions button.danger{color:var(--danger); border-color:#F1C4BC;}
+  .user-card-actions button.primary{background:var(--green-dark); color:#fff; border-color:var(--green-dark);}
+  .user-edit-panel{
+    display:none; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border);
+  }
+  .user-edit-panel.open{display:block;}
+  .user-edit-panel .field{margin-bottom:10px;}
+  .user-edit-panel .field label{display:block; font-size:12px; font-weight:700; margin-bottom:4px;}
+  .user-edit-panel .field input{
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:7px; font-size:14px;
+  }
+  .restrict-group{margin:8px 0 4px;}
+  .restrict-group h5{margin:0 0 6px; font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;}
+  .restrict-row{
+    display:flex; align-items:flex-start; gap:8px; padding:6px 0; font-size:13px;
+  }
+  .restrict-row input[type="checkbox"]{margin-top:3px;}
+  .restrict-row .rtxt{flex:1;}
+  .restrict-row .rtxt .rt-title{font-weight:600;}
+  .restrict-row .rtxt .rt-desc{font-size:11px; color:var(--text-muted);}
+  .edit-save-row{display:flex; gap:8px; margin-top:8px;}
+  .edit-save-row button{flex:1; padding:10px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer;}
+  .edit-save-row .save-btn{background:var(--green-dark); color:#fff; border:1px solid var(--green-dark);}
+  .edit-save-row .cancel-btn{background:#fff; color:var(--text); border:1px solid var(--border);}
 </style>
 </head>
 <body>
@@ -608,22 +645,24 @@
 </div>
 
 <!-- Manage Users sheet (admin only) -->
-<div class="overlay" id="usersOverlay">
+<div class="overlay" id="usersOverlay" style="z-index:55;">
   <div class="sheet">
     <div class="sheet-head">
-      <h3>Manage Technicians</h3>
+      <h3>Manage Users</h3>
       <button class="sheet-close" id="closeUsers">&times;</button>
     </div>
     <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      Deactivate a technician the moment they resign or are terminated — their access is cut off next time
-      the app checks in, without needing to touch their phone.
+      Add users, edit their details, and restrict what they can do. Admin assigns every user's
+      password. Deactivate someone the moment they resign or are terminated — their access is
+      cut off next time the app checks in, without needing to touch their phone.
     </p>
     <div id="usersList"></div>
     <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
-      <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Add a technician</div>
-      <div class="field"><label>Name</label><input type="text" id="newUserName" placeholder="e.g. Juan Dela Cruz"></div>
-      <div class="field"><label>PIN (4 digits, technician will use this to sign in)</label><input type="text" id="newUserPin" inputmode="numeric" placeholder="e.g. 2468"></div>
-      <button class="btn btn-primary" id="addUserBtn" type="button" style="width:100%;">Add Technician</button>
+      <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Add a user</div>
+      <div class="field"><label>Full Name</label><input type="text" id="newUserName" placeholder="e.g. Juan Dela Cruz"></div>
+      <div class="field"><label>Password (admin-assigned, minimum 4 characters)</label><input type="password" id="newUserPin" placeholder="Set a password for this user"></div>
+      <div class="field"><label>Confirm Password</label><input type="password" id="newUserPin2" placeholder="Re-enter the password"></div>
+      <button class="btn btn-primary" id="addUserBtn" type="button" style="width:100%;">Add User</button>
     </div>
   </div>
 </div>
@@ -668,7 +707,7 @@
       these lists just speed up repeat entries.
     </p>
     <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button class="icon-btn" style="background:var(--green-light); color:var(--green-dark); border-color:var(--border);" id="openUsersBtn">Manage Technicians</button>
+      <button class="icon-btn" style="background:var(--green-light); color:var(--green-dark); border-color:var(--border);" id="openUsersBtn">Manage Users</button>
       <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border);" id="changePinBtn">Change Admin Password</button>
       <button class="icon-btn" style="background:#FBEAE5; color:var(--danger); border-color:var(--border);" id="exitAdminBtn">Exit Admin Mode</button>
     </div>
@@ -873,6 +912,35 @@
     if(logoutEl) logoutEl.style.display = currentUser ? '' : 'none';
   }
 
+  // Applies per-user access restrictions set by the admin. Admins bypass all restrictions.
+  function applyUserRestrictions(){
+    const r = (currentUser && currentUser.role!=='admin' && currentUser.restrictions) || {};
+    const setVis = (id, show)=>{ const el = $(id); if(el) el.style.display = show ? '' : 'none'; };
+    const setDisabled = (id, dis)=>{
+      const el = $(id); if(!el) return;
+      el.disabled = !!dis;
+      el.style.opacity = dis ? '0.45' : '';
+      el.style.pointerEvents = dis ? 'none' : '';
+    };
+    // History access
+    setVis('historyBtn', !r.noHistory);
+    // Report generation / preview
+    setVis('previewBtn', !r.noReport);
+    setVis('genPdfBtn', !r.noReport);
+    // Read-only: cannot save drafts and cannot generate reports
+    if(r.readOnly){
+      setDisabled('saveDraftBtn', true);
+      setDisabled('genPdfBtn', true);
+      setDisabled('previewBtn', true);
+      setDisabled('newBtn', true);
+    }else{
+      setDisabled('saveDraftBtn', false);
+      setDisabled('genPdfBtn', false);
+      setDisabled('previewBtn', false);
+      setDisabled('newBtn', false);
+    }
+  }
+
   function enterAdminMode(){
     adminMode = true;
     $('adminBtn').textContent = 'Admin: ON';
@@ -948,6 +1016,7 @@
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       enterAdminMode();
       updateUserBadge();
+      applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       toast('Welcome, Admin');
     };
@@ -1006,10 +1075,10 @@
     }
     const field = document.createElement('div');
     field.className = 'field';
-    field.innerHTML = '<label>PIN for '+u.name+'</label>';
+    field.innerHTML = '<label>Password for '+u.name+'</label>';
     const input = document.createElement('input');
-    input.type = 'password'; input.inputMode = 'numeric'; input.id = 'loginTechPin';
-    input.placeholder = 'Enter your PIN';
+    input.type = 'password'; input.id = 'loginTechPin';
+    input.placeholder = 'Enter your password';
     field.appendChild(input);
     container.appendChild(field);
 
@@ -1018,11 +1087,12 @@
     submit.textContent = 'Sign In';
     const doSubmit = ()=>{
       const pin = input.value;
-      if(!pin){ toast('Enter your PIN'); return; }
-      if(pin !== (u.pin||'')){ renderTechnicianPinForm(u, 'Incorrect PIN — try again.'); return; }
-      currentUser = {id:u.id, name:u.name, role:'tech'};
+      if(!pin){ toast('Enter your password'); return; }
+      if(pin !== (u.pin||'')){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
+      currentUser = {id:u.id, name:u.name, role:'tech', restrictions: u.restrictions||{}};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
+      applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       toast('Welcome, '+u.name);
     };
@@ -1044,13 +1114,15 @@
       currentUser = saved;
       enterAdminMode();
       updateUserBadge();
+      applyUserRestrictions();
       return;
     }
     if(saved){
       const fresh = await cloudGetUser(saved.id);
       if(fresh && fresh.active!==false){
-        currentUser = {id:fresh.id, name:fresh.name, role:'tech'};
+        currentUser = {id:fresh.id, name:fresh.name, role:'tech', restrictions: fresh.restrictions||{}};
         updateUserBadge();
+        applyUserRestrictions();
         return;
       }
       localStorage.removeItem('current-user');
@@ -1071,8 +1143,15 @@
       localStorage.removeItem('current-user');
       currentUser = null;
       updateUserBadge();
+      applyUserRestrictions();
       await showLoginScreen('Your access was deactivated. Ask your admin, or sign in as someone else.');
       return false;
+    }
+    if(fresh){
+      // refresh restrictions in case admin changed them mid-session
+      currentUser.restrictions = fresh.restrictions || {};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      applyUserRestrictions();
     }
     return true;
   }
@@ -1554,7 +1633,20 @@
   $('closeAdmin').addEventListener('click', ()=> $('adminOverlay').classList.remove('open'));
   $('adminOverlay').addEventListener('click', (e)=>{ if(e.target.id==='adminOverlay') $('adminOverlay').classList.remove('open'); });
 
-  // ---------- Manage Technicians ----------
+  // ---------- Manage Users ----------
+  function restrictionLabel(r){
+    r = r || {};
+    const flags = [];
+    if(r.noHistory) flags.push('No history');
+    if(r.noReport) flags.push('No report generation');
+    if(r.readOnly) flags.push('Read-only');
+    return flags.length ? flags.join(' · ') : 'No restrictions';
+  }
+
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   async function renderUsersList(){
     const body = $('usersList');
     body.innerHTML = '<div class="empty-state">Loading…</div>';
@@ -1564,44 +1656,104 @@
     if(!cloudOn){
       const note = document.createElement('div');
       note.style.cssText = 'font-size:12px; color:var(--amber); margin-bottom:10px;';
-      note.textContent = 'Not connected to Shared Cloud — technician accounts are saved on this device only.';
+      note.textContent = 'Not connected to Shared Cloud — user accounts are saved on this device only.';
       body.appendChild(note);
     }
     if(users.length===0){
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.textContent = 'No technicians added yet.';
+      empty.textContent = 'No users added yet.';
       body.appendChild(empty);
       return;
     }
     users.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
-      const row = document.createElement('div');
-      row.className = 'user-row' + (u.active===false ? ' inactive' : '');
-      row.innerHTML =
-        '<div><div class="u-name">'+u.name+'</div><div class="u-status">'+(u.active===false ? 'Deactivated' : 'Active')+'</div></div>'+
-        '<div class="u-actions">'+
-          '<button data-act="toggle">'+(u.active===false ? 'Reactivate' : 'Deactivate')+'</button>'+
-          '<button data-act="pin">Reset PIN</button>'+
-          '<button data-act="remove" style="color:var(--danger);">Remove</button>'+
+      const r = u.restrictions || {};
+      const active = u.active!==false;
+      const card = document.createElement('div');
+      card.className = 'user-card' + (active ? '' : ' inactive');
+      card.innerHTML =
+        '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(u.name)+'</div>'+
+            '<div class="u-status '+(active?'':'deact')+'">'+
+              (active ? 'Active' : 'Deactivated')+' · '+escapeHtml(restrictionLabel(r))+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="edit" class="primary">Edit</button>'+
+          '<button data-act="toggle">'+(active ? 'Restrict (Deactivate)' : 'Reactivate')+'</button>'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>'+
+        '<div class="user-edit-panel" data-panel="1">'+
+          '<div class="field"><label>Full Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
+          '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
+          '<div class="restrict-group">'+
+            '<h5>Restrictions</h5>'+
+            '<label class="restrict-row"><input type="checkbox" data-f="noHistory" '+(r.noHistory?'checked':'')+'>'+
+              '<span class="rtxt"><span class="rt-title">Block History access</span><span class="rt-desc">User cannot open the History sheet or view past reports.</span></span></label>'+
+            '<label class="restrict-row"><input type="checkbox" data-f="noReport" '+(r.noReport?'checked':'')+'>'+
+              '<span class="rtxt"><span class="rt-title">Block report generation</span><span class="rt-desc">User cannot preview, generate, or share PDF reports.</span></span></label>'+
+            '<label class="restrict-row"><input type="checkbox" data-f="readOnly" '+(r.readOnly?'checked':'')+'>'+
+              '<span class="rtxt"><span class="rt-title">Read-only</span><span class="rt-desc">User cannot save drafts, start new reports, or generate reports.</span></span></label>'+
+          '</div>'+
+          '<div class="edit-save-row">'+
+            '<button class="cancel-btn" data-act="cancel" type="button">Cancel</button>'+
+            '<button class="save-btn" data-act="save" type="button">Save Changes</button>'+
+          '</div>'+
         '</div>';
-      row.querySelector('[data-act="toggle"]').addEventListener('click', async ()=>{
-        const ok = await cloudSetUser(u.id, {active: u.active===false ? true : false});
-        if(ok){ toast(u.active===false ? 'Reactivated '+u.name : 'Deactivated '+u.name); renderUsersList(); }
+
+      const panel = card.querySelector('[data-panel="1"]');
+      card.querySelector('[data-act="edit"]').addEventListener('click', ()=>{
+        // close any other open panels
+        body.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+        panel.classList.toggle('open');
+      });
+      card.querySelector('[data-act="cancel"]').addEventListener('click', ()=>{
+        panel.classList.remove('open');
+        // reset fields
+        panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="pw1"]').value = '';
+        panel.querySelector('[data-f="pw2"]').value = '';
+        panel.querySelector('[data-f="noHistory"]').checked = !!r.noHistory;
+        panel.querySelector('[data-f="noReport"]').checked = !!r.noReport;
+        panel.querySelector('[data-f="readOnly"]').checked = !!r.readOnly;
+      });
+      card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
+        const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const pw1 = panel.querySelector('[data-f="pw1"]').value;
+        const pw2 = panel.querySelector('[data-f="pw2"]').value;
+        if(!newName){ toast('Name cannot be empty'); return; }
+        if(pw1 || pw2){
+          if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
+          if(pw1 !== pw2){ toast('Passwords do not match'); return; }
+        }
+        const restrictions = {
+          noHistory: panel.querySelector('[data-f="noHistory"]').checked,
+          noReport: panel.querySelector('[data-f="noReport"]').checked,
+          readOnly: panel.querySelector('[data-f="readOnly"]').checked
+        };
+        const update = { name: newName, restrictions };
+        if(pw1) update.pin = pw1;
+        const ok = await cloudSetUser(u.id, update);
+        if(ok){
+          toast('Saved changes for '+newName);
+          renderUsersList();
+        }else toast('Could not save changes');
+      });
+      card.querySelector('[data-act="toggle"]').addEventListener('click', async ()=>{
+        const ok = await cloudSetUser(u.id, {active: active ? false : true});
+        if(ok){ toast(active ? 'Restricted '+u.name+' (access revoked)' : 'Reactivated '+u.name); renderUsersList(); }
         else toast('Could not update');
       });
-      row.querySelector('[data-act="pin"]').addEventListener('click', async ()=>{
-        const next = prompt('New PIN for '+u.name+':');
-        if(!next) return;
-        const ok = await cloudSetUser(u.id, {pin: next});
-        if(ok) toast('PIN reset for '+u.name); else toast('Could not update');
-      });
-      row.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
         if(!confirm('Remove '+u.name+' completely? Their past reports stay saved, but they will no longer appear anywhere.')) return;
         const ok = await cloudDeleteUser(u.id);
         if(ok){ toast('Removed '+u.name); renderUsersList(); }
         else toast('Could not remove');
       });
-      body.appendChild(row);
+      body.appendChild(card);
     });
   }
   $('openUsersBtn').addEventListener('click', ()=>{
@@ -1612,17 +1764,20 @@
   $('usersOverlay').addEventListener('click', (e)=>{ if(e.target.id==='usersOverlay') $('usersOverlay').classList.remove('open'); });
   $('addUserBtn').addEventListener('click', async ()=>{
     const name = $('newUserName').value.trim();
-    const pin = $('newUserPin').value.trim();
-    if(!name || !pin){ toast('Enter a name and PIN'); return; }
+    const pin = $('newUserPin').value;
+    const pin2 = $('newUserPin2').value;
+    if(!name){ toast('Enter a name'); return; }
+    if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
+    if(pin !== pin2){ toast('Passwords do not match'); return; }
     const id = slugifyName(name);
     const existing = await cloudGetUser(id);
-    if(existing){ toast('A technician with that name already exists'); return; }
-    const ok = await cloudSetUser(id, {name, pin, active:true, createdAt: Date.now()});
+    if(existing){ toast('A user with that name already exists'); return; }
+    const ok = await cloudSetUser(id, {name, pin, active:true, restrictions:{}, createdAt: Date.now()});
     if(ok){
-      $('newUserName').value=''; $('newUserPin').value='';
+      $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value='';
       toast('Added '+name);
       renderUsersList();
-    }else toast('Could not add technician');
+    }else toast('Could not add user');
   });
 
   $('exitAdminBtn').addEventListener('click', ()=>{
@@ -2266,5 +2421,6 @@
 
 })();
 </script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"7f7b0fd8732c4326aae4b9d58d5c514a"}' crossorigin="anonymous"></script>
 </body>
 </html>
