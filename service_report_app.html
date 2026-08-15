@@ -538,6 +538,8 @@
         <textarea id="remarks"></textarea>
       </div>
 
+      <button type="button" class="btn btn-secondary" id="previewBtn" style="width:100%; margin-bottom:16px;">👁 Preview Report Before Signing</button>
+
       <div class="grid2">
         <div class="field">
           <label>Customer Signature</label>
@@ -575,6 +577,20 @@
 <div class="footer-bar">
   <button class="btn btn-secondary" id="saveDraftBtn">Save Draft</button>
   <button class="btn btn-primary" id="genPdfBtn">Generate &amp; Share Report</button>
+</div>
+
+<!-- Report Preview -->
+<div class="overlay" id="previewOverlay" style="align-items:stretch;">
+  <div class="sheet" style="max-height:96vh; height:96vh; display:flex; flex-direction:column; border-radius:0;">
+    <div class="sheet-head">
+      <h3>Report Preview</h3>
+      <button class="sheet-close" id="closePreview">&times;</button>
+    </div>
+    <iframe id="previewFrame" style="flex:1; width:100%; border:1px solid var(--border); border-radius:8px; background:#fff;"></iframe>
+    <div style="padding-top:12px;">
+      <button class="btn btn-primary" id="previewOkBtn" style="width:100%;" type="button">Looks Good — Continue to Signatures</button>
+    </div>
+  </div>
 </div>
 
 <!-- Login gate (blocking) -->
@@ -1887,6 +1903,32 @@
     doc.save(filename);
     return 'downloaded';
   }
+
+  let previewObjectUrl = null;
+  function closePreview(){
+    $('previewOverlay').classList.remove('open');
+    if(previewObjectUrl){ URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+    $('previewFrame').src = 'about:blank';
+  }
+  $('previewBtn').addEventListener('click', async ()=>{
+    if(!validate()){ toast('Please fill required fields before previewing'); return; }
+    $('previewBtn').disabled = true; $('previewBtn').textContent = 'Building preview…';
+    try{
+      const data = await gatherDataForOutput();
+      const doc = await buildPdf(data);
+      const blob = doc.output('blob');
+      previewObjectUrl = URL.createObjectURL(blob);
+      $('previewFrame').src = previewObjectUrl;
+      $('previewOverlay').classList.add('open');
+    }catch(e){
+      console.error(e);
+      toast('Could not build preview');
+    }finally{
+      $('previewBtn').disabled = false; $('previewBtn').textContent = '👁 Preview Report Before Signing';
+    }
+  });
+  $('closePreview').addEventListener('click', closePreview);
+  $('previewOkBtn').addEventListener('click', closePreview);
 
   $('genPdfBtn').addEventListener('click', async ()=>{
     if(!validate()){ toast('Please fill required fields'); return; }
