@@ -664,7 +664,7 @@
 </div>
 
 <!-- Login gate (blocking) -->
-<div class="overlay" id="loginOverlay" style="align-items:center; z-index:80;">
+<div class="overlay" id="loginOverlay" style="align-items:center; z-index:80; background:var(--bg);">
   <div class="sheet" style="border-radius:16px; max-height:70vh;">
     <div class="sheet-head" style="justify-content:center;">
       <h3>Sign In</h3>
@@ -735,11 +735,6 @@
       Add the values you want technicians to be able to pick from. They can still type a custom value in any box —
       these lists just speed up repeat entries.
     </p>
-    <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button class="icon-btn" style="background:var(--green-light); color:var(--green-dark); border-color:var(--border);" id="openUsersBtn">Manage Users</button>
-      <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border);" id="changePinBtn">Change Admin Password</button>
-      <button class="icon-btn" style="background:#FBEAE5; color:var(--danger); border-color:var(--border);" id="exitAdminBtn">Exit Admin Mode</button>
-    </div>
     <div id="adminListsBody"></div>
   </div>
 </div>
@@ -1788,10 +1783,6 @@
       body.appendChild(card);
     });
   }
-  $('openUsersBtn').addEventListener('click', ()=>{
-    $('usersOverlay').classList.add('open');
-    renderUsersList();
-  });
   $('closeUsers').addEventListener('click', ()=> $('usersOverlay').classList.remove('open'));
   $('usersOverlay').addEventListener('click', (e)=>{ if(e.target.id==='usersOverlay') $('usersOverlay').classList.remove('open'); });
   $('addUserBtn').addEventListener('click', async ()=>{
@@ -1812,12 +1803,7 @@
     }else toast('Could not add user');
   });
 
-  $('exitAdminBtn').addEventListener('click', ()=>{
-    exitAdminModeUI();
-    $('adminOverlay').classList.remove('open');
-    toast('Admin mode off');
-  });
-  $('changePinBtn').addEventListener('click', async ()=>{
+  async function doChangeAdminPin(){
     const cur = prompt('Enter current Admin Password:');
     if(cur===null) return;
     if(cur !== adminPin){ toast('Incorrect password'); return; }
@@ -1830,7 +1816,7 @@
     }
     try{ await window.storage.set('settings:adminPin', JSON.stringify({pin:adminPin}), false); toast('Password updated on this device'); }
     catch(e){ toast('Could not save password'); }
-  });
+  }
 
   // ---------- EmailJS settings ----------
   let emailCfg = {publicKey:'', serviceId:'', templateId:'', officeEmail:''};
@@ -2486,7 +2472,7 @@
   });
   $('menuChangePin').addEventListener('click', ()=>{
     closeMainMenu();
-    $('changePinBtn').click();
+    doChangeAdminPin();
   });
   $('menuManageReports').addEventListener('click', ()=>{
     closeMainMenu();
