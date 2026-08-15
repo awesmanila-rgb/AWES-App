@@ -1,6 +1,6 @@
 {
-  "name": "AWES Service Report",
-  "short_name": "AWES SR",
+  "name": "Awes Service Report",
+  "short_name": "Awes",
   "description": "Digital field service report for AWES technicians",
   "start_url": "./service_report_app.html",
   "scope": "./",
