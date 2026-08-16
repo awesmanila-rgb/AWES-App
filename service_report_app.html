@@ -151,6 +151,7 @@
   .status-draft{background:#FBF0DC; color:var(--amber);}
   .status-done{background:var(--green-light); color:var(--green-dark);}
   .status-rejected{background:#F7E2DC; color:var(--danger);}
+  .status-given{background:#DCEEFB; color:#1D5A8C;}
 
   main{max-width:900px; margin:0 auto; padding:16px;}
 
@@ -758,6 +759,7 @@
         <div class="leave-filter-row" id="caAdminFilterRow">
           <button type="button" data-filter="pending" class="active">Pending</button>
           <button type="button" data-filter="approved">Approved</button>
+          <button type="button" data-filter="given">Given</button>
           <button type="button" data-filter="disapproved">Disapproved</button>
           <button type="button" data-filter="all">All</button>
         </div>
@@ -823,6 +825,8 @@
         <div class="field"><label>Cooling Capacity (HP, TR, Btu/hr)</label><input type="text" id="coolCap"></div>
         <div class="field"><label>Mounting Type</label><input type="text" id="mountType"></div>
         <div class="field"><label>Manufacturer / Brand</label><input type="text" id="brand"></div>
+        <div class="field"><label>Refrigerant Type</label><input type="text" id="refrigerantType" placeholder="e.g. R410A"></div>
+        <div class="field"><label>Compressor Type</label><input type="text" id="compressorType" placeholder="e.g. Inverter"></div>
         <div class="field"><label>Specific Location of Equipment</label><input type="text" id="equipLocation"></div>
       </div>
     </div>
@@ -939,6 +943,7 @@
           <div class="field"><label>Pipe Insulation — Drain (in)</label><input type="text" id="pi_drain"></div>
           <div class="field"><label>Riser Pipes Height (m)</label><input type="text" id="riser_height"></div>
           <div class="field"><label>P-Trap</label><input type="text" id="ptrap"></div>
+          <div class="field"><label>Accu Bracket Type</label><input type="text" id="bracketType" placeholder="e.g. L-Type Bracket"></div>
         </div>
       </div>
     </div>
@@ -986,8 +991,8 @@
             <div class="sig-tools"><button type="button" data-clear="sigTech">Clear</button></div>
           </div>
           <div style="margin-top:8px;">
-
             <input type="text" id="techName" placeholder="Technician name">
+            <div class="leave-note" style="margin-top:4px;">Auto-filled from your logged-in account — edit if a different technician performed the work.</div>
           </div>
         </div>
       </div>
@@ -1310,6 +1315,7 @@
     setVis('menuWrap', !isTech);
     setVis('userEmailSetupBtn', isTech);
     setVis('userLogoutBtn', isTech);
+    applyTechNameDefault();
     // History access
     setVis('menuManageReports', !r.noHistory);
     // Report generation / preview
@@ -1727,6 +1733,8 @@
     coolCap:{label:'Cooling Capacity', group:'Equipment'},
     mountType:{label:'Mounting Type', group:'Equipment'},
     brand:{label:'Manufacturer / Brand', group:'Equipment'},
+    refrigerantType:{label:'Refrigerant Type', group:'Equipment'},
+    compressorType:{label:'Compressor Type', group:'Equipment'},
     equipLocation:{label:'Specific Location', group:'Equipment'},
     troubleCall:{label:'Trouble Call / Reason for Service', group:'Report Summary'},
     findings:{label:'Findings / Evaluation', group:'Report Summary'},
@@ -1763,6 +1771,7 @@
     pi_drain:{label:'Pipe Insulation — Drain', group:'Installation Data'},
     riser_height:{label:'Riser Pipes Height', group:'Installation Data'},
     ptrap:{label:'P-Trap', group:'Installation Data'},
+    bracketType:{label:'Accu Bracket Type', group:'Installation Data'},
     m_details:{label:'Materials — Model No. / Details', group:'Materials'},
     m_qty:{label:'Materials — Qty', group:'Materials'},
     servicesDone:{label:'Services Done', group:'Services Done'},
@@ -1848,6 +1857,15 @@
       'Daikin', 'Carrier', 'Panasonic', 'LG', 'Samsung', 'Hitachi', 'Mitsubishi Electric',
       'Mitsubishi Heavy Industries', 'Fujitsu General', 'York', 'Trane', 'McQuay', 'Kolin',
       'Condura', 'Koppel', 'Century', 'TCL', 'Midea', 'Gree', 'Sharp'
+    ],
+    refrigerantType: [
+      'R22', 'R410A', 'R32', 'R404A', 'R134A', 'R407C', 'R290'
+    ],
+    compressorType: [
+      'Inverter', 'Non-Inverter'
+    ],
+    bracketType: [
+      'L-Type Bracket', 'Floor Mounted Type'
     ],
     equipType: [
       'Split Type Unit', 'Window Type', 'Chilled Water', 'Water-Cooled Type', 'Refrigerator', 'Freezer/Chiller'
@@ -2309,8 +2327,14 @@
     currentSrNo = null;
     $('metaSrNo').textContent='—';
     clearInvalid();
+    applyTechNameDefault();
   }
   resetForm();
+  // Auto-fills the Technician Name field from the logged-in account (still
+  // editable, in case a different technician actually performed the work).
+  function applyTechNameDefault(){
+    if(currentUser && currentUser.name) $('techName').value = currentUser.name;
+  }
 
   // ---------- validation ----------
   function clearInvalid(){
@@ -2344,7 +2368,8 @@
       equipType: $('equipType').value.trim(), modelCU:$('modelCU').value.trim(), serialCU:$('serialCU').value.trim(),
       modelFCU:$('modelFCU').value.trim(), serialFCU:$('serialFCU').value.trim(),
       coolCap:$('coolCap').value.trim(), mountType:$('mountType').value.trim(),
-      brand:$('brand').value.trim(), equipLocation:$('equipLocation').value.trim(),
+      brand:$('brand').value.trim(), refrigerantType:$('refrigerantType').value.trim(),
+      compressorType:$('compressorType').value.trim(), equipLocation:$('equipLocation').value.trim(),
       troubleCall:$('troubleCall').value.trim(), findings, recs, materials, servicesDone,
       before:{
         amp:[$('b_amp_l1').value,$('b_amp_l2').value,$('b_amp_l3').value],
@@ -2365,7 +2390,7 @@
         ws:[$('ws_feeder').value,$('ws_control').value],
         breaker:$('circuit_breaker').value,
         pi:[$('pi_refline').value,$('pi_drain').value],
-        riser:$('riser_height').value, ptrap:$('ptrap').value
+        riser:$('riser_height').value, ptrap:$('ptrap').value, bracketType:$('bracketType').value
       },
       timeIn:$('timeIn').value, timeOut:$('timeOut').value, remarks:$('remarks').value.trim(),
       custPrintedName:$('custPrintedName').value.trim(), techName:$('techName').value.trim(),
@@ -2465,7 +2490,8 @@
     kv('MODEL NO. (CU)', data.modelCU, 0, 240); kv('SERIAL NO. (CU)', data.serialCU, 300, 220); y += 22;
     kv('MODEL NO. (FCU)', data.modelFCU, 0, 240); kv('SERIAL NO. (FCU)', data.serialFCU, 300, 220); y += 22;
     kv('COOLING CAPACITY', data.coolCap, 0, 240); kv('MOUNTING TYPE', data.mountType, 300, 220); y += 22;
-    kv('BRAND / MANUFACTURER', data.brand, 0, 240); kv('LOCATION', data.equipLocation, 300, 220); y += 26;
+    kv('BRAND / MANUFACTURER', data.brand, 0, 240); kv('REFRIGERANT TYPE', data.refrigerantType, 300, 220); y += 22;
+    kv('COMPRESSOR TYPE', data.compressorType, 0, 240); kv('LOCATION', data.equipLocation, 300, 220); y += 26;
 
     // 3. Report summary
     checkPageBreak(100);
@@ -2557,7 +2583,8 @@
           ['Circuit Breaker (amp)', data.install.breaker||'—'],
           ['Pipe Insulation (in) — Ref\'t Line/Drain', data.install.pi.join(' / ')||'—'],
           ['Riser Pipes Height (m)', data.install.riser||'—'],
-          ['P-Trap', data.install.ptrap||'—']
+          ['P-Trap', data.install.ptrap||'—'],
+          ['Accu Bracket Type', data.install.bracketType||'—']
         ],
         styles:{fontSize:8.5, cellPadding:4},
         theme:'plain'
@@ -2769,7 +2796,8 @@
     $('modelCU').value=d.modelCU||''; $('serialCU').value=d.serialCU||'';
     $('modelFCU').value=d.modelFCU||''; $('serialFCU').value=d.serialFCU||'';
     $('coolCap').value=d.coolCap||''; $('mountType').value=d.mountType||'';
-    $('brand').value=d.brand||''; $('equipLocation').value=d.equipLocation||'';
+    $('brand').value=d.brand||''; $('refrigerantType').value=d.refrigerantType||'';
+    $('compressorType').value=d.compressorType||''; $('equipLocation').value=d.equipLocation||'';
     $('troubleCall').value=d.troubleCall||'';
     $('findingsList').innerHTML=''; (d.findings&&d.findings.length?d.findings:['']).forEach(f=>addListRow('findingsList',f));
     $('recsList').innerHTML=''; (d.recs&&d.recs.length?d.recs:['']).forEach(r=>addListRow('recsList',r));
@@ -2799,9 +2827,10 @@
       $('circuit_breaker').value=d.install.breaker||'';
       $('pi_refline').value=d.install.pi[0]||''; $('pi_drain').value=d.install.pi[1]||'';
       $('riser_height').value=d.install.riser||''; $('ptrap').value=d.install.ptrap||'';
+      $('bracketType').value=d.install.bracketType||'';
     }
     $('timeIn').value=d.timeIn||''; $('timeOut').value=d.timeOut||''; $('remarks').value=d.remarks||'';
-    $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName||'';
+    $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName || (currentUser ? currentUser.name : '') || '';
     if(d.sigCustomer){ sigCustomerPad.fromDataURL(d.sigCustomer); $('sigCustomerPh').style.display='none'; }
     if(d.sigTech){ sigTechPad.fromDataURL(d.sigTech); $('sigTechPh').style.display='none'; }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
@@ -3464,7 +3493,8 @@
       amount, purpose, project, dateNeeded, liquidationDate, paymentMode,
       status: 'pending', comment: '',
       submittedAt: new Date().toISOString(),
-      decidedAt: null, decidedBy: null
+      decidedAt: null, decidedBy: null,
+      disbursed: false, dateGiven: null, amountGiven: null, disbursedAt: null, disbursedBy: null
     };
     $('caSubmitBtn').disabled = true;
     const ok = await caSaveRequest(id, data);
@@ -3488,14 +3518,21 @@
       const row = document.createElement('div');
       row.className = 'hist-item';
       row.style.cssText = 'cursor:default; flex-direction:column; align-items:stretch;';
+      let disbursementLine = '';
+      if(r.status==='approved'){
+        disbursementLine = r.disbursed
+          ? '<div class="leave-comment"><b>Cash given</b>'+caFmtPeso(r.amountGiven)+' on '+leaveFmtDate(r.dateGiven)+'</div>'
+          : '<div class="leave-comment"><b>Cash given</b>Not yet released</div>';
+      }
       row.innerHTML =
         '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
           '<div class="hist-info"><b>'+caFmtPeso(r.amount)+'</b>'+
             '<span>Needed '+leaveFmtDate(r.dateNeeded)+(r.project ? (' · '+escapeHtml(r.project)) : '')+'</span>'+
           '</div>'+
-          leaveStatusPill(r.status)+
+          (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Given</span>' : leaveStatusPill(r.status))+
         '</div>'+
         '<div class="leave-comment"><b>Purpose</b>'+escapeHtml(r.purpose)+'</div>'+
+        disbursementLine+
         (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '');
       list.appendChild(row);
     });
@@ -3511,47 +3548,81 @@
   $('caTabNew').addEventListener('click', ()=> caShowTab('new'));
   $('caTabHistory').addEventListener('click', ()=> caShowTab('history'));
 
-  // ---- Admin: review all technicians' requests ----
+  // ---- Admin: review all technicians' requests, and monitor disbursement ----
   let caAdminFilter = 'pending';
   async function caRenderAdminList(){
     const list = $('caAdminList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await caListAll();
-    const items = caAdminFilter==='all' ? all : all.filter(r=> r.status===caAdminFilter);
+    let items;
+    if(caAdminFilter==='all') items = all;
+    else if(caAdminFilter==='given') items = all.filter(r=> r.disbursed);
+    else items = all.filter(r=> r.status===caAdminFilter);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(caAdminFilter==='all'?'':caAdminFilter+' ')+'cash advance requests.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');
       card.className = 'user-card';
+      const disbursedSummary = r.disbursed
+        ? '<div class="leave-comment" style="background:#EAF5FC; border-color:#C6E2F2;"><b>Cash given</b>'+caFmtPeso(r.amountGiven)+' on '+leaveFmtDate(r.dateGiven)+(r.disbursedBy ? (' · recorded by '+escapeHtml(r.disbursedBy)) : '')+'</div>'
+        : '';
       card.innerHTML =
         '<div class="user-card-head">'+
           '<div>'+
             '<div class="u-name">'+escapeHtml(r.userName)+' — '+caFmtPeso(r.amount)+'</div>'+
             '<div class="u-status">Needed '+leaveFmtDate(r.dateNeeded)+(r.project ? (' · '+escapeHtml(r.project)) : '')+' · Filed '+leaveFmtWhen(r.submittedAt)+'</div>'+
           '</div>'+
-          leaveStatusPill(r.status)+
+          (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Given</span>' : leaveStatusPill(r.status))+
         '</div>'+
         '<div class="leave-comment" style="margin-top:8px;"><b>Purpose</b>'+escapeHtml(r.purpose)+'</div>'+
         (r.liquidationDate ? '<div class="leave-comment"><b>Expected liquidation</b>'+leaveFmtDate(r.liquidationDate)+'</div>' : '')+
         (r.paymentMode ? '<div class="leave-comment"><b>Preferred payment mode</b>'+escapeHtml(r.paymentMode)+'</div>' : '')+
         (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '')+
+        disbursedSummary+
         '<div class="user-card-actions">'+
           '<button data-act="review" class="primary">'+(r.status==='pending' ? 'Review' : 'Change Decision')+'</button>'+
+          (r.status==='approved' ? '<button data-act="disburse-toggle">'+(r.disbursed ? 'Edit Disbursement' : 'Record Disbursement')+'</button>' : '')+
         '</div>'+
-        '<div class="user-edit-panel" data-panel="1">'+
+        '<div class="user-edit-panel" data-panel="decision">'+
           '<div class="field"><label>Comment (visible to the technician)</label><textarea data-f="comment" rows="2" placeholder="Optional for approval, recommended for disapproval">'+escapeHtml(r.comment||'')+'</textarea></div>'+
           '<div class="edit-save-row">'+
             '<button class="cancel-btn" data-act="disapprove" type="button" style="color:var(--danger); border-color:#F1C4BC;">Disapprove</button>'+
             '<button class="save-btn" data-act="approve" type="button">Approve</button>'+
           '</div>'+
-        '</div>';
-      const panel = card.querySelector('[data-panel="1"]');
+        '</div>'+
+        (r.status==='approved' ?
+          '<div class="user-edit-panel" data-panel="disbursement">'+
+            '<div class="grid2">'+
+              '<div class="field"><label>Date Given</label><input type="date" data-f="dateGiven" value="'+escapeHtml(r.dateGiven || todayISO())+'"></div>'+
+              '<div class="field"><label>Amount Given (₱)</label><input type="number" min="0" step="0.01" data-f="amountGiven" value="'+(r.amountGiven != null ? r.amountGiven : r.amount)+'"></div>'+
+            '</div>'+
+            '<div class="edit-save-row">'+
+              '<button class="save-btn" data-act="confirm-disburse" type="button">Confirm Given</button>'+
+            '</div>'+
+          '</div>' : '');
+      const decisionPanel = card.querySelector('[data-panel="decision"]');
+      const disbursePanel = card.querySelector('[data-panel="disbursement"]');
       card.querySelector('[data-act="review"]').addEventListener('click', ()=>{
-        list.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
-        panel.classList.toggle('open');
+        list.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==decisionPanel) p.classList.remove('open'); });
+        decisionPanel.classList.toggle('open');
       });
-      card.querySelector('[data-act="approve"]').addEventListener('click', ()=> caDecide(r.id, 'approved', panel.querySelector('[data-f="comment"]').value.trim()));
-      card.querySelector('[data-act="disapprove"]').addEventListener('click', ()=> caDecide(r.id, 'disapproved', panel.querySelector('[data-f="comment"]').value.trim()));
+      card.querySelector('[data-act="approve"]').addEventListener('click', ()=> caDecide(r.id, 'approved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
+      card.querySelector('[data-act="disapprove"]').addEventListener('click', ()=> caDecide(r.id, 'disapproved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
+      const disburseToggleBtn = card.querySelector('[data-act="disburse-toggle"]');
+      if(disburseToggleBtn){
+        disburseToggleBtn.addEventListener('click', ()=>{
+          list.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==disbursePanel) p.classList.remove('open'); });
+          disbursePanel.classList.toggle('open');
+        });
+      }
+      const confirmDisburseBtn = card.querySelector('[data-act="confirm-disburse"]');
+      if(confirmDisburseBtn){
+        confirmDisburseBtn.addEventListener('click', ()=>{
+          const dateGiven = disbursePanel.querySelector('[data-f="dateGiven"]').value;
+          const amountGiven = parseFloat(disbursePanel.querySelector('[data-f="amountGiven"]').value);
+          caRecordDisbursement(r.id, dateGiven, amountGiven);
+        });
+      }
       list.appendChild(card);
     });
   }
@@ -3569,6 +3640,23 @@
     });
     const ok = await caSaveRequest(id, updated);
     toast(ok ? ('Request '+status) : 'Could not save decision');
+    caRenderAdminList();
+  }
+  // Monitoring: records that the requested cash was actually handed over, with
+  // the date and amount actually given (which can differ from what was requested).
+  async function caRecordDisbursement(id, dateGiven, amountGiven){
+    if(!dateGiven){ toast('Set the date the cash was given'); return; }
+    if(!amountGiven || amountGiven<=0){ toast('Enter a valid amount given'); return; }
+    const all = await caListAll();
+    const rec = all.find(r=> r.id===id);
+    if(!rec){ toast('Request not found'); return; }
+    const updated = Object.assign({}, rec, {
+      disbursed: true, dateGiven, amountGiven,
+      disbursedAt: new Date().toISOString(),
+      disbursedBy: currentUser ? currentUser.name : 'Admin'
+    });
+    const ok = await caSaveRequest(id, updated);
+    toast(ok ? 'Disbursement recorded' : 'Could not save disbursement');
     caRenderAdminList();
   }
   document.querySelectorAll('#caAdminFilterRow button').forEach(btn=>{
