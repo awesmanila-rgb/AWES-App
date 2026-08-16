@@ -469,7 +469,7 @@
     <button class="icon-btn" id="cloudBtn">☁ Not Connected</button>
     <button class="icon-btn" id="homeBtn" style="display:none;">🏠 Home</button>
     <button class="icon-btn" id="newBtn">New</button>
-    <div class="menu-wrap">
+    <div class="menu-wrap" id="menuWrap">
       <button class="icon-btn" id="menuBtn">☰ Menu</button>
       <div class="menu-dropdown" id="menuDropdown">
         <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
@@ -480,6 +480,9 @@
         <button type="button" id="menuLogout" class="menu-danger"><span class="menu-ico">🚪</span>Logout</button>
       </div>
     </div>
+    <!-- Shown directly (not tucked in the Menu) for technician accounts -->
+    <button class="icon-btn" id="userEmailSetupBtn" style="display:none;">✉️ Email Setup</button>
+    <button class="icon-btn" id="userLogoutBtn" style="display:none;">🚪 Logout</button>
     <!-- Legacy controls kept off-screen: existing app logic is wired to these ids -->
     <button class="icon-btn" id="adminBtn" style="display:none;">Admin</button>
     <button class="icon-btn" id="settingsBtn" style="display:none;">Email Setup</button>
@@ -1224,6 +1227,13 @@
       el.style.opacity = dis ? '0.45' : '';
       el.style.pointerEvents = dis ? 'none' : '';
     };
+    // Technician accounts: hide the New button and the Menu (admin-only tools live
+    // there), and surface Email Setup + Logout directly instead of tucked in the menu.
+    const isTech = !!(currentUser && currentUser.role!=='admin');
+    setVis('newBtn', !isTech);
+    setVis('menuWrap', !isTech);
+    setVis('userEmailSetupBtn', isTech);
+    setVis('userLogoutBtn', isTech);
     // History access
     setVis('menuManageReports', !r.noHistory);
     // Report generation / preview
@@ -2777,6 +2787,9 @@
     closeMainMenu();
     doLogout();
   });
+  // Technician-facing direct buttons (shown in place of Menu — see applyUserRestrictions)
+  $('userEmailSetupBtn').addEventListener('click', ()=> $('settingsBtn').click());
+  $('userLogoutBtn').addEventListener('click', doLogout);
 
   // ---------- Auto-logout admin when app is closed or minimized ----------
   // Runs fully synchronously (no awaits) so the login screen is guaranteed to be
