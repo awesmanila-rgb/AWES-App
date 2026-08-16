@@ -150,6 +150,7 @@
   }
   .status-draft{background:#FBF0DC; color:var(--amber);}
   .status-done{background:var(--green-light); color:var(--green-dark);}
+  .status-rejected{background:#F7E2DC; color:var(--danger);}
 
   main{max-width:900px; margin:0 auto; padding:16px;}
 
@@ -289,6 +290,49 @@
   }
   .empty-state{text-align:center; color:var(--text-muted); font-size:13px; padding:30px 10px;}
 
+  /* ---------- Leave Form ---------- */
+  .seg-tabs{display:flex; gap:8px; margin-bottom:14px;}
+  .seg-tab{
+    flex:1; padding:10px; border-radius:8px; border:1px solid var(--border);
+    background:#fff; font-size:13px; font-weight:700; cursor:pointer; color:var(--text-muted);
+  }
+  .seg-tab.active{background:var(--green); color:#fff; border-color:var(--green);}
+  .leave-note{font-size:11px; color:var(--text-muted); margin-top:2px;}
+  .leave-comment{
+    font-size:12px; color:var(--text); background:var(--bg); border:1px solid var(--border);
+    border-radius:7px; padding:8px 10px; margin-top:8px;
+  }
+  .leave-comment b{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted); margin-bottom:3px;}
+  .leave-filter-row{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;}
+  .leave-filter-row button{
+    border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 12px;
+    font-size:12px; font-weight:600; cursor:pointer; color:var(--text-muted);
+  }
+  .leave-filter-row button.active{background:var(--green-dark); color:#fff; border-color:var(--green-dark);}
+
+  /* ---------- DTR (Daily Time Record) ---------- */
+  .dtr-clock-row{display:flex; gap:10px; margin-bottom:14px;}
+  .dtr-clock-row .btn{padding:16px 10px; font-size:15px;}
+  .dtr-today-box{
+    border:1px solid var(--border); border-radius:9px; padding:12px 14px; margin-bottom:14px;
+    display:flex; flex-wrap:wrap; gap:14px; font-size:13px;
+  }
+  .dtr-today-box .dtr-stat{display:flex; flex-direction:column; gap:2px;}
+  .dtr-today-box .dtr-stat-label{font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted);}
+  .dtr-today-box .dtr-stat-val{font-size:15px; font-weight:700; color:var(--text);}
+  .dtr-banner{
+    border-radius:9px; padding:10px 12px; font-size:13px; margin-bottom:14px; line-height:1.4;
+  }
+  .dtr-banner-warn{background:#FBF0DC; color:var(--amber); border:1px solid #F0DBA8;}
+  .dtr-banner-info{background:var(--green-light); color:var(--green-dark); border:1px solid #C7E3D3;}
+  .dtr-loc-tag{font-size:11px; color:var(--text-muted); display:block; margin-top:2px;}
+  .dtr-picker-btn{
+    display:block; width:100%; text-align:left; padding:13px 14px; margin-bottom:8px;
+    border:1px solid var(--border); border-radius:9px; background:#fff; font-size:14px; font-weight:600;
+    color:var(--text); cursor:pointer;
+  }
+  .dtr-picker-btn:active{background:var(--green-light);}
+
   .toast{
     position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
     background:var(--green-dark); color:#fff; padding:10px 18px; border-radius:999px;
@@ -408,8 +452,8 @@
   <div class="brand">
     <div class="brand-mark"><img src="data:image/png;base64,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" alt="Awes"></div>
     <div class="brand-text">
-      <div class="name">AWES Service Report</div>
-      <div class="sub">Field digital form</div>
+      <div class="name" id="brandName">Technician's Homepage</div>
+      <div class="sub" id="brandSub">Field digital form</div>
     </div>
   </div>
   <div class="top-actions">
@@ -453,7 +497,6 @@
     <button type="button" class="home-tile" id="tile_dtr">
       <span class="home-tile-icon">🕒</span>
       <span class="home-tile-label">Online DTR</span>
-      <span class="home-tile-badge">Coming Soon</span>
     </button>
     <button type="button" class="home-tile" id="tile_cashAdvance">
       <span class="home-tile-icon">💵</span>
@@ -463,7 +506,6 @@
     <button type="button" class="home-tile" id="tile_leave">
       <span class="home-tile-icon">🗓️</span>
       <span class="home-tile-label">Leave Form</span>
-      <span class="home-tile-badge">Coming Soon</span>
     </button>
     <button type="button" class="home-tile" id="tile_materialRequest">
       <span class="home-tile-icon">📦</span>
@@ -477,6 +519,151 @@
     </button>
   </div>
 </div>
+
+<!-- Online DTR (Daily Time Record) — a fully separate page/module from the
+     Service Report. It has its own header actions and its own data store;
+     nothing here reads or writes service-report data. -->
+<main id="dtrView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <div class="card" id="dtrTechCard">
+    <div class="card-head"><span>🕒 Daily Time Record</span><span id="dtrTechName" style="font-weight:600; opacity:.85;"></span></div>
+    <div class="card-body">
+      <div id="dtrDeviceBanner" class="dtr-banner dtr-banner-warn" style="display:none;"></div>
+      <div class="dtr-clock-row">
+        <button type="button" class="btn btn-primary" id="dtrTimeInBtn">🟢 Time In</button>
+        <button type="button" class="btn btn-secondary" id="dtrTimeOutBtn">🔴 Time Out</button>
+      </div>
+      <div class="dtr-today-box">
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Today</span>
+          <span class="dtr-stat-val" id="dtrTodayDate">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Time In</span>
+          <span class="dtr-stat-val" id="dtrTodayIn">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Time Out</span>
+          <span class="dtr-stat-val" id="dtrTodayOut">—</span>
+        </div>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted);">
+        Tapping Time In / Time Out automatically records the current time and your device's location.
+        This account is locked to this device — signing in on another phone will not be allowed to time in/out.
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="dtrAdminViewingCard" style="display:none;">
+    <div class="card-head"><span>🕒 Daily Time Record</span></div>
+    <div class="card-body">
+      <div class="dtr-banner dtr-banner-info">
+        Viewing <b id="dtrAdminViewingName">—</b>'s DTR (read-only). <button type="button" id="dtrSwitchUserBtn" style="background:none; border:none; color:var(--green-dark); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-size:13px;">Switch user</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span>History (last 30 days)</span></div>
+    <div class="card-body">
+      <div id="dtrHistoryList"><div class="empty-state">No DTR entries yet.</div></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- DTR user picker (admin only) — admin must choose which technician's DTR to view -->
+<div class="overlay" id="dtrUserPickerOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>View DTR for…</h3>
+      <button class="sheet-close" id="closeDtrUserPicker">&times;</button>
+    </div>
+    <div id="dtrUserPickerList"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Leave Form — a fully separate page/module. Technicians file a leave
+     request here and track its approval status. Admin reviews every
+     technician's requests and approves/disapproves with a comment. -->
+<main id="leaveView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <!-- Technician: file + track -->
+  <div id="leaveTechArea">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="leaveTabNew">New Request</button>
+      <button type="button" class="seg-tab" id="leaveTabHistory">My Requests</button>
+    </div>
+
+    <div class="card" id="leaveFormCard">
+      <div class="card-head"><span>🗓️ File a Leave Request</span></div>
+      <div class="card-body">
+        <div class="field">
+          <label>Leave Type <span class="req">*</span></label>
+          <select id="leaveType">
+            <option value="">Select leave type…</option>
+            <option value="Vacation Leave">Vacation Leave</option>
+            <option value="Sick Leave">Sick Leave</option>
+            <option value="Emergency Leave">Emergency Leave</option>
+            <option value="Bereavement Leave">Bereavement Leave</option>
+            <option value="Maternity Leave">Maternity Leave</option>
+            <option value="Paternity Leave">Paternity Leave</option>
+            <option value="Unpaid Leave">Unpaid Leave</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Date From <span class="req">*</span></label>
+            <input type="date" id="leaveDateFrom">
+          </div>
+          <div class="field">
+            <label>Date To <span class="req">*</span></label>
+            <input type="date" id="leaveDateTo">
+          </div>
+        </div>
+        <div class="field">
+          <label>Total Days</label>
+          <input type="text" id="leaveDaysDisplay" readonly placeholder="Auto-calculated" style="background:#F7F8F6; color:var(--text-muted);">
+        </div>
+        <div class="field">
+          <label>Reason / Details <span class="req">*</span></label>
+          <textarea id="leaveReason" rows="3" placeholder="Briefly explain the reason for this leave"></textarea>
+        </div>
+        <div class="field">
+          <label>Contact Number While on Leave</label>
+          <input type="text" id="leaveContact" placeholder="Optional — how to reach you if needed">
+        </div>
+        <button type="button" class="btn btn-primary" id="leaveSubmitBtn" style="width:100%;">Submit for Approval</button>
+        <div class="leave-note">Your request will be sent to the admin for approval. You'll see the decision under "My Requests".</div>
+      </div>
+    </div>
+
+    <div class="card" id="leaveHistoryCard" style="display:none;">
+      <div class="card-head"><span>My Leave Requests</span></div>
+      <div class="card-body">
+        <div id="leaveHistoryList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin: review every technician's requests -->
+  <div id="leaveAdminArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>🗓️ Leave Requests</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="leaveAdminFilterRow">
+          <button type="button" data-filter="pending" class="active">Pending</button>
+          <button type="button" data-filter="approved">Approved</button>
+          <button type="button" data-filter="disapproved">Disapproved</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="leaveAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
 
 <main id="serviceReportView" style="display:none;">
 
@@ -1783,6 +1970,7 @@
         '<div class="user-card-actions">'+
           '<button data-act="edit" class="primary">Edit</button>'+
           '<button data-act="toggle">'+(active ? 'Restrict (Deactivate)' : 'Reactivate')+'</button>'+
+          '<button data-act="resetDevice">Reset DTR Device</button>'+
           '<button data-act="remove" class="danger">Remove</button>'+
         '</div>'+
         '<div class="user-edit-panel" data-panel="1">'+
@@ -1846,6 +2034,11 @@
         const ok = await cloudSetUser(u.id, {active: active ? false : true});
         if(ok){ toast(active ? 'Restricted '+u.name+' (access revoked)' : 'Reactivated '+u.name); renderUsersList(); }
         else toast('Could not update');
+      });
+      card.querySelector('[data-act="resetDevice"]').addEventListener('click', async ()=>{
+        if(!confirm('Unlock '+u.name+"'s DTR from their current device? Use this if they lost or replaced their phone — the next device they time in from will become the new locked device.")) return;
+        const ok = await clearDeviceLock(u.id);
+        toast(ok ? "Device lock cleared for "+u.name : 'Could not clear device lock');
       });
       card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
         if(!confirm('Remove '+u.name+' completely? Their past reports stay saved, but they will no longer appear anywhere.')) return;
@@ -2589,32 +2782,546 @@
     syncAdminLogout();
   });
 
+  // ============================================================
+  // Online DTR (Daily Time Record) — a fully separate module/page.
+  // It does not read or write anything from the Service Report; it
+  // has its own data store ('dtr' collection / 'dtr:' local keys),
+  // its own device-lock store, and its own screen.
+  // ============================================================
+
+  // ---- Non-transferable device id ----------------------------------
+  // A random id persisted in this device's own localStorage the first
+  // time the app runs on it. It identifies *this physical install*,
+  // not the logged-in user, so it survives logout/login and is what
+  // lets us tell "your phone" apart from "someone else's phone".
+  function getDtrDeviceId(){
+    let id = null;
+    try{ id = localStorage.getItem('device-id'); }catch(e){}
+    if(!id){
+      id = 'dev-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+      try{ localStorage.setItem('device-id', id); }catch(e){}
+    }
+    return id;
+  }
+  const dtrDeviceId = getDtrDeviceId();
+
+  async function dtrGetDeviceLock(userId){
+    if(await ensureCloud()){
+      try{
+        const snap = await db.collection('device-locks').doc(userId).get();
+        return snap.exists ? snap.data().deviceId : null;
+      }catch(e){ console.error('device lock read failed', e); }
+    }
+    try{
+      const res = await window.storage.get('device-lock:'+userId, false);
+      return res ? JSON.parse(res.value).deviceId : null;
+    }catch(e){ return null; }
+  }
+  async function dtrSetDeviceLock(userId, devId){
+    if(await ensureCloud()){
+      try{ await db.collection('device-locks').doc(userId).set({deviceId:devId, boundAt:new Date().toISOString()}); return true; }
+      catch(e){ console.error('device lock write failed', e); }
+    }
+    try{ await window.storage.set('device-lock:'+userId, JSON.stringify({deviceId:devId}), false); return true; }
+    catch(e){ return false; }
+  }
+  // Admin-only escape hatch (wired into Manage Users → "Reset DTR Device")
+  // for when a technician legitimately gets a new phone.
+  async function clearDeviceLock(userId){
+    if(await ensureCloud()){
+      try{ await db.collection('device-locks').doc(userId).delete(); return true; }
+      catch(e){ console.error('device lock clear failed', e); }
+    }
+    try{ await window.storage.delete('device-lock:'+userId, false); return true; }
+    catch(e){ return false; }
+  }
+  // Binds this device to the user the first time they use DTR on it.
+  // From then on, only that same device may time this user in/out —
+  // this is what stops someone from signing in on a coworker's phone
+  // just to punch a time in for them.
+  async function dtrEnsureDeviceAllowed(userId){
+    const bound = await dtrGetDeviceLock(userId);
+    if(!bound){ await dtrSetDeviceLock(userId, dtrDeviceId); return true; }
+    return bound === dtrDeviceId;
+  }
+
+  // ---- Geolocation ---------------------------------------------------
+  function dtrGetLocation(){
+    return new Promise((resolve)=>{
+      if(!navigator.geolocation){ resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos)=> resolve({lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy||0)}),
+        ()=> resolve(null),
+        {enableHighAccuracy:true, timeout:12000, maximumAge:0}
+      );
+    });
+  }
+  function dtrLocLabel(loc){
+    if(!loc) return 'Location unavailable';
+    return loc.lat.toFixed(5)+', '+loc.lng.toFixed(5)+(loc.accuracy?(' (±'+loc.accuracy+'m)'):'');
+  }
+
+  // ---- DTR record storage (own 'dtr' collection/keys; one doc per user per day) ----
+  function dtrDocId(userId, dateISO){ return userId+'_'+dateISO; }
+  async function dtrGetDay(userId, dateISO){
+    if(await ensureCloud()){
+      try{ const snap = await db.collection('dtr').doc(dtrDocId(userId,dateISO)).get(); return snap.exists ? snap.data() : null; }
+      catch(e){ console.error('dtr get failed', e); }
+    }
+    try{ const res = await window.storage.get('dtr:'+userId+':'+dateISO, false); return res ? JSON.parse(res.value) : null; }
+    catch(e){ return null; }
+  }
+  async function dtrSaveDay(userId, dateISO, data){
+    if(await ensureCloud()){
+      try{ await db.collection('dtr').doc(dtrDocId(userId,dateISO)).set(data); return true; }
+      catch(e){ console.error('dtr save failed', e); }
+    }
+    try{ await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false); return true; }
+    catch(e){ return false; }
+  }
+  // History is always scoped to one user (per-user DTR) and capped to the last 30 days.
+  async function dtrListForUser(userId, sinceISO){
+    if(await ensureCloud()){
+      try{
+        const snap = await db.collection('dtr').where('userId','==',userId).get();
+        return snap.docs.map(d=>d.data()).filter(d=>d.date>=sinceISO).sort((a,b)=> b.date.localeCompare(a.date));
+      }catch(e){ console.error('dtr list failed', e); }
+    }
+    try{
+      const res = await window.storage.list('dtr:'+userId+':', false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        try{ const item = await window.storage.get(key, false); const d = JSON.parse(item.value); if(d.date>=sinceISO) items.push(d); }catch(e){}
+      }
+      items.sort((a,b)=> b.date.localeCompare(a.date));
+      return items;
+    }catch(e){ return []; }
+  }
+
+  function dtrFmtTime(iso){
+    if(!iso) return '—';
+    return new Date(iso).toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+  function dtrFmtDateLabel(dateISO){
+    const d = new Date(dateISO+'T00:00:00');
+    return d.toLocaleDateString('en-PH', {weekday:'short', year:'numeric', month:'short', day:'numeric'});
+  }
+
+  // Who the history/status panel currently shows: the logged-in tech
+  // themself, or — for admin — whichever technician they picked.
+  let dtrViewingUser = null;
+
+  async function dtrRenderTodayStatus(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const dateISO = todayISO();
+    $('dtrTodayDate').textContent = dtrFmtDateLabel(dateISO);
+    const rec = await dtrGetDay(currentUser.id, dateISO);
+    $('dtrTodayIn').textContent = rec && rec.timeIn ? dtrFmtTime(rec.timeIn) : '—';
+    $('dtrTodayOut').textContent = rec && rec.timeOut ? dtrFmtTime(rec.timeOut) : '—';
+    $('dtrTimeInBtn').disabled = !!(rec && rec.timeIn);
+    $('dtrTimeOutBtn').disabled = !(rec && rec.timeIn) || !!(rec && rec.timeOut);
+  }
+
+  async function dtrRenderDeviceBanner(){
+    const banner = $('dtrDeviceBanner');
+    if(!currentUser || currentUser.role==='admin'){ banner.style.display='none'; return; }
+    const bound = await dtrGetDeviceLock(currentUser.id);
+    if(bound && bound !== dtrDeviceId){
+      banner.textContent = 'This account is already registered to another device. Time In/Out is blocked on this phone — ask your admin to reset your DTR device if this is now your phone.';
+      banner.style.display = '';
+    }else{
+      banner.style.display = 'none';
+    }
+  }
+
+  async function dtrRenderHistory(){
+    const list = $('dtrHistoryList');
+    const target = dtrViewingUser || (currentUser && currentUser.role!=='admin' ? {id:currentUser.id, name:currentUser.name} : null);
+    if(!target){ list.innerHTML = '<div class="empty-state">Select a technician to view their DTR.</div>'; return; }
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const since = new Date(); since.setDate(since.getDate()-30);
+    const sinceISO = since.toISOString().slice(0,10);
+    const items = await dtrListForUser(target.id, sinceISO);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No DTR entries in the last 30 days.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(d=>{
+      const row = document.createElement('div');
+      row.className = 'hist-item';
+      row.style.cursor = 'default';
+      const inTxt = d.timeIn ? dtrFmtTime(d.timeIn) : '—';
+      const outTxt = d.timeOut ? dtrFmtTime(d.timeOut) : '—';
+      row.innerHTML =
+        '<div class="hist-info"><b>'+dtrFmtDateLabel(d.date)+'</b>'+
+        '<span>In: '+inTxt+' &nbsp;·&nbsp; Out: '+outTxt+'</span>'+
+        (d.timeInLoc ? '<span class="dtr-loc-tag">📍 In: '+dtrLocLabel(d.timeInLoc)+'</span>' : '')+
+        (d.timeOutLoc ? '<span class="dtr-loc-tag">📍 Out: '+dtrLocLabel(d.timeOutLoc)+'</span>' : '')+
+        '</div>';
+      list.appendChild(row);
+    });
+  }
+
+  async function dtrDoTimeIn(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
+    await dtrRenderDeviceBanner();
+    if(!allowed){ toast('This account is registered to another device. Contact your admin.'); return; }
+    const dateISO = todayISO();
+    const existing = await dtrGetDay(currentUser.id, dateISO);
+    if(existing && existing.timeIn){ toast('Already timed in today at '+dtrFmtTime(existing.timeIn)); return; }
+    $('dtrTimeInBtn').disabled = true;
+    toast('Getting your location…');
+    const loc = await dtrGetLocation();
+    const now = new Date().toISOString();
+    const rec = Object.assign({}, existing, {
+      userId: currentUser.id, userName: currentUser.name, date: dateISO,
+      timeIn: now, timeInLoc: loc
+    });
+    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(ok ? 'Timed in at '+dtrFmtTime(now) : 'Could not save time in');
+    await dtrRenderTodayStatus();
+    await dtrRenderHistory();
+  }
+  async function dtrDoTimeOut(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
+    await dtrRenderDeviceBanner();
+    if(!allowed){ toast('This account is registered to another device. Contact your admin.'); return; }
+    const dateISO = todayISO();
+    const existing = await dtrGetDay(currentUser.id, dateISO);
+    if(!existing || !existing.timeIn){ toast('Time in first before timing out'); return; }
+    if(existing.timeOut){ toast('Already timed out today at '+dtrFmtTime(existing.timeOut)); return; }
+    $('dtrTimeOutBtn').disabled = true;
+    toast('Getting your location…');
+    const loc = await dtrGetLocation();
+    const now = new Date().toISOString();
+    const rec = Object.assign({}, existing, { timeOut: now, timeOutLoc: loc });
+    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(ok ? 'Timed out at '+dtrFmtTime(now) : 'Could not save time out');
+    await dtrRenderTodayStatus();
+    await dtrRenderHistory();
+  }
+  $('dtrTimeInBtn').addEventListener('click', dtrDoTimeIn);
+  $('dtrTimeOutBtn').addEventListener('click', dtrDoTimeOut);
+
+  // ---- Admin: DTR is per-user, so admin must pick whose to view ----
+  async function dtrOpenAdminPicker(){
+    const list = $('dtrUserPickerList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    $('dtrUserPickerOverlay').classList.add('open');
+    const users = (await cloudListUsers()) || [];
+    const active = users.filter(u=>u.active!==false);
+    if(active.length===0){ list.innerHTML = '<div class="empty-state">No technician accounts yet.</div>'; return; }
+    list.innerHTML = '';
+    active.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'dtr-picker-btn';
+      btn.textContent = u.name;
+      btn.addEventListener('click', ()=>{
+        dtrViewingUser = {id:u.id, name:u.name};
+        $('dtrUserPickerOverlay').classList.remove('open');
+        $('dtrAdminViewingName').textContent = u.name;
+        dtrRenderHistory();
+      });
+      list.appendChild(btn);
+    });
+  }
+  $('closeDtrUserPicker').addEventListener('click', ()=> $('dtrUserPickerOverlay').classList.remove('open'));
+  $('dtrUserPickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtrUserPickerOverlay') $('dtrUserPickerOverlay').classList.remove('open'); });
+  $('dtrSwitchUserBtn').addEventListener('click', dtrOpenAdminPicker);
+
+  // ---------- Leave Form (own 'leaves' collection/keys; one doc per request) ----------
+  function leaveGenId(userId){ return userId+'_'+Date.now(); }
+
+  async function leaveSaveRequest(id, data){
+    if(await ensureCloud()){
+      try{ await db.collection('leaves').doc(id).set(data); return true; }
+      catch(e){ console.error('leave save failed', e); }
+    }
+    try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); return true; }
+    catch(e){ return false; }
+  }
+  async function leaveListAll(){
+    if(await ensureCloud()){
+      try{
+        const snap = await db.collection('leaves').orderBy('submittedAt','desc').limit(200).get();
+        return snap.docs.map(d=>d.data());
+      }catch(e){ console.error('leave list failed', e); }
+    }
+    try{
+      const res = await window.storage.list('leave:', false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
+      }
+      items.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+      return items;
+    }catch(e){ return []; }
+  }
+  async function leaveListForUser(userId){
+    const all = await leaveListAll();
+    return all.filter(r=> r.userId===userId);
+  }
+
+  function leaveFmtDate(iso){
+    if(!iso) return '—';
+    return new Date(iso+'T00:00:00').toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
+  }
+  function leaveFmtWhen(iso){
+    if(!iso) return '—';
+    return new Date(iso).toLocaleString('en-PH', {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+  function leaveStatusPill(status){
+    if(status==='approved') return '<span class="status-pill status-done">Approved</span>';
+    if(status==='disapproved') return '<span class="status-pill status-rejected">Disapproved</span>';
+    return '<span class="status-pill status-draft">Pending</span>';
+  }
+  function leaveCalcDays(){
+    const from = $('leaveDateFrom').value, to = $('leaveDateTo').value;
+    if(!from || !to){ $('leaveDaysDisplay').value = ''; return; }
+    const d1 = new Date(from+'T00:00:00'), d2 = new Date(to+'T00:00:00');
+    const diff = Math.round((d2-d1)/86400000)+1;
+    $('leaveDaysDisplay').value = diff>0 ? diff+(diff===1?' day':' days') : 'Invalid range';
+  }
+  $('leaveDateFrom').addEventListener('change', leaveCalcDays);
+  $('leaveDateTo').addEventListener('change', leaveCalcDays);
+
+  function leaveResetForm(){
+    $('leaveType').value = '';
+    $('leaveDateFrom').value = '';
+    $('leaveDateTo').value = '';
+    $('leaveDaysDisplay').value = '';
+    $('leaveReason').value = '';
+    $('leaveContact').value = '';
+  }
+
+  async function leaveSubmit(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const leaveType = $('leaveType').value;
+    const dateFrom = $('leaveDateFrom').value;
+    const dateTo = $('leaveDateTo').value;
+    const reason = $('leaveReason').value.trim();
+    const contact = $('leaveContact').value.trim();
+    if(!leaveType){ toast('Select a leave type'); return; }
+    if(!dateFrom || !dateTo){ toast('Set the date range'); return; }
+    if(dateTo < dateFrom){ toast('"Date To" cannot be before "Date From"'); return; }
+    if(!reason){ toast('Enter a reason for the leave'); return; }
+    const days = Math.round((new Date(dateTo+'T00:00:00') - new Date(dateFrom+'T00:00:00'))/86400000)+1;
+    const id = leaveGenId(currentUser.id);
+    const data = {
+      id, userId: currentUser.id, userName: currentUser.name,
+      leaveType, dateFrom, dateTo, days, reason, contact,
+      status: 'pending', comment: '',
+      submittedAt: new Date().toISOString(),
+      decidedAt: null, decidedBy: null
+    };
+    $('leaveSubmitBtn').disabled = true;
+    const ok = await leaveSaveRequest(id, data);
+    $('leaveSubmitBtn').disabled = false;
+    if(ok){
+      toast('Leave request submitted for approval');
+      leaveResetForm();
+      leaveShowTab('history');
+    }else toast('Could not submit — check your connection');
+  }
+  $('leaveSubmitBtn').addEventListener('click', leaveSubmit);
+
+  async function leaveRenderHistory(){
+    const list = $('leaveHistoryList');
+    if(!currentUser || currentUser.role==='admin') return;
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const items = await leaveListForUser(currentUser.id);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No leave requests yet.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'hist-item';
+      row.style.cssText = 'cursor:default; flex-direction:column; align-items:stretch;';
+      row.innerHTML =
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
+          '<div class="hist-info"><b>'+escapeHtml(r.leaveType)+'</b>'+
+            '<span>'+leaveFmtDate(r.dateFrom)+' – '+leaveFmtDate(r.dateTo)+' ('+r.days+(r.days===1?' day':' days')+')</span>'+
+          '</div>'+
+          leaveStatusPill(r.status)+
+        '</div>'+
+        (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '');
+      list.appendChild(row);
+    });
+  }
+
+  function leaveShowTab(which){
+    $('leaveTabNew').classList.toggle('active', which==='new');
+    $('leaveTabHistory').classList.toggle('active', which==='history');
+    $('leaveFormCard').style.display = which==='new' ? '' : 'none';
+    $('leaveHistoryCard').style.display = which==='history' ? '' : 'none';
+    if(which==='history') leaveRenderHistory();
+  }
+  $('leaveTabNew').addEventListener('click', ()=> leaveShowTab('new'));
+  $('leaveTabHistory').addEventListener('click', ()=> leaveShowTab('history'));
+
+  // ---- Admin: review all technicians' requests ----
+  let leaveAdminFilter = 'pending';
+  async function leaveRenderAdminList(){
+    const list = $('leaveAdminList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await leaveListAll();
+    const items = leaveAdminFilter==='all' ? all : all.filter(r=> r.status===leaveAdminFilter);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(leaveAdminFilter==='all'?'':leaveAdminFilter+' ')+'leave requests.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      card.innerHTML =
+        '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(r.userName)+' — '+escapeHtml(r.leaveType)+'</div>'+
+            '<div class="u-status">'+leaveFmtDate(r.dateFrom)+' – '+leaveFmtDate(r.dateTo)+' ('+r.days+(r.days===1?' day':' days')+') · Filed '+leaveFmtWhen(r.submittedAt)+'</div>'+
+          '</div>'+
+          leaveStatusPill(r.status)+
+        '</div>'+
+        '<div class="leave-comment" style="margin-top:8px;"><b>Reason</b>'+escapeHtml(r.reason)+'</div>'+
+        (r.contact ? '<div class="leave-comment"><b>Contact while on leave</b>'+escapeHtml(r.contact)+'</div>' : '')+
+        (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '')+
+        '<div class="user-card-actions">'+
+          '<button data-act="review" class="primary">'+(r.status==='pending' ? 'Review' : 'Change Decision')+'</button>'+
+        '</div>'+
+        '<div class="user-edit-panel" data-panel="1">'+
+          '<div class="field"><label>Comment (visible to the technician)</label><textarea data-f="comment" rows="2" placeholder="Optional for approval, recommended for disapproval">'+escapeHtml(r.comment||'')+'</textarea></div>'+
+          '<div class="edit-save-row">'+
+            '<button class="cancel-btn" data-act="disapprove" type="button" style="color:var(--danger); border-color:#F1C4BC;">Disapprove</button>'+
+            '<button class="save-btn" data-act="approve" type="button">Approve</button>'+
+          '</div>'+
+        '</div>';
+      const panel = card.querySelector('[data-panel="1"]');
+      card.querySelector('[data-act="review"]').addEventListener('click', ()=>{
+        list.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+        panel.classList.toggle('open');
+      });
+      card.querySelector('[data-act="approve"]').addEventListener('click', ()=> leaveDecide(r.id, 'approved', panel.querySelector('[data-f="comment"]').value.trim()));
+      card.querySelector('[data-act="disapprove"]').addEventListener('click', ()=> leaveDecide(r.id, 'disapproved', panel.querySelector('[data-f="comment"]').value.trim()));
+      list.appendChild(card);
+    });
+  }
+  async function leaveDecide(id, status, comment){
+    if(status==='disapproved' && !comment){
+      if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
+    }
+    const all = await leaveListAll();
+    const rec = all.find(r=> r.id===id);
+    if(!rec){ toast('Request not found'); return; }
+    const updated = Object.assign({}, rec, {
+      status, comment,
+      decidedAt: new Date().toISOString(),
+      decidedBy: currentUser ? currentUser.name : 'Admin'
+    });
+    const ok = await leaveSaveRequest(id, updated);
+    toast(ok ? ('Request '+status) : 'Could not save decision');
+    leaveRenderAdminList();
+  }
+  document.querySelectorAll('#leaveAdminFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#leaveAdminFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      leaveAdminFilter = btn.dataset.filter;
+      leaveRenderAdminList();
+    });
+  });
+
+  async function showLeaveView(){
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Leave Form', 'File and track leave requests');
+    window.scrollTo({top:0});
+    if(currentUser && currentUser.role==='admin'){
+      $('leaveTechArea').style.display = 'none';
+      $('leaveAdminArea').style.display = '';
+      leaveRenderAdminList();
+    }else{
+      $('leaveTechArea').style.display = '';
+      $('leaveAdminArea').style.display = 'none';
+      leaveShowTab('new');
+    }
+  }
+
+  // ---------- Header title (changes per feature page) ----------
+  function setHeaderTitle(title, sub){
+    $('brandName').textContent = title;
+    $('brandSub').textContent = sub || '';
+  }
+
+  async function showDtrView(){
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('dtrView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Online DTR', 'Daily Time Record');
+    window.scrollTo({top:0});
+    if(currentUser && currentUser.role==='admin'){
+      // Admin has no DTR of their own — DTR is per-technician, so ask which one.
+      $('dtrTechCard').style.display = 'none';
+      $('dtrAdminViewingCard').style.display = '';
+      dtrViewingUser = null;
+      $('dtrHistoryList').innerHTML = '<div class="empty-state">Select a technician to view their DTR.</div>';
+      dtrOpenAdminPicker();
+    }else if(currentUser){
+      $('dtrTechCard').style.display = '';
+      $('dtrAdminViewingCard').style.display = 'none';
+      $('dtrTechName').textContent = currentUser.name;
+      dtrViewingUser = null;
+      await dtrRenderDeviceBanner();
+      await dtrRenderTodayStatus();
+      await dtrRenderHistory();
+    }
+  }
+
   // ---------- Home screen (feature tiles) ----------
   function showHome(){
     $('homeScreen').style.display = '';
     $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
+    setHeaderTitle("Technician's Homepage", 'Field digital form');
     window.scrollTo({top:0});
   }
   function showServiceReport(){
     $('homeScreen').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('footerBar').style.display = 'flex';
     $('metaBar').style.display = '';
     $('homeBtn').style.display = '';
+    setHeaderTitle('Service Report', 'Field digital form');
     window.scrollTo({top:0});
   }
   function enterApp(){
     showHome();
   }
   $('tile_serviceReport').addEventListener('click', showServiceReport);
-  $('tile_dtr').addEventListener('click', ()=> toast('Online DTR — coming soon'));
-  $('tile_cashAdvance').addEventListener('click', ()=> toast('Cash Advance Form — coming soon'));
-  $('tile_leave').addEventListener('click', ()=> toast('Leave Form — coming soon'));
-  $('tile_materialRequest').addEventListener('click', ()=> toast('Material Request Form — coming soon'));
-  $('tile_liquidation').addEventListener('click', ()=> toast('Liquidation Form — coming soon'));
+  $('tile_dtr').addEventListener('click', showDtrView);
+  // Coming-soon tiles don't navigate to a real page yet, so the header title
+  // change is shown briefly alongside the toast, then reverts to the home
+  // title once the toast fades (avoids leaving a mismatched header behind
+  // on a screen that's still showing the home tile grid).
+  function flashComingSoonHeader(title, message){
+    setHeaderTitle(title, 'Field digital form');
+    toast(message);
+    setTimeout(()=>{ if($('homeScreen').style.display !== 'none') setHeaderTitle("Technician's Homepage", 'Field digital form'); }, 2200);
+  }
+  $('tile_cashAdvance').addEventListener('click', ()=> flashComingSoonHeader('Cash Advance Form', 'Cash Advance Form — coming soon'));
+  $('tile_leave').addEventListener('click', showLeaveView);
+  $('tile_materialRequest').addEventListener('click', ()=> flashComingSoonHeader('Material Request Form', 'Material Request Form — coming soon'));
+  $('tile_liquidation').addEventListener('click', ()=> flashComingSoonHeader('Liquidation Form', 'Liquidation Form — coming soon'));
   $('homeBtn').addEventListener('click', showHome);
 
 })();
