@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.AWES" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#154D34</item>
+        <item name="android:navigationBarColor">#F3F5F2</item>
+    </style>
+</resources>
