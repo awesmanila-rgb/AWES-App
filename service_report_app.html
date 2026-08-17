@@ -2901,27 +2901,18 @@
   // covering the page the instant the app is hidden — mobile OSes can freeze JS
   // mid-way through an async function once backgrounded, which was leaving a stale
   // page visible behind the sign-in sheet until a manual refresh.
-  function forceClearAdminSessionSync(){
-    try{
-      const saved = JSON.parse(localStorage.getItem('current-user')||'null');
-      if(saved && saved.role==='admin') localStorage.removeItem('current-user');
-    }catch(e){}
+  // Any logged-in account (admin or technician) is signed out the moment the
+  // window/tab is actually closed — but NOT when it's merely minimized,
+  // backgrounded, or switched away from (no visibilitychange listener here).
+  // pagehide fires on real close/navigation-away; event.persisted is true
+  // when the page is only being cached for back/forward, so we skip clearing
+  // in that case since the tab isn't actually gone.
+  function clearSessionOnClose(){
+    try{ localStorage.removeItem('current-user'); }catch(e){}
   }
-  function syncAdminLogout(){
-    if(!(currentUser && currentUser.role==='admin')) return;
-    forceClearAdminSessionSync();
-    exitAdminModeUI();
-    currentUser = null;
-    updateUserBadge();
-    $('loginOverlay').classList.add('open');
-    showRoleChooser();
-  }
-  document.addEventListener('visibilitychange', ()=>{
-    if(document.hidden) syncAdminLogout();
-  });
-  window.addEventListener('pagehide', ()=>{
-    forceClearAdminSessionSync();
-    syncAdminLogout();
+  window.addEventListener('pagehide', (e)=>{
+    if(e.persisted) return;
+    clearSessionOnClose();
   });
 
   // ============================================================
