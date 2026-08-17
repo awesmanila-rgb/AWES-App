@@ -6,7 +6,7 @@
 // forever, which is exactly the "changes don't show on mobile" issue this
 // was built to fix. A simple date/counter string is fine, e.g. 'v4',
 // 'v2026-08-18', etc.
-const CACHE_VERSION = 'awes-sr-v1';
+const CACHE_VERSION = 'awes-sr-v2';
 
 // Core files needed for the app to load offline. Keep this list to files
 // that actually live next to this service worker on the server.
