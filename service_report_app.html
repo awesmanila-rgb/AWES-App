@@ -9,9 +9,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Firebase removed: this app now uses Supabase (Postgres + Auth) for the shared cloud backend. -->
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -1201,13 +1200,17 @@
       <button class="sheet-close" id="closeCloud">&times;</button>
     </div>
     <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      Connect a free Firebase project so every technician's phone shares the same reports, dropdown lists,
-      and settings. This is a one-time setup — do it on one phone, then just paste the same config on the
-      other phones.
+      Connect your Supabase project so every technician's phone shares the same reports, dropdown lists,
+      and settings. This is a one-time setup — do it on one phone/browser, then just paste the same
+      Project URL and anon key on the other devices (including the Android app).
     </p>
     <div class="field">
-      <label>Firebase Config (paste the object from your Firebase project settings)</label>
-      <textarea id="cfgFirebase" rows="6" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
+      <label>Supabase Project URL</label>
+      <input type="text" id="cfgSupabaseUrl" placeholder="https://xxxxx.supabase.co">
+    </div>
+    <div class="field">
+      <label>Supabase anon public key</label>
+      <textarea id="cfgSupabaseKey" rows="3" placeholder="eyJhbGciOi..."></textarea>
     </div>
     <div id="cloudStatusMsg" style="font-size:13px; margin-bottom:10px;"></div>
     <div style="display:flex; gap:10px; margin-bottom:10px;">
@@ -1288,14 +1291,16 @@
     return d.toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
   }
 
-  // ---------- shared cloud (Firebase) ----------
+  // ---------- shared cloud (Supabase) ----------
   let cloudReady = false;
   let cloudInitPromise = null;
-  let db = null;
+  let db = null; // Supabase client (supabase-js), was a Firestore ref before
 
   function getCloudConfig(){
-    try{ const raw = localStorage.getItem('cloud-config'); return raw ? JSON.parse(raw) : null; }
-    catch(e){ return null; }
+    try{
+      const raw = localStorage.getItem('cloud-config');
+      return raw ? JSON.parse(raw) : null; // {url, anonKey}
+    }catch(e){ return null; }
   }
   function setCloudStatusUI(connected){
     const btn = $('cloudBtn');
@@ -1304,11 +1309,9 @@
   }
   async function doCloudInit(){
     const cfg = getCloudConfig();
-    if(!cfg || !window.firebase){ setCloudStatusUI(false); return false; }
+    if(!cfg || !cfg.url || !cfg.anonKey || !window.supabase){ setCloudStatusUI(false); return false; }
     try{
-      if(!firebase.apps.length) firebase.initializeApp(cfg);
-      db = firebase.firestore();
-      await firebase.auth().signInAnonymously();
+      db = window.supabase.createClient(cfg.url, cfg.anonKey);
       cloudReady = true;
       setCloudStatusUI(true);
       return true;
@@ -1327,53 +1330,111 @@
     if(cloudReady) return true;
     return await initCloud();
   }
-  async function cloudGetDoc(path){
+
+  // ---- Generic settings key-value store (table: app_settings) ----
+  // Used for things like field-lists dropdowns and EmailJS config.
+  // NOTE: admin password is no longer stored here — see loginAdmin/changeAdminPassword,
+  // which now use real Supabase Auth instead of a settings/adminPin document.
+  async function cloudGetDoc(key){
     if(!(await ensureCloud())) return null;
-    try{ const snap = await db.doc(path).get(); return snap.exists ? snap.data() : null; }
-    catch(e){ console.error('cloud get failed', path, e); return null; }
+    try{
+      const { data, error } = await db.from('app_settings').select('value').eq('key', key).maybeSingle();
+      if(error) throw error;
+      return data ? data.value : null;
+    }catch(e){ console.error('cloud get failed', key, e); return null; }
   }
-  async function cloudSetDoc(path, data){
+  async function cloudSetDoc(key, value){
     if(!(await ensureCloud())) return false;
-    try{ await db.doc(path).set(data); return true; }
-    catch(e){ console.error('cloud set failed', path, e); return false; }
+    try{
+      const { error } = await db.from('app_settings').upsert({ key, value }, { onConflict: 'key' });
+      if(error) throw error;
+      return true;
+    }catch(e){ console.error('cloud set failed', key, e); return false; }
+  }
+
+  // ---- Service Reports (table: service_reports) ----
+  // Maps the app's existing camelCase report object <-> the Postgres snake_case columns,
+  // so every other part of the app that already builds/reads a report object needs no changes.
+  function reportToRow(data){
+    return {
+      sr_no: data.srNo, technician_id: data.technicianId, date: data.date,
+      cust_name: data.custName, cust_address: data.custAddress, contact_no: data.contactNo,
+      contact_person: data.contactPerson, cust_email: data.custEmail, equip_type: data.equipType,
+      model_cu: data.modelCU, serial_cu: data.serialCU, model_fcu: data.modelFCU, serial_fcu: data.serialFCU,
+      cool_cap: data.coolCap, mount_type: data.mountType, brand: data.brand, refrigerant_type: data.refrigerantType,
+      compressor_type: data.compressorType, equip_location: data.equipLocation, trouble_call: data.troubleCall,
+      findings: data.findings||[], recommendations: data.recommendations||[], materials: data.materials||[],
+      services_done: data.servicesDone||[], before_data: data.before||{}, after_data: data.after||{},
+      installation: data.installation||{}, time_in: data.timeIn, time_out: data.timeOut, remarks: data.remarks,
+      customer_printed_name: data.customerPrintedName, technician_name: data.technicianName,
+      customer_signature: data.customerSignature||{}, technician_signature: data.technicianSignature||{},
+      completed: !!data.completed
+    };
+  }
+  function rowToReport(row){
+    if(!row) return null;
+    return {
+      srNo: row.sr_no, technicianId: row.technician_id, date: row.date,
+      custName: row.cust_name, custAddress: row.cust_address, contactNo: row.contact_no,
+      contactPerson: row.contact_person, custEmail: row.cust_email, equipType: row.equip_type,
+      modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
+      coolCap: row.cool_cap, mountType: row.mount_type, brand: row.brand, refrigerantType: row.refrigerant_type,
+      compressorType: row.compressor_type, equipLocation: row.equip_location, troubleCall: row.trouble_call,
+      findings: row.findings||[], recommendations: row.recommendations||[], materials: row.materials||[],
+      servicesDone: row.services_done||[], before: row.before_data||{}, after: row.after_data||{},
+      installation: row.installation||{}, timeIn: row.time_in, timeOut: row.time_out, remarks: row.remarks,
+      customerPrintedName: row.customer_printed_name, technicianName: row.technician_name,
+      customerSignature: row.customer_signature||{}, technicianSignature: row.technician_signature||{},
+      completed: !!row.completed
+    };
   }
   async function cloudSaveReport(srNo, data){
     if(!(await ensureCloud())) return false;
-    try{ await db.collection('reports').doc(srNo).set(data); return true; }
-    catch(e){ console.error('cloud save report failed', e); return false; }
+    try{
+      data.srNo = srNo;
+      const { error } = await db.from('service_reports').upsert(reportToRow(data), { onConflict: 'sr_no' });
+      if(error) throw error;
+      return true;
+    }catch(e){ console.error('cloud save report failed', e); return false; }
   }
   async function cloudGetReport(srNo){
     if(!(await ensureCloud())) return null;
-    try{ const snap = await db.collection('reports').doc(srNo).get(); return snap.exists ? snap.data() : null; }
-    catch(e){ return null; }
+    try{
+      const { data, error } = await db.from('service_reports').select('*').eq('sr_no', srNo).maybeSingle();
+      if(error) throw error;
+      return rowToReport(data);
+    }catch(e){ return null; }
   }
   async function cloudListReports(){
     if(!(await ensureCloud())) return null;
     try{
-      const snap = await db.collection('reports').orderBy('date','desc').limit(150).get();
-      return snap.docs.map(d=>d.data());
+      const { data, error } = await db.from('service_reports').select('*').order('date',{ascending:false}).limit(150);
+      if(error) throw error;
+      return (data||[]).map(rowToReport);
     }catch(e){ console.error('cloud list failed', e); return null; }
   }
   async function cloudNextSrNo(dateStr){
     if(!(await ensureCloud())) return null;
-    const ref = db.collection('counters').doc(dateStr);
     try{
-      return await db.runTransaction(async (tx)=>{
-        const snap = await tx.get(ref);
-        const next = (snap.exists ? snap.data().seq : 0) + 1;
-        tx.set(ref, {seq: next});
-        return 'SR-'+dateStr+'-'+String(next).padStart(3,'0');
-      });
+      // dateStr comes in as 'YYYYMMDD'; the Postgres function takes a real date.
+      const iso = dateStr.slice(0,4)+'-'+dateStr.slice(4,6)+'-'+dateStr.slice(6,8);
+      const { data, error } = await db.rpc('next_sr_no', { p_date: iso });
+      if(error) throw error;
+      return data;
     }catch(e){ console.error('cloud SR counter failed', e); return null; }
   }
 
-  // ---------- technician user accounts (admin-controlled) ----------
-  function slugifyName(name){
-    return name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || ('tech-'+Date.now());
+  // ---------- technician user accounts (table: profiles, role='technician') ----------
+  // Real account creation/password changes go through the admin-create-technician
+  // Edge Function (see cloudSetUser callers) — these functions only manage the
+  // non-auth profile fields (name, active, restrictions).
+  function profileToUser(row){
+    if(!row) return null;
+    return {
+      id: row.id, name: row.name, active: row.active,
+      restrictions: { noHistory: row.no_history, noReport: row.no_report, readOnly: row.read_only }
+    };
   }
-  // Technician accounts live in the shared cloud when connected, so every phone
-  // sees the same list. When there's no cloud (or it's unreachable), we fall
-  // back to a device-local list so the login gate still works standalone.
   async function localListUsers(){
     try{
       const res = await window.storage.get('local-users', false);
@@ -1387,24 +1448,40 @@
   async function cloudListUsers(){
     if(await ensureCloud()){
       try{
-        const snap = await db.collection('users').get();
-        return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+        const { data, error } = await db.from('profiles').select('*').eq('role','technician');
+        if(error) throw error;
+        return (data||[]).map(profileToUser);
       }catch(e){ console.error('list users failed', e); }
     }
     return await localListUsers();
   }
   async function cloudGetUser(id){
     if(await ensureCloud()){
-      try{ const snap = await db.collection('users').doc(id).get(); if(snap.exists) return Object.assign({id}, snap.data()); }
-      catch(e){}
+      try{
+        const { data, error } = await db.from('profiles').select('*').eq('id', id).maybeSingle();
+        if(error) throw error;
+        return profileToUser(data);
+      }catch(e){}
     }
     const users = await localListUsers();
     return users.find(u=>u.id===id) || null;
   }
+  // Updates name/active/restrictions only — never password (see admin-create-technician).
   async function cloudSetUser(id, data){
     if(await ensureCloud()){
-      try{ await db.collection('users').doc(id).set(data, {merge:true}); return true; }
-      catch(e){ console.error('save user failed', e); }
+      try{
+        const patch = {};
+        if('name' in data) patch.name = data.name;
+        if('active' in data) patch.active = data.active;
+        if(data.restrictions){
+          patch.no_history = !!data.restrictions.noHistory;
+          patch.no_report = !!data.restrictions.noReport;
+          patch.read_only = !!data.restrictions.readOnly;
+        }
+        const { error } = await db.from('profiles').update(patch).eq('id', id);
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('save user failed', e); }
     }
     const users = await localListUsers();
     const idx = users.findIndex(u=>u.id===id);
@@ -1414,8 +1491,15 @@
   }
   async function cloudDeleteUser(id){
     if(await ensureCloud()){
-      try{ await db.collection('users').doc(id).delete(); return true; }
-      catch(e){}
+      try{
+        // Deletes the profile row; the Auth account itself is left intact (Postgres
+        // has no client-side "delete another user's login" — that would need the
+        // same Edge Function pattern as account creation, if fully removing the
+        // login is ever needed rather than just deactivating).
+        const { error } = await db.from('profiles').delete().eq('id', id);
+        if(error) throw error;
+        return true;
+      }catch(e){}
     }
     const users = (await localListUsers()).filter(u=>u.id!==id);
     return await localSaveUsers(users);
@@ -1508,6 +1592,13 @@
     adminLoginBtn.addEventListener('click', ()=> renderAdminLoginForm());
     container.appendChild(techBtn);
     container.appendChild(adminLoginBtn);
+
+    const cloudLink = document.createElement('button');
+    cloudLink.type='button';
+    cloudLink.style.cssText = 'width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer;';
+    cloudLink.textContent = cloudReady ? '☁ Connected — Cloud Setup' : '☁ Not connected — tap to set up Shared Cloud';
+    cloudLink.addEventListener('click', ()=> $('cloudOverlay').classList.add('open'));
+    container.appendChild(cloudLink);
   }
 
   function loginBackButton(){
@@ -1541,11 +1632,15 @@
     const submit = document.createElement('button');
     submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
     submit.textContent = 'Sign In';
-    const doSubmit = ()=>{
+    const doSubmit = async ()=>{
       const pw = input.value;
       if(!pw){ toast('Enter the admin password'); return; }
-      if(pw !== adminPin){ renderAdminLoginForm('Incorrect password — try again.'); return; }
-      currentUser = {id:'admin', name:'Admin', role:'admin'};
+      if(!(await ensureCloud())){ renderAdminLoginForm('Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      submit.disabled = true;
+      const { data, error } = await db.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
+      submit.disabled = false;
+      if(error){ renderAdminLoginForm('Incorrect password — try again.'); return; }
+      currentUser = {id: data.user.id, name:'Admin', role:'admin'};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       enterAdminMode();
       updateUserBadge();
@@ -1619,11 +1714,15 @@
     const submit = document.createElement('button');
     submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
     submit.textContent = 'Sign In';
-    const doSubmit = ()=>{
+    const doSubmit = async ()=>{
       const pin = input.value;
       if(!pin){ toast('Enter your password'); return; }
-      if(pin !== (u.pin||'')){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
-      currentUser = {id:u.id, name:u.name, role:'tech', restrictions: u.restrictions||{}};
+      if(!(await ensureCloud())){ renderTechnicianPinForm(u, 'Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      submit.disabled = true;
+      const { data, error } = await db.auth.signInWithPassword({ email: techEmail(u.id), password: pin });
+      submit.disabled = false;
+      if(error){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
+      currentUser = {id: data.user.id, name:u.name, role:'tech', restrictions: u.restrictions||{}};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
@@ -1705,17 +1804,17 @@
 
   $('cloudBtn').addEventListener('click', ()=>{
     const cfg = getCloudConfig();
-    if(cfg) $('cfgFirebase').value = JSON.stringify(cfg, null, 2);
+    if(cfg){ $('cfgSupabaseUrl').value = cfg.url || ''; $('cfgSupabaseKey').value = cfg.anonKey || ''; }
     $('cloudStatusMsg').textContent = cloudReady ? 'Currently connected.' : '';
     $('cloudOverlay').classList.add('open');
   });
   $('closeCloud').addEventListener('click', ()=> $('cloudOverlay').classList.remove('open'));
   $('cloudOverlay').addEventListener('click', (e)=>{ if(e.target.id==='cloudOverlay') $('cloudOverlay').classList.remove('open'); });
   $('connectCloudBtn').addEventListener('click', async ()=>{
-    let cfg;
-    try{ cfg = JSON.parse($('cfgFirebase').value.trim()); }
-    catch(e){ $('cloudStatusMsg').textContent = 'That doesn\'t look like valid config JSON — check for missing quotes or commas.'; $('cloudStatusMsg').style.color='var(--danger)'; return; }
-    localStorage.setItem('cloud-config', JSON.stringify(cfg));
+    const url = $('cfgSupabaseUrl').value.trim();
+    const anonKey = $('cfgSupabaseKey').value.trim();
+    if(!url || !anonKey){ $('cloudStatusMsg').textContent = 'Enter both the Project URL and the anon public key.'; $('cloudStatusMsg').style.color='var(--danger)'; return; }
+    localStorage.setItem('cloud-config', JSON.stringify({url, anonKey}));
     cloudInitPromise = null; cloudReady = false;
     $('cloudStatusMsg').textContent = 'Connecting…'; $('cloudStatusMsg').style.color='var(--text-muted)';
     const ok = await initCloud();
@@ -1725,7 +1824,7 @@
       toast('Connected to shared cloud');
       setTimeout(()=> $('cloudOverlay').classList.remove('open'), 900);
     }else{
-      $('cloudStatusMsg').textContent = 'Could not connect — double check the config was copied correctly and Firestore + Anonymous Auth are enabled.';
+      $('cloudStatusMsg').textContent = 'Could not connect — double check the URL and key were copied correctly.';
       $('cloudStatusMsg').style.color='var(--danger)';
     }
   });
@@ -1733,7 +1832,7 @@
     localStorage.removeItem('cloud-config');
     cloudReady = false; cloudInitPromise = Promise.resolve(false); db = null;
     setCloudStatusUI(false);
-    $('cfgFirebase').value = '';
+    $('cfgSupabaseUrl').value = ''; $('cfgSupabaseKey').value = '';
     toast('Disconnected — this device will use local storage only');
   });
   $('migrateBtn').addEventListener('click', async ()=>{
@@ -1917,24 +2016,31 @@
 
   let fieldLists = {};
   let adminMode = false;
-  let adminPin = '180902';
+  // Admin credentials now live in real Supabase Auth, not a stored PIN.
+  // This synthetic email is the convention used when the admin account was created
+  // in Supabase (see setup instructions) — change it here if a different email was used.
+  const ADMIN_EMAIL = 'admin@awes-app.local';
+  function techEmail(technicianId){ return technicianId + '@awes-app.local'; }
+  // Re-verifies the admin's password against Supabase Auth without disturbing the
+  // current session (signing in again as the same already-logged-in user is safe;
+  // it's only creating OTHER accounts that would hijack the session — see addTechnician).
+  async function verifyAdminPassword(pw){
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
+      return !error;
+    }catch(e){ return false; }
+  }
 
   async function loadFieldLists(){
     if(await ensureCloud()){
       const doc = await cloudGetDoc('settings/fieldLists');
-      if(doc){ fieldLists = doc.data || {}; }
-      const pinDoc = await cloudGetDoc('settings/adminPin');
-      if(pinDoc && pinDoc.pin) adminPin = pinDoc.pin;
-      if(doc || pinDoc) return;
+      if(doc){ fieldLists = doc.data || {}; return; }
     }
     try{
       const res = await window.storage.get('field-lists', false);
       fieldLists = res ? JSON.parse(res.value) : {};
     }catch(e){ fieldLists = {}; }
-    try{
-      const p = await window.storage.get('settings:adminPin', false);
-      if(p) adminPin = JSON.parse(p.value).pin;
-    }catch(e){}
   }
   async function saveFieldLists(){
     if(await ensureCloud()){
@@ -2172,11 +2278,11 @@
     });
   }
 
-  $('adminBtn').addEventListener('click', ()=>{
+  $('adminBtn').addEventListener('click', async ()=>{
     if(!adminMode){
       const pin = prompt('Enter Admin Password to manage dropdown lists:');
       if(pin===null) return;
-      if(pin !== adminPin){ toast('Incorrect password'); return; }
+      if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return; }
       enterAdminMode();
       toast('Admin mode on — dropdowns are now editable');
     }
@@ -2288,13 +2394,18 @@
           noReport: panel.querySelector('[data-f="noReport"]').checked,
           readOnly: panel.querySelector('[data-f="readOnly"]').checked
         };
-        const update = { name: newName, restrictions };
-        if(pw1) update.pin = pw1;
-        const ok = await cloudSetUser(u.id, update);
-        if(ok){
+        const ok1 = await cloudSetUser(u.id, { name: newName, restrictions });
+        let ok2 = true;
+        if(pw1){
+          const { data, error } = await db.functions.invoke('admin-create-technician', {
+            body: { action:'reset_password', technicianId: u.id, password: pw1 }
+          });
+          ok2 = !error && !(data && data.error);
+        }
+        if(ok1 && ok2){
           toast('Saved changes for '+newName);
           renderUsersList();
-        }else toast('Could not save changes');
+        }else toast('Could not save all changes');
       });
       card.querySelector('[data-act="toggle"]').addEventListener('click', async ()=>{
         const ok = await cloudSetUser(u.id, {active: active ? false : true});
@@ -2324,30 +2435,33 @@
     if(!name){ toast('Enter a name'); return; }
     if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
     if(pin !== pin2){ toast('Passwords do not match'); return; }
-    const id = slugifyName(name);
-    const existing = await cloudGetUser(id);
-    if(existing){ toast('A user with that name already exists'); return; }
-    const ok = await cloudSetUser(id, {name, pin, active:true, restrictions:{}, createdAt: Date.now()});
-    if(ok){
-      $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value='';
-      toast('Added '+name);
-      renderUsersList();
-    }else toast('Could not add user');
+    if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
+    $('addUserBtn').disabled = true;
+    try{
+      // Real account creation happens server-side (Edge Function) so it can't
+      // hijack the admin's own browser session — see admin-create-technician.
+      const { data, error } = await db.functions.invoke('admin-create-technician', {
+        body: { name, password: pin }
+      });
+      if(error || (data && data.error)){
+        toast((data && data.error) || 'Could not add user');
+      }else{
+        $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value='';
+        toast('Added '+name);
+        renderUsersList();
+      }
+    }finally{ $('addUserBtn').disabled = false; }
   });
 
   async function doChangeAdminPin(){
     const cur = prompt('Enter current Admin Password:');
     if(cur===null) return;
-    if(cur !== adminPin){ toast('Incorrect password'); return; }
+    if(!(await verifyAdminPassword(cur))){ toast('Incorrect password'); return; }
     const next = prompt('Enter new Admin Password:');
-    if(!next) return;
-    adminPin = next;
-    if(await ensureCloud()){
-      const ok = await cloudSetDoc('settings/adminPin', {pin: adminPin});
-      if(ok){ toast('Password updated for all devices'); return; }
-    }
-    try{ await window.storage.set('settings:adminPin', JSON.stringify({pin:adminPin}), false); toast('Password updated on this device'); }
-    catch(e){ toast('Could not save password'); }
+    if(!next || next.length < 4){ toast('Password must be at least 4 characters'); return; }
+    const { error } = await db.auth.updateUser({ password: next });
+    if(error){ toast('Could not update password: '+error.message); return; }
+    toast('Password updated');
   }
 
   // ---------- EmailJS settings ----------
@@ -2982,11 +3096,11 @@
   // ---------- Main Menu (consolidates Admin / History / Email Setup / Logout) ----------
   function closeMainMenu(){ $('menuDropdown').classList.remove('open'); }
   function openMainMenu(){ $('menuDropdown').classList.add('open'); }
-  function ensureAdminAuthenticated(){
+  async function ensureAdminAuthenticated(){
     if(adminMode) return true;
     const pin = prompt('Enter Admin Password:');
     if(pin===null) return false;
-    if(pin !== adminPin){ toast('Incorrect password'); return false; }
+    if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return false; }
     enterAdminMode();
     toast('Admin mode on');
     return true;
@@ -3001,15 +3115,15 @@
     if(!$('menuDropdown').contains(e.target) && e.target.id!=='menuBtn') closeMainMenu();
   });
 
-  $('menuManageUsers').addEventListener('click', ()=>{
+  $('menuManageUsers').addEventListener('click', async ()=>{
     closeMainMenu();
-    if(!ensureAdminAuthenticated()) return;
+    if(!(await ensureAdminAuthenticated())) return;
     $('usersOverlay').classList.add('open');
     renderUsersList();
   });
-  $('menuManageDropdowns').addEventListener('click', ()=>{
+  $('menuManageDropdowns').addEventListener('click', async ()=>{
     closeMainMenu();
-    if(!ensureAdminAuthenticated()) return;
+    if(!(await ensureAdminAuthenticated())) return;
     renderManageLists();
     $('adminOverlay').classList.add('open');
   });
@@ -3079,8 +3193,9 @@
   async function dtrGetDeviceLock(userId){
     if(await ensureCloud()){
       try{
-        const snap = await db.collection('device-locks').doc(userId).get();
-        return snap.exists ? snap.data().deviceId : null;
+        const { data, error } = await db.from('device_locks').select('device_id').eq('technician_id', userId).maybeSingle();
+        if(error) throw error;
+        return data ? data.device_id : null;
       }catch(e){ console.error('device lock read failed', e); }
     }
     try{
@@ -3090,8 +3205,13 @@
   }
   async function dtrSetDeviceLock(userId, devId){
     if(await ensureCloud()){
-      try{ await db.collection('device-locks').doc(userId).set({deviceId:devId, boundAt:new Date().toISOString()}); return true; }
-      catch(e){ console.error('device lock write failed', e); }
+      try{
+        const { error } = await db.from('device_locks').upsert(
+          { technician_id: userId, device_id: devId }, { onConflict: 'technician_id' }
+        );
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('device lock write failed', e); }
     }
     try{ await window.storage.set('device-lock:'+userId, JSON.stringify({deviceId:devId}), false); return true; }
     catch(e){ return false; }
@@ -3100,8 +3220,11 @@
   // for when a technician legitimately gets a new phone.
   async function clearDeviceLock(userId){
     if(await ensureCloud()){
-      try{ await db.collection('device-locks').doc(userId).delete(); return true; }
-      catch(e){ console.error('device lock clear failed', e); }
+      try{
+        const { error } = await db.from('device_locks').delete().eq('technician_id', userId);
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('device lock clear failed', e); }
     }
     try{ await window.storage.delete('device-lock:'+userId, false); return true; }
     catch(e){ return false; }
@@ -3168,19 +3291,28 @@
   $('dtrLocationOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtrLocationOverlay') dtrCloseLocationOverlay(); });
 
   // ---- DTR record storage (own 'dtr' collection/keys; one doc per user per day) ----
-  function dtrDocId(userId, dateISO){ return userId+'_'+dateISO; }
   async function dtrGetDay(userId, dateISO){
     if(await ensureCloud()){
-      try{ const snap = await db.collection('dtr').doc(dtrDocId(userId,dateISO)).get(); return snap.exists ? snap.data() : null; }
-      catch(e){ console.error('dtr get failed', e); }
+      try{
+        const { data, error } = await db.from('dtr_records').select('data')
+          .eq('technician_id', userId).eq('date', dateISO).maybeSingle();
+        if(error) throw error;
+        return data ? data.data : null;
+      }catch(e){ console.error('dtr get failed', e); }
     }
     try{ const res = await window.storage.get('dtr:'+userId+':'+dateISO, false); return res ? JSON.parse(res.value) : null; }
     catch(e){ return null; }
   }
   async function dtrSaveDay(userId, dateISO, data){
     if(await ensureCloud()){
-      try{ await db.collection('dtr').doc(dtrDocId(userId,dateISO)).set(data); return true; }
-      catch(e){ console.error('dtr save failed', e); }
+      try{
+        const { error } = await db.from('dtr_records').upsert(
+          { technician_id: userId, date: dateISO, data },
+          { onConflict: 'technician_id,date' }
+        );
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('dtr save failed', e); }
     }
     try{ await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -3189,8 +3321,10 @@
   async function dtrListForUser(userId, sinceISO){
     if(await ensureCloud()){
       try{
-        const snap = await db.collection('dtr').where('userId','==',userId).get();
-        return snap.docs.map(d=>d.data()).filter(d=>d.date>=sinceISO).sort((a,b)=> b.date.localeCompare(a.date));
+        const { data, error } = await db.from('dtr_records').select('data')
+          .eq('technician_id', userId).gte('date', sinceISO).order('date',{ascending:false});
+        if(error) throw error;
+        return (data||[]).map(r=>r.data);
       }catch(e){ console.error('dtr list failed', e); }
     }
     try{
@@ -3339,13 +3473,19 @@
   $('dtrUserPickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtrUserPickerOverlay') $('dtrUserPickerOverlay').classList.remove('open'); });
   $('dtrSwitchUserBtn').addEventListener('click', dtrOpenAdminPicker);
 
-  // ---------- Leave Form (own 'leaves' collection/keys; one doc per request) ----------
+  // ---------- Leave Form (table: leave_requests; id/status/technician_id are real columns, rest in data) ----------
   function leaveGenId(userId){ return userId+'_'+Date.now(); }
 
   async function leaveSaveRequest(id, data){
     if(await ensureCloud()){
-      try{ await db.collection('leaves').doc(id).set(data); return true; }
-      catch(e){ console.error('leave save failed', e); }
+      try{
+        const { error } = await db.from('leave_requests').upsert({
+          id, technician_id: data.userId, status: data.status || 'pending',
+          submitted_at: data.submittedAt || new Date().toISOString(), data
+        });
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('leave save failed', e); }
     }
     try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -3353,8 +3493,9 @@
   async function leaveListAll(){
     if(await ensureCloud()){
       try{
-        const snap = await db.collection('leaves').orderBy('submittedAt','desc').limit(200).get();
-        return snap.docs.map(d=>d.data());
+        const { data, error } = await db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
+        if(error) throw error;
+        return (data||[]).map(r=>r.data);
       }catch(e){ console.error('leave list failed', e); }
     }
     try{
@@ -3558,13 +3699,19 @@
     }
   }
 
-  // ---------- Cash Advance Form (own 'cashAdvances' collection/keys) ----------
+  // ---------- Cash Advance Form (table: cash_advance_requests) ----------
   function caGenId(userId){ return userId+'_'+Date.now(); }
 
   async function caSaveRequest(id, data){
     if(await ensureCloud()){
-      try{ await db.collection('cashAdvances').doc(id).set(data); return true; }
-      catch(e){ console.error('cash advance save failed', e); }
+      try{
+        const { error } = await db.from('cash_advance_requests').upsert({
+          id, technician_id: data.userId, status: data.status || 'pending',
+          submitted_at: data.submittedAt || new Date().toISOString(), data
+        });
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('cash advance save failed', e); }
     }
     try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -3572,8 +3719,9 @@
   async function caListAll(){
     if(await ensureCloud()){
       try{
-        const snap = await db.collection('cashAdvances').orderBy('submittedAt','desc').limit(200).get();
-        return snap.docs.map(d=>d.data());
+        const { data, error } = await db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
+        if(error) throw error;
+        return (data||[]).map(r=>r.data);
       }catch(e){ console.error('cash advance list failed', e); }
     }
     try{
