@@ -302,6 +302,12 @@
   .btn-primary:active{background:var(--green-dark);}
   .btn:disabled{opacity:.5;}
 
+  .equip-tab{
+    flex:1; padding:10px; border-radius:9px; font-size:13px; font-weight:700; border:1px solid var(--border);
+    background:#fff; color:var(--text-muted); cursor:pointer;
+  }
+  .equip-tab.active{background:var(--green); color:#fff; border-color:var(--green);}
+
   .overlay{
     position:fixed; inset:0; background:rgba(20,28,23,.5); z-index:50;
     display:none; align-items:flex-end; justify-content:center;
@@ -518,6 +524,7 @@
       <button class="icon-btn" id="menuBtn">☰ Menu</button>
       <div class="menu-dropdown" id="menuDropdown">
         <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
+        <button type="button" id="menuManageCustomers"><span class="menu-ico">🏢</span>Manage Customers</button>
         <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
         <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
         <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
@@ -947,6 +954,14 @@
   <div class="card">
     <div class="card-head"><span><span class="num">2</span>Equipment Description</span></div>
     <div class="card-body">
+      <div id="equipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
+        <button type="button" id="equipTabExisting" class="equip-tab">Select Existing</button>
+        <button type="button" id="equipTabAddNew" class="equip-tab">+ Add New</button>
+      </div>
+      <div id="equipPickerPanel" style="display:none; margin-bottom:14px;">
+        <div id="equipPickerList"></div>
+      </div>
+      <div id="equipFieldsWrap">
       <div class="field">
         <label>Equipment Type</label>
         <input type="text" id="equipType" placeholder="e.g. Split Type Unit">
@@ -962,6 +977,7 @@
         <div class="field"><label>Refrigerant Type</label><input type="text" id="refrigerantType" placeholder="e.g. R410A"></div>
         <div class="field"><label>Compressor Type</label><input type="text" id="compressorType" placeholder="e.g. Inverter"></div>
         <div class="field"><label>Specific Location of Equipment</label><input type="text" id="equipLocation"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -1192,8 +1208,47 @@
   </div>
 </div>
 
+<!-- Manage Customers sheet (admin-only) -->
+<div class="overlay" id="customersOverlay" style="z-index:55;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Manage Customers</h3>
+      <button class="sheet-close" id="closeCustomers">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      This is the client list technicians pick from on Service Reports — selecting a name
+      auto-fills address and contact info. Only Admin can add or edit customer records here;
+      technicians can view and select, but can't add new ones.
+    </p>
+    <div class="field"><input type="text" id="customerSearch" placeholder="Search customers…"></div>
+    <div id="customersList"></div>
+    <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
+      <div style="font-size:12px; font-weight:700; margin-bottom:8px;" id="customerFormTitle">Add a customer</div>
+      <input type="hidden" id="editCustomerId" value="">
+      <div class="field"><label>Customer's Name</label><input type="text" id="newCustName" placeholder="e.g. Dela Cruz Residence"></div>
+      <div class="field"><label>Complete Address</label><textarea id="newCustAddress" placeholder="Street, Barangay, City"></textarea></div>
+      <div class="field"><label>Contact No.</label><input type="text" id="newCustContactNo" placeholder="09xx xxx xxxx"></div>
+      <div class="field"><label>Contact Person</label><input type="text" id="newCustContactPerson"></div>
+      <div class="field"><label>Email (optional)</label><input type="text" id="newCustEmail" placeholder="customer@email.com"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" id="saveCustomerBtn" type="button" style="flex:1;">Save Customer</button>
+        <button class="btn btn-secondary" id="cancelEditCustomerBtn" type="button" style="display:none;">Cancel</button>
+      </div>
+    </div>
+    <div id="customerEquipmentSection" style="display:none; border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+      <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Equipment on file for this customer</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+        Added automatically as technicians file reports for this customer. Edit to fix a typo, or remove a
+        decommissioned/duplicate unit.
+      </p>
+      <div id="customerEquipmentList"></div>
+    </div>
+  </div>
+</div>
+
+
 <!-- Cloud Setup sheet -->
-<div class="overlay" id="cloudOverlay">
+<div class="overlay" id="cloudOverlay" style="z-index:90;">
   <div class="sheet">
     <div class="sheet-head">
       <h3>Shared Cloud Setup</h3>
@@ -1820,7 +1875,7 @@
     const ok = await initCloud();
     if(ok){
       $('cloudStatusMsg').textContent = 'Connected! Reloading shared data…'; $('cloudStatusMsg').style.color='var(--green-dark)';
-      await loadFieldLists(); await seedDefaultLists(); await loadEmailCfg();
+      await loadFieldLists(); await seedDefaultLists(); await loadEmailCfg(); await loadCustomers();
       toast('Connected to shared cloud');
       setTimeout(()=> $('cloudOverlay').classList.remove('open'), 900);
     }else{
@@ -1944,7 +1999,7 @@
   }
   const sigCustomerPad = setupSigPad('sigCustomer','sigCustomerPh');
   const sigTechPad = setupSigPad('sigTech','sigTechPh');
-  loadFieldLists().then(async ()=>{ await seedDefaultLists(); attachAllCombos(); checkLoginGate(); });
+  loadFieldLists().then(async ()=>{ await seedDefaultLists(); await loadCustomers(); attachAllCombos(); checkLoginGate(); });
   document.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const map = {sigCustomer:sigCustomerPad, sigTech:sigTechPad};
@@ -2019,7 +2074,7 @@
   // Admin credentials now live in real Supabase Auth, not a stored PIN.
   // This synthetic email is the convention used when the admin account was created
   // in Supabase (see setup instructions) — change it here if a different email was used.
-  const ADMIN_EMAIL = 'admin@awes-app.local';
+  const ADMIN_EMAIL = 'awes.manila@gmail.com';
   function techEmail(technicianId){ return technicianId + '@awes-app.local'; }
   // Re-verifies the admin's password against Supabase Auth without disturbing the
   // current session (signing in again as the same already-logged-in user is safe;
@@ -2051,6 +2106,266 @@
     catch(e){ toast('Could not save list'); }
   }
   function ensureList(key){ if(!fieldLists[key]) fieldLists[key] = []; return fieldLists[key]; }
+
+  // Equipment Description fields: unlike other dropdown lists (admin-only add),
+  // any logged-in user can add new values here directly while filling out a
+  // report — makes sense since technicians encounter new equipment specs in
+  // the field constantly. Admin can still add AND edit/rename via Manage
+  // Dropdown Lists; this set only affects who can add from the report form.
+  const USER_ADDABLE_LIST_KEYS = new Set([
+    'equipType','modelCU','serialCU','modelFCU','serialFCU',
+    'coolCap','mountType','brand','refrigerantType','compressorType','equipLocation'
+  ]);
+
+  // ---------- Customer database (table: customers) ----------
+  // Powers the Customer's Name autocomplete: picking an existing customer
+  // auto-fills address/contact/email; saving a report keeps this list fresh.
+  let customersCache = [];
+  function customerRowToObj(row){
+    return { id: row.id, name: row.name, address: row.address||'', contactNo: row.contact_no||'', contactPerson: row.contact_person||'', email: row.email||'' };
+  }
+  async function loadCustomers(){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('customers').select('*').order('name');
+        if(error) throw error;
+        customersCache = (data||[]).map(customerRowToObj);
+        return;
+      }catch(e){ console.error('load customers failed', e); }
+    }
+    try{
+      const res = await window.storage.get('customers', false);
+      customersCache = res ? JSON.parse(res.value) : [];
+    }catch(e){ customersCache = []; }
+  }
+  async function saveCustomersLocal(){
+    try{ await window.storage.set('customers', JSON.stringify(customersCache), false); }catch(e){}
+  }
+  // Called when a report is saved — creates or updates the customer record
+  // so the next report for the same client can auto-fill from it.
+  async function cloudUpsertCustomer(c){
+    if(!c.name || !c.name.trim()) return;
+    const rec = { name: c.name.trim(), address: c.address||'', contact_no: c.contactNo||'', contact_person: c.contactPerson||'', email: c.email||'', updated_at: new Date().toISOString() };
+    if(await ensureCloud()){
+      try{
+        const { error } = await db.from('customers').upsert(rec, { onConflict: 'name' });
+        if(error) throw error;
+        await loadCustomers();
+        return;
+      }catch(e){ console.error('upsert customer failed', e); }
+    }
+    const idx = customersCache.findIndex(x=> x.name.toLowerCase() === rec.name.toLowerCase());
+    const obj = { id: idx>=0 ? customersCache[idx].id : ('local-'+Date.now()), name: rec.name, address: rec.address, contactNo: rec.contact_no, contactPerson: rec.contact_person, email: rec.email };
+    if(idx>=0) customersCache[idx] = obj; else customersCache.push(obj);
+    await saveCustomersLocal();
+  }
+  async function cloudDeleteCustomer(id){
+    if(await ensureCloud()){
+      try{
+        const { error } = await db.from('customers').delete().eq('id', id);
+        if(error) throw error;
+        await loadCustomers();
+        return true;
+      }catch(e){ console.error('delete customer failed', e); return false; }
+    }
+    customersCache = customersCache.filter(c=>c.id!==id);
+    await saveCustomersLocal();
+    return true;
+  }
+
+  // ---------- Customer Equipment (table: customer_equipment) ----------
+  // Equipment fields all use the normal global dropdown lists for free entry
+  // (via the generic combo). The toggle below lets a technician instead pick
+  // a whole known unit for the selected customer, filling every field at once.
+  const EQUIP_FIELD_KEYS = ['equipType','equipLocation','brand','mountType','coolCap','modelCU','serialCU','modelFCU','serialFCU','refrigerantType','compressorType'];
+  const EQUIP_FIELD_TO_COLUMN = {
+    equipType:'equip_type', equipLocation:'equip_location', brand:'brand', mountType:'mount_type', coolCap:'cool_cap',
+    modelCU:'model_cu', serialCU:'serial_cu', modelFCU:'model_fcu', serialFCU:'serial_fcu',
+    refrigerantType:'refrigerant_type', compressorType:'compressor_type'
+  };
+  let currentCustomerId = null;      // which customer's equipment is currently loaded
+  let currentEquipmentCache = [];    // that customer's equipment rows
+  function equipRowToObj(row){
+    return {
+      id: row.id, customerId: row.customer_id, equipType: row.equip_type, equipLocation: row.equip_location,
+      brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap, modelCU: row.model_cu, serialCU: row.serial_cu,
+      modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type
+    };
+  }
+  async function loadCustomerEquipment(customerId){
+    currentCustomerId = customerId;
+    if(!customerId){ currentEquipmentCache = []; return; }
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('customer_equipment').select('*').eq('customer_id', customerId);
+        if(error) throw error;
+        currentEquipmentCache = (data||[]).map(equipRowToObj);
+        return;
+      }catch(e){ console.error('load customer equipment failed', e); }
+    }
+    try{
+      const res = await window.storage.get('cequip:'+customerId, false);
+      currentEquipmentCache = res ? JSON.parse(res.value) : [];
+    }catch(e){ currentEquipmentCache = []; }
+  }
+  // Called on report save — if this customer + equipment combo hasn't been
+  // seen before, record it so it shows up in future dropdowns for this site.
+  async function cloudAddCustomerEquipment(customerId, fields){
+    if(!customerId) return;
+    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
+    if(!hasAnyValue) return;
+    // Skip if an identical record already exists for this customer.
+    const dupe = currentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
+    if(dupe) return;
+    const rec = { customer_id: customerId };
+    EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
+    if(await ensureCloud()){
+      try{
+        const { error } = await db.from('customer_equipment').insert(rec);
+        if(error) throw error;
+        await loadCustomerEquipment(customerId);
+        return;
+      }catch(e){ console.error('add customer equipment failed', e); }
+    }
+    const obj = { id:'local-'+Date.now(), customerId }; EQUIP_FIELD_KEYS.forEach(k=> obj[k]=fields[k]||'');
+    currentEquipmentCache.push(obj);
+    try{ await window.storage.set('cequip:'+customerId, JSON.stringify(currentEquipmentCache), false); }catch(e){}
+  }
+  async function cloudDeleteCustomerEquipment(id){
+    if(await ensureCloud()){
+      try{ const { error } = await db.from('customer_equipment').delete().eq('id', id); if(error) throw error; }
+      catch(e){ console.error('delete equipment failed', e); return false; }
+    }
+    currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
+    return true;
+  }
+  // Detail fields (everything except Equipment Type) dynamically decide their
+  // own source each time they're opened:
+  // Equipment picker toggle: ON shows a list of this customer's known
+  // equipment (identified by Type + Brand + Capacity + Location) to pick
+  // from as one unit. "Add New" reveals the normal input fields (global
+  // dropdown lists, free entry) for equipment not yet on file.
+  let currentEquipTab = 'addnew';
+  function equipSummaryLine(e){
+    return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+  }
+  function renderEquipPicker(){
+    const list = $('equipPickerList');
+    list.innerHTML = '';
+    if(!currentCustomerId){
+      list.innerHTML = '<div class="combo-empty">Select a customer first (step 1).</div>';
+      return;
+    }
+    if(currentEquipmentCache.length===0){
+      list.innerHTML = '<div class="combo-empty">No equipment on file yet for this customer — tap "+ Add New" to add one.</div>';
+      return;
+    }
+    currentEquipmentCache.forEach(e=>{
+      const row = document.createElement('div');
+      row.className = 'combo-item';
+      row.style.cssText = 'border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;';
+      row.textContent = equipSummaryLine(e);
+      row.addEventListener('click', ()=>{
+        EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = e[k]||''; });
+        setEquipTab('addnew');
+        toast('Loaded equipment: '+equipSummaryLine(e));
+      });
+      list.appendChild(row);
+    });
+  }
+  function setEquipTab(tab){
+    currentEquipTab = tab;
+    $('equipTabExisting').classList.toggle('active', tab==='existing');
+    $('equipTabAddNew').classList.toggle('active', tab==='addnew');
+    if(tab==='existing'){
+      if(!currentCustomerId){ toast('Select a customer first (step 1)'); currentEquipTab='addnew'; $('equipTabExisting').classList.remove('active'); $('equipTabAddNew').classList.add('active'); }
+      $('equipPickerPanel').style.display = currentEquipTab==='existing' ? '' : 'none';
+      $('equipFieldsWrap').style.display = currentEquipTab==='existing' ? 'none' : '';
+      if(currentEquipTab==='existing') renderEquipPicker();
+    }else{
+      $('equipPickerPanel').style.display = 'none';
+      $('equipFieldsWrap').style.display = '';
+    }
+  }
+  // When a customer is selected, default to whichever tab makes sense:
+  // show their equipment list if they have any on file, otherwise go
+  // straight to Add New so the technician isn't stuck looking at an empty list.
+  function defaultEquipTabForCustomer(){
+    setEquipTab(currentEquipmentCache.length>0 ? 'existing' : 'addnew');
+  }
+  // Dedicated autocomplete for Customer's Name — separate from the generic
+  // attachCombo() used elsewhere, because selecting a result here fills
+  // FOUR fields (address/contact/person/email) at once, not just one.
+  function attachCustomerCombo(input){
+    if(input.dataset.comboAttached) return;
+    input.dataset.comboAttached = '1';
+    const wrap = document.createElement('div');
+    wrap.className = 'combo-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    input.classList.add('combo-input');
+    const caret = document.createElement('button');
+    caret.type='button'; caret.className='combo-caret'; caret.innerHTML='&#9662;';
+    wrap.appendChild(caret);
+    const panel = document.createElement('div');
+    panel.className = 'combo-panel';
+    wrap.appendChild(panel);
+
+    function fillFromCustomer(c){
+      input.value = c.name;
+      $('custAddress').value = c.address||'';
+      $('contactNo').value = c.contactNo||'';
+      $('contactPerson').value = c.contactPerson||'';
+      $('custEmail').value = c.email||'';
+      panel.classList.remove('open');
+      input.dispatchEvent(new Event('change'));
+      // Switching customers means switching equipment context — clear the old
+      // customer's equipment values so nothing from a different site lingers,
+      // then load this customer's own equipment list for the picker.
+      EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
+      loadCustomerEquipment(c.id).then(defaultEquipTabForCustomer);
+    }
+    function render(filterText){
+      const q = (filterText||'').toLowerCase();
+      const filtered = customersCache.filter(c=> c.name.toLowerCase().includes(q));
+      panel.innerHTML = '';
+      if(filtered.length===0){
+        const empty = document.createElement('div');
+        empty.className = 'combo-empty';
+        empty.textContent = customersCache.length===0 ? 'No saved customers yet — fill in details and save a report to add one' : 'No matches — new customer? Just fill in the fields below';
+        panel.appendChild(empty);
+      }
+      filtered.slice(0,25).forEach(c=>{
+        const row = document.createElement('div');
+        row.className = 'combo-item';
+        const span = document.createElement('span');
+        span.textContent = c.name + (c.address ? '  —  '+c.address : '');
+        row.appendChild(span);
+        row.addEventListener('mousedown', (e)=> e.preventDefault());
+        row.addEventListener('click', ()=> fillFromCustomer(c));
+        panel.appendChild(row);
+      });
+    }
+    function open(){
+      closeAllCombos(panel);
+      render(input.value);
+      panel.classList.add('open');
+      panel.style.top=''; panel.style.bottom='';
+      const rect = wrap.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if(spaceBelow < 200 && spaceAbove > spaceBelow){
+        panel.style.top='auto'; panel.style.bottom='calc(100% + 4px)';
+      }
+      setTimeout(()=>{ panel.scrollIntoView({block:'nearest', behavior:'smooth'}); }, 30);
+    }
+    input.addEventListener('focus', open);
+    input.addEventListener('input', ()=> render(input.value));
+    caret.addEventListener('click', (e)=>{
+      e.preventDefault();
+      if(panel.classList.contains('open')){ panel.classList.remove('open'); } else { open(); input.focus(); }
+    });
+  }
 
   const DEFAULT_LISTS = {
     troubleCall: [
@@ -2152,7 +2467,9 @@
       if(filtered.length===0){
         const empty = document.createElement('div');
         empty.className = 'combo-empty';
-        empty.textContent = list.length===0 ? 'No suggestions yet — set up via Admin' : 'No matches';
+        empty.textContent = list.length===0
+          ? (USER_ADDABLE_LIST_KEYS.has(key) ? 'No suggestions yet — start typing to add one' : 'No suggestions yet — set up via Admin')
+          : 'No matches';
         panel.appendChild(empty);
       }
       filtered.forEach(opt=>{
@@ -2179,7 +2496,7 @@
         }
         panel.appendChild(row);
       });
-      if(adminMode && filterText && filterText.trim() && !list.includes(filterText.trim())){
+      if((adminMode || USER_ADDABLE_LIST_KEYS.has(key)) && filterText && filterText.trim() && !list.includes(filterText.trim())){
         const addRow = document.createElement('div');
         addRow.className = 'combo-item combo-additem';
         addRow.textContent = '+ Add "'+filterText.trim()+'" to list';
@@ -2217,8 +2534,18 @@
     if(!e.target.closest('.combo-wrap')) closeAllCombos(null);
   });
   function attachAllCombos(){
-    document.querySelectorAll('input[type=text]').forEach(el=>attachCombo(el));
+    document.querySelectorAll('input[type=text]').forEach(el=>{
+      if(el.id==='custName') return;
+      attachCombo(el);
+    });
     attachCombo($('troubleCall'), 'troubleCall');
+    attachCustomerCombo($('custName'));
+    if(!$('equipTabExisting').dataset.hooked){
+      $('equipTabExisting').dataset.hooked = '1';
+      $('equipTabExisting').addEventListener('click', ()=> setEquipTab('existing'));
+      $('equipTabAddNew').addEventListener('click', ()=> setEquipTab('addnew'));
+      setEquipTab('addnew');
+    }
   }
 
   function fieldsInGroup(group){
@@ -2248,12 +2575,26 @@
         list.forEach(item=>{
           const chip = document.createElement('div'); chip.className='chip';
           const txt = document.createElement('span'); txt.textContent = item;
+          const edit = document.createElement('button'); edit.type='button'; edit.textContent='\u270E';
+          edit.title = 'Rename';
+          edit.addEventListener('click', async ()=>{
+            const idx = list.indexOf(item);
+            if(idx===-1) return;
+            const next = prompt('Rename "'+item+'" to:', item);
+            if(next===null) return;
+            const trimmed = next.trim();
+            if(!trimmed) return;
+            list[idx] = trimmed;
+            await saveFieldLists();
+            renderManageLists();
+          });
           const rm = document.createElement('button'); rm.type='button'; rm.textContent='\u2715';
+          rm.title = 'Remove';
           rm.addEventListener('click', async ()=>{
             const idx = list.indexOf(item);
             if(idx>-1){ list.splice(idx,1); await saveFieldLists(); renderManageLists(); }
           });
-          chip.appendChild(txt); chip.appendChild(rm);
+          chip.appendChild(txt); chip.appendChild(edit); chip.appendChild(rm);
           chips.appendChild(chip);
         });
         fDiv.appendChild(chips);
@@ -2428,6 +2769,144 @@
   }
   $('closeUsers').addEventListener('click', ()=> $('usersOverlay').classList.remove('open'));
   $('usersOverlay').addEventListener('click', (e)=>{ if(e.target.id==='usersOverlay') $('usersOverlay').classList.remove('open'); });
+
+  // ---------- Manage Customers (admin-only) ----------
+  async function renderCustomersList(filterText){
+    const body = $('customersList');
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    const cloudOn = await ensureCloud();
+    await loadCustomers();
+    body.innerHTML = '';
+    if(!cloudOn){
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px; color:var(--amber); margin-bottom:10px;';
+      note.textContent = 'Not connected to Shared Cloud — customers are saved on this device only.';
+      body.appendChild(note);
+    }
+    const q = (filterText||'').toLowerCase();
+    const list = customersCache.filter(c=> c.name.toLowerCase().includes(q)).sort((a,b)=> a.name.localeCompare(b.name));
+    if(list.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = customersCache.length===0 ? 'No customers added yet.' : 'No matches.';
+      body.appendChild(empty);
+      return;
+    }
+    list.forEach(c=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      card.innerHTML =
+        '<div class="user-card-head"><div>'+
+          '<div class="u-name">'+escapeHtml(c.name)+'</div>'+
+          '<div class="u-status">'+escapeHtml(c.address||'No address on file')+'</div>'+
+        '</div></div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="edit" class="primary">Edit</button>'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>';
+      card.querySelector('[data-act="edit"]').addEventListener('click', ()=> startEditCustomer(c));
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove '+c.name+' from the customer list? This does not affect past reports.')) return;
+        const ok = await cloudDeleteCustomer(c.id);
+        if(ok){ toast('Removed '+c.name); renderCustomersList($('customerSearch').value); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+  }
+  function startEditCustomer(c){
+    $('editCustomerId').value = c.id;
+    $('customerFormTitle').textContent = 'Edit customer';
+    $('newCustName').value = c.name;
+    $('newCustAddress').value = c.address||'';
+    $('newCustContactNo').value = c.contactNo||'';
+    $('newCustContactPerson').value = c.contactPerson||'';
+    $('newCustEmail').value = c.email||'';
+    $('cancelEditCustomerBtn').style.display = '';
+    $('customerEquipmentSection').style.display = '';
+    renderCustomerEquipmentList(c.id);
+    $('customersOverlay').querySelector('.sheet').scrollTop = $('customersOverlay').querySelector('.sheet').scrollHeight;
+  }
+  async function renderCustomerEquipmentList(customerId){
+    const body = $('customerEquipmentList');
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    await loadCustomerEquipment(customerId);
+    body.innerHTML = '';
+    if(currentEquipmentCache.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No equipment recorded yet for this customer.';
+      body.appendChild(empty);
+      return;
+    }
+    currentEquipmentCache.forEach(e=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      card.innerHTML =
+        '<div class="user-card-head"><div>'+
+          '<div class="u-name">'+escapeHtml(summary)+'</div>'+
+          '<div class="u-status">'+escapeHtml(serials||'No serials on file')+'</div>'+
+        '</div></div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>';
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove this equipment record? This does not affect past reports.')) return;
+        const ok = await cloudDeleteCustomerEquipment(e.id);
+        if(ok){ toast('Removed'); renderCustomerEquipmentList(customerId); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+  }
+  function resetCustomerForm(){
+    $('editCustomerId').value = '';
+    $('customerFormTitle').textContent = 'Add a customer';
+    $('newCustName').value=''; $('newCustAddress').value=''; $('newCustContactNo').value='';
+    $('newCustContactPerson').value=''; $('newCustEmail').value='';
+    $('cancelEditCustomerBtn').style.display = 'none';
+    $('customerEquipmentSection').style.display = 'none';
+  }
+  $('cancelEditCustomerBtn').addEventListener('click', resetCustomerForm);
+  $('saveCustomerBtn').addEventListener('click', async ()=>{
+    const name = $('newCustName').value.trim();
+    if(!name){ toast('Enter a customer name'); return; }
+    if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
+    const editingId = $('editCustomerId').value;
+    const payload = {
+      name, address: $('newCustAddress').value.trim(), contactNo: $('newCustContactNo').value.trim(),
+      contactPerson: $('newCustContactPerson').value.trim(), email: $('newCustEmail').value.trim()
+    };
+    $('saveCustomerBtn').disabled = true;
+    try{
+      if(editingId){
+        const { error } = await db.from('customers').update({
+          name: payload.name, address: payload.address, contact_no: payload.contactNo,
+          contact_person: payload.contactPerson, email: payload.email, updated_at: new Date().toISOString()
+        }).eq('id', editingId);
+        if(error){ toast('Could not save: '+error.message); return; }
+      }else{
+        await cloudUpsertCustomer(payload);
+      }
+      await loadCustomers();
+      resetCustomerForm();
+      toast('Saved '+name);
+      renderCustomersList($('customerSearch').value);
+    } finally { $('saveCustomerBtn').disabled = false; }
+  });
+  $('customerSearch').addEventListener('input', ()=> renderCustomersList($('customerSearch').value));
+  $('closeCustomers').addEventListener('click', ()=> $('customersOverlay').classList.remove('open'));
+  $('customersOverlay').addEventListener('click', (e)=>{ if(e.target.id==='customersOverlay') $('customersOverlay').classList.remove('open'); });
+  $('menuManageCustomers').addEventListener('click', async ()=>{
+    closeMainMenu();
+    if(!(await ensureAdminAuthenticated())) return;
+    resetCustomerForm();
+    $('customersOverlay').classList.add('open');
+    renderCustomersList('');
+  });
+
   $('addUserBtn').addEventListener('click', async ()=>{
     const name = $('newUserName').value.trim();
     const pin = $('newUserPin').value;
@@ -2572,6 +3051,8 @@
     $('materialsBody').innerHTML=''; materialRowCount=0;
     for(let i=0;i<1;i++) addMaterialRow();
     $('isInstallToggle').checked=false; $('installSection').classList.remove('open');
+    loadCustomerEquipment(null);
+    setEquipTab('addnew');
     sigCustomerPad.clear(); sigTechPad.clear();
     $('sigCustomerPh').style.display='flex'; $('sigTechPh').style.display='flex';
     $('metaDate').textContent = fmtDate($('svcDate').value);
@@ -2663,6 +3144,11 @@
     let cloudOk = false;
     if(await ensureCloud()) cloudOk = await cloudSaveReport(srNo, data);
     try{ await window.storage.set('report:'+srNo, JSON.stringify(data), false); }catch(e){}
+    // Record this equipment against the matching customer, so it shows up
+    // in this customer's own equipment dropdowns next time — never mixed
+    // in with another customer's equipment.
+    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
+    if(matchedCustomer) await cloudAddCustomerEquipment(matchedCustomer.id, data);
     return cloudOk;
   }
   $('saveDraftBtn').addEventListener('click', async ()=>{
@@ -3044,6 +3530,10 @@
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('custAddress').value = d.custAddress||''; $('contactNo').value = d.contactNo||''; $('contactPerson').value = d.contactPerson||'';
     $('custEmail').value = d.custEmail||'';
+    // Re-establish equipment context for this report's customer, so its
+    // equipment dropdowns work correctly if the technician reopens this field.
+    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (d.custName||'').trim().toLowerCase());
+    loadCustomerEquipment(matchedCustomer ? matchedCustomer.id : null);
     $('equipType').value = d.equipType || (Array.isArray(d.equipCodes) ? d.equipCodes.join(', ') : '') || '';
     $('modelCU').value=d.modelCU||''; $('serialCU').value=d.serialCU||'';
     $('modelFCU').value=d.modelFCU||''; $('serialFCU').value=d.serialFCU||'';
