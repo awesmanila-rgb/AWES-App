@@ -202,6 +202,10 @@
     border-radius:var(--radius) var(--radius) 0 0;
   }
   .card-head .num{opacity:.65; font-weight:600; margin-right:6px;}
+  .card-head.collapsible-head{cursor:pointer; user-select:none;}
+  .card-head.collapsible-head:active{background:var(--green);}
+  .card-caret{opacity:.8; transition:transform .15s; font-size:12px;}
+  .card-head.collapsible-head.open .card-caret{transform:rotate(180deg);}
   .card-body{padding:14px;}
 
   .field{margin-bottom:12px;}
@@ -517,7 +521,6 @@
     </div>
   </div>
   <div class="top-actions">
-    <button class="icon-btn" id="cloudBtn">☁ Not Connected</button>
     <button class="icon-btn" id="homeBtn" style="display:none;">🏠 Home</button>
     <button class="icon-btn" id="newBtn">New</button>
     <div class="menu-wrap" id="menuWrap">
@@ -528,12 +531,10 @@
         <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
         <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
         <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
-        <button type="button" id="menuEmailSetup"><span class="menu-ico">✉️</span>Email Setup</button>
         <button type="button" id="menuLogout" class="menu-danger"><span class="menu-ico">🚪</span>Logout</button>
       </div>
     </div>
     <!-- Shown directly (not tucked in the Menu) for technician accounts -->
-    <button class="icon-btn" id="userEmailSetupBtn" style="display:none;">✉️ Email Setup</button>
     <button class="icon-btn" id="userLogoutBtn" style="display:none;">🚪 Logout</button>
     <!-- Legacy controls kept off-screen: existing app logic is wired to these ids -->
     <button class="icon-btn" id="adminBtn" style="display:none;">Admin</button>
@@ -913,6 +914,13 @@
 
 <main id="serviceReportView" style="display:none;">
 
+  <div class="seg-tabs" id="srSegTabs">
+    <button type="button" class="seg-tab active" id="srTabNewBtn">Create New</button>
+    <button type="button" class="seg-tab" id="srTabHistoryBtn">View History</button>
+  </div>
+
+  <div id="srNewPanel">
+
   <!-- 1. Customer Information -->
   <div class="card">
     <div class="card-head"><span><span class="num">1</span>Customer's Information</span></div>
@@ -929,29 +937,31 @@
           <div class="req-flag">Required</div>
         </div>
       </div>
-      <div class="field">
-        <label>Complete Address</label>
-        <textarea id="custAddress" placeholder="Street, Barangay, City"></textarea>
-      </div>
-      <div class="grid2">
+      <div id="custDetailsWrap" style="display:none;">
         <div class="field">
-          <label>Contact No.</label>
-          <input type="text" id="contactNo" inputmode="tel" placeholder="09xx xxx xxxx">
+          <label>Complete Address</label>
+          <textarea id="custAddress" placeholder="Street, Barangay, City"></textarea>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Contact No.</label>
+            <input type="text" id="contactNo" inputmode="tel" placeholder="09xx xxx xxxx">
+          </div>
+          <div class="field">
+            <label>Contact Person</label>
+            <input type="text" id="contactPerson">
+          </div>
         </div>
         <div class="field">
-          <label>Contact Person</label>
-          <input type="text" id="contactPerson">
+          <label>Customer Email <span style="text-transform:none; font-weight:400;">(for auto-send — optional)</span></label>
+          <input type="text" id="custEmail" inputmode="email" placeholder="customer@email.com">
         </div>
-      </div>
-      <div class="field">
-        <label>Customer Email <span style="text-transform:none; font-weight:400;">(for auto-send — optional)</span></label>
-        <input type="text" id="custEmail" inputmode="email" placeholder="customer@email.com">
       </div>
     </div>
   </div>
 
   <!-- 2. Equipment Description -->
-  <div class="card">
+  <div class="card" id="sec2Card" style="display:none;">
     <div class="card-head"><span><span class="num">2</span>Equipment Description</span></div>
     <div class="card-body">
       <div id="equipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
@@ -983,9 +993,9 @@
   </div>
 
   <!-- 3. Report Summary -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">3</span>Report Summary</span></div>
-    <div class="card-body">
+  <div class="card" id="sec3Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">3</span>Report Summary</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec3Body" style="display:none;">
       <div class="field">
         <label>Trouble Call / Request / Reason for Service</label>
         <textarea id="troubleCall"></textarea>
@@ -1004,9 +1014,10 @@
   </div>
 
   <!-- 4. Materials & Spare Parts -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">4</span>Materials &amp; Spare Parts</span></div>
-    <div class="card-body">
+  <div class="card" id="sec4Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">4</span>Materials &amp; Spare Parts</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec4Body" style="display:none;">
+      <div id="materialsTableWrap" style="display:none;">
       <table class="materials" id="materialsTable">
         <thead>
           <tr>
@@ -1018,14 +1029,15 @@
         </thead>
         <tbody id="materialsBody"></tbody>
       </table>
+      </div>
       <button type="button" class="add-row-btn" id="addMaterialRow">+ Add item</button>
     </div>
   </div>
 
   <!-- 5. Services Done -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">5</span>Services Done</span></div>
-    <div class="card-body">
+  <div class="card" id="sec5Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">5</span>Services Done</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec5Body" style="display:none;">
       <div class="field">
         <label>Describe the service(s) performed</label>
         <div id="servicesDoneList"></div>
@@ -1035,9 +1047,9 @@
   </div>
 
   <!-- 6. Operating Data -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">6</span>Operating Data</span></div>
-    <div class="card-body">
+  <div class="card" id="sec6Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">6</span>Operating Data</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec6Body" style="display:none;">
       <div class="opdata-cols">
         <div class="opdata-col">
           <h4>Before Servicing</h4>
@@ -1066,9 +1078,9 @@
   </div>
 
   <!-- 7. Installation Data (conditional) -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">7</span>Installation Data</span></div>
-    <div class="card-body">
+  <div class="card" id="sec7Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">7</span>Installation Data</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec7Body" style="display:none;">
       <div class="toggle-row">
         <div>
           <div class="ttl">This visit includes a new installation</div>
@@ -1080,29 +1092,26 @@
         </label>
       </div>
       <div class="collapsible" id="installSection">
-        <div class="grid3">
-          <div class="field"><label>Pipe Diameter — Suction (in)</label><input type="text" id="pd_suction"></div>
-          <div class="field"><label>Pipe Diameter — Discharge (in)</label><input type="text" id="pd_discharge"></div>
-          <div class="field"><label>Pipe Diameter — Drain (in)</label><input type="text" id="pd_drain"></div>
-          <div class="field"><label>Pipe Length — Ref't Line (ft)</label><input type="text" id="pl_refline"></div>
-          <div class="field"><label>Pipe Length — Drain (ft)</label><input type="text" id="pl_drain"></div>
-          <div class="field"><label>Wire Size — Feeder (awg)</label><input type="text" id="ws_feeder"></div>
-          <div class="field"><label>Wire Size — Control (awg)</label><input type="text" id="ws_control"></div>
-          <div class="field"><label>Circuit Breaker (amp)</label><input type="text" id="circuit_breaker"></div>
-          <div class="field"><label>Pipe Insulation — Ref't Line (in)</label><input type="text" id="pi_refline"></div>
-          <div class="field"><label>Pipe Insulation — Drain (in)</label><input type="text" id="pi_drain"></div>
-          <div class="field"><label>Riser Pipes Height (m)</label><input type="text" id="riser_height"></div>
-          <div class="field"><label>P-Trap</label><input type="text" id="ptrap"></div>
-          <div class="field"><label>Accu Bracket Type</label><input type="text" id="bracketType" placeholder="e.g. L-Type Bracket"></div>
-        </div>
+        <div class="subrow"><div class="sublabel">Pipe Diameter (in) — Suction / Discharge / Drain</div>
+          <input type="text" id="pd_suction" placeholder="Suction"><input type="text" id="pd_discharge" placeholder="Discharge"><input type="text" id="pd_drain" placeholder="Drain"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pipe Length (ft) — Ref't Line / Drain</div>
+          <input type="text" id="pl_refline" placeholder="Ref't Line"><input type="text" id="pl_drain" placeholder="Drain"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Wire Size (awg) — Feeder / Control</div>
+          <input type="text" id="ws_feeder" placeholder="Feeder"><input type="text" id="ws_control" placeholder="Control"></div>
+        <div class="field"><label>Circuit Breaker (amp)</label><input type="text" id="circuit_breaker"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pipe Insulation (in) — Ref't Line / Drain</div>
+          <input type="text" id="pi_refline" placeholder="Ref't Line"><input type="text" id="pi_drain" placeholder="Drain"></div>
+        <div class="field"><label>Riser Pipes Height (m)</label><input type="text" id="riser_height"></div>
+        <div class="field"><label>P-Trap</label><input type="text" id="ptrap"></div>
+        <div class="field"><label>Accu Bracket Type</label><input type="text" id="bracketType" placeholder="e.g. L-Type Bracket"></div>
       </div>
     </div>
   </div>
 
   <!-- 8. Acknowledgment -->
-  <div class="card">
-    <div class="card-head"><span><span class="num">8</span>Acknowledgment</span></div>
-    <div class="card-body">
+  <div class="card" id="sec8Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">8</span>Acknowledgment</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec8Body" style="display:none;">
       <p style="font-size:13px; color:var(--text-muted); margin-top:0; line-height:1.5;">
         I hereby acknowledge the services / works done on my equipment and agree to the terms &amp; conditions stated herein.
       </p>
@@ -1149,14 +1158,34 @@
     </div>
   </div>
 
+  </div>
+
+  <!-- View History (inline, mirrors the "Saved Reports" overlay list) -->
+  <div class="card" id="srHistoryPanel" style="display:none;">
+    <div class="card-head"><span>Saved Reports</span></div>
+    <div class="card-body">
+      <div id="srHistoryList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
 </main>
 
 <div class="footer-bar" id="footerBar" style="display:none;">
-  <button class="btn btn-secondary" id="saveDraftBtn">Save Draft</button>
+  <button class="btn btn-secondary" id="saveDraftBtn">Save Draft &amp; Create New</button>
   <button class="btn btn-primary" id="genPdfBtn">Generate &amp; Share Report</button>
 </div>
 
 <!-- Report Preview -->
+<!-- Report Shared — Success -->
+<div class="overlay" id="shareSuccessOverlay" style="z-index:70;">
+  <div class="sheet" style="text-align:center; padding:32px 20px;">
+    <div style="font-size:52px; margin-bottom:10px;">✅</div>
+    <h3 style="margin:0 0 8px;">Service Report Shared Successfully</h3>
+    <p id="shareSuccessDetail" style="font-size:13px; color:var(--text-muted); margin:0 0 24px;"></p>
+    <button class="btn btn-primary" id="shareSuccessHomeBtn" type="button" style="width:100%;">🏠 Home</button>
+  </div>
+</div>
+
 <div class="overlay" id="previewOverlay" style="align-items:stretch;">
   <div class="sheet" style="max-height:96vh; height:96vh; display:flex; flex-direction:column; border-radius:0;">
     <div class="sheet-head">
@@ -1164,7 +1193,7 @@
       <button class="sheet-close" id="closePreview">&times;</button>
     </div>
     <div id="previewFrame" style="flex:1; width:100%; overflow-y:auto; border:1px solid var(--border); border-radius:8px; background:#eee; padding:10px; text-align:center;">
-      <div id="previewLoading" class="empty-state" style="display:none;">Rendering preview…</div>
+      <div class="empty-state" style="display:none;">Rendering preview…</div>
     </div>
     <div style="padding-top:12px;">
       <button class="btn btn-primary" id="previewOkBtn" style="width:100%;" type="button">Looks Good — Continue to Signatures</button>
@@ -1351,16 +1380,24 @@
   let cloudInitPromise = null;
   let db = null; // Supabase client (supabase-js), was a Firestore ref before
 
+  // The app now connects automatically using AWES's Supabase project — no
+  // manual setup needed for day-to-day use. (Recovery path: the "tap to set
+  // up Shared Cloud" link on the login screen still opens the config screen,
+  // in case this project ever needs to change.)
+  const DEFAULT_CLOUD_CONFIG = {
+    url: 'https://ugxrrgocjpkzumhghzat.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVneHJyZ29janBrenVtaGdoemF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjA3NjEsImV4cCI6MjEwMjUzNjc2MX0.y6Q9rCb_pKretcptgHwcGb0-YpUYC3_JQhY2PGJqGWk'
+  };
   function getCloudConfig(){
     try{
       const raw = localStorage.getItem('cloud-config');
-      return raw ? JSON.parse(raw) : null; // {url, anonKey}
-    }catch(e){ return null; }
+      if(raw) return JSON.parse(raw); // {url, anonKey}
+    }catch(e){}
+    return DEFAULT_CLOUD_CONFIG;
   }
   function setCloudStatusUI(connected){
     const btn = $('cloudBtn');
-    btn.textContent = connected ? '☁ Connected' : '☁ Not Connected';
-    btn.classList.toggle('cloud-connected', connected);
+    if(btn){ btn.textContent = connected ? '☁ Connected' : '☁ Not Connected'; btn.classList.toggle('cloud-connected', connected); }
   }
   async function doCloudInit(){
     const cfg = getCloudConfig();
@@ -1371,7 +1408,7 @@
       setCloudStatusUI(true);
       return true;
     }catch(e){
-      console.error('Cloud connect failed', e);
+      console.error('Cloud connect failed', describeCloudError(e));
       cloudReady = false;
       setCloudStatusUI(false);
       return false;
@@ -1386,6 +1423,19 @@
     return await initCloud();
   }
 
+  // Supabase errors (PostgrestError) are plain objects, so console.error(...e)
+  // just prints "[object Object]" in some console viewers. Pull out the
+  // fields that actually explain what went wrong (message/code/details/hint
+  // for Postgrest errors, or message/name for anything else) so failures are
+  // debuggable instead of opaque.
+  function describeCloudError(e){
+    if(!e) return 'unknown error';
+    if(e.message || e.code || e.details || e.hint){
+      return [e.code, e.message, e.details, e.hint].filter(Boolean).join(' | ');
+    }
+    try{ return JSON.stringify(e); }catch(_){ return String(e); }
+  }
+
   // ---- Generic settings key-value store (table: app_settings) ----
   // Used for things like field-lists dropdowns and EmailJS config.
   // NOTE: admin password is no longer stored here — see loginAdmin/changeAdminPassword,
@@ -1396,7 +1446,7 @@
       const { data, error } = await db.from('app_settings').select('value').eq('key', key).maybeSingle();
       if(error) throw error;
       return data ? data.value : null;
-    }catch(e){ console.error('cloud get failed', key, e); return null; }
+    }catch(e){ console.error('cloud get failed', key, describeCloudError(e)); return null; }
   }
   async function cloudSetDoc(key, value){
     if(!(await ensureCloud())) return false;
@@ -1404,7 +1454,7 @@
       const { error } = await db.from('app_settings').upsert({ key, value }, { onConflict: 'key' });
       if(error) throw error;
       return true;
-    }catch(e){ console.error('cloud set failed', key, e); return false; }
+    }catch(e){ console.error('cloud set failed', key, describeCloudError(e)); return false; }
   }
 
   // ---- Service Reports (table: service_reports) ----
@@ -1450,7 +1500,7 @@
       const { error } = await db.from('service_reports').upsert(reportToRow(data), { onConflict: 'sr_no' });
       if(error) throw error;
       return true;
-    }catch(e){ console.error('cloud save report failed', e); return false; }
+    }catch(e){ console.error('cloud save report failed', describeCloudError(e)); return false; }
   }
   async function cloudGetReport(srNo){
     if(!(await ensureCloud())) return null;
@@ -1466,7 +1516,7 @@
       const { data, error } = await db.from('service_reports').select('*').order('date',{ascending:false}).limit(150);
       if(error) throw error;
       return (data||[]).map(rowToReport);
-    }catch(e){ console.error('cloud list failed', e); return null; }
+    }catch(e){ console.error('cloud list failed', describeCloudError(e)); return null; }
   }
   async function cloudNextSrNo(dateStr){
     if(!(await ensureCloud())) return null;
@@ -1476,7 +1526,7 @@
       const { data, error } = await db.rpc('next_sr_no', { p_date: iso });
       if(error) throw error;
       return data;
-    }catch(e){ console.error('cloud SR counter failed', e); return null; }
+    }catch(e){ console.error('cloud SR counter failed', describeCloudError(e)); return null; }
   }
 
   // ---------- technician user accounts (table: profiles, role='technician') ----------
@@ -1506,7 +1556,7 @@
         const { data, error } = await db.from('profiles').select('*').eq('role','technician');
         if(error) throw error;
         return (data||[]).map(profileToUser);
-      }catch(e){ console.error('list users failed', e); }
+      }catch(e){ console.error('list users failed', describeCloudError(e)); }
     }
     return await localListUsers();
   }
@@ -1536,7 +1586,7 @@
         const { error } = await db.from('profiles').update(patch).eq('id', id);
         if(error) throw error;
         return true;
-      }catch(e){ console.error('save user failed', e); }
+      }catch(e){ console.error('save user failed', describeCloudError(e)); }
     }
     const users = await localListUsers();
     const idx = users.findIndex(u=>u.id===id);
@@ -1587,7 +1637,6 @@
     const isTech = !!(currentUser && currentUser.role!=='admin');
     setVis('newBtn', !isTech);
     setVis('menuWrap', !isTech);
-    setVis('userEmailSetupBtn', isTech);
     setVis('userLogoutBtn', isTech);
     applyTechNameDefault();
     // History access
@@ -1652,7 +1701,12 @@
     cloudLink.type='button';
     cloudLink.style.cssText = 'width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer;';
     cloudLink.textContent = cloudReady ? '☁ Connected — Cloud Setup' : '☁ Not connected — tap to set up Shared Cloud';
-    cloudLink.addEventListener('click', ()=> $('cloudOverlay').classList.add('open'));
+    cloudLink.addEventListener('click', ()=>{
+      const cfg = getCloudConfig();
+      if(cfg){ $('cfgSupabaseUrl').value = cfg.url || ''; $('cfgSupabaseKey').value = cfg.anonKey || ''; }
+      $('cloudStatusMsg').textContent = cloudReady ? 'Currently connected.' : '';
+      $('cloudOverlay').classList.add('open');
+    });
     container.appendChild(cloudLink);
   }
 
@@ -1857,12 +1911,6 @@
     await showLoginScreen();
   }
 
-  $('cloudBtn').addEventListener('click', ()=>{
-    const cfg = getCloudConfig();
-    if(cfg){ $('cfgSupabaseUrl').value = cfg.url || ''; $('cfgSupabaseKey').value = cfg.anonKey || ''; }
-    $('cloudStatusMsg').textContent = cloudReady ? 'Currently connected.' : '';
-    $('cloudOverlay').classList.add('open');
-  });
   $('closeCloud').addEventListener('click', ()=> $('cloudOverlay').classList.remove('open'));
   $('cloudOverlay').addEventListener('click', (e)=>{ if(e.target.id==='cloudOverlay') $('cloudOverlay').classList.remove('open'); });
   $('connectCloudBtn').addEventListener('click', async ()=>{
@@ -1960,18 +2008,20 @@
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td class="letter-cell">'+letter+'.</td>'+
-      '<td><input type="text" class="m-details" value="'+(data.details||'').replace(/"/g,'&quot;')+'"></td>'+
-      '<td class="qty-cell"><input type="text" class="m-qty" value="'+(data.qty||'').replace(/"/g,'&quot;')+'"></td>'+
+      '<td><input type="text" class="m-details" value="'+escapeHtml(data.details||'')+'"></td>'+
+      '<td class="qty-cell"><input type="text" class="m-qty" value="'+escapeHtml(data.qty||'')+'"></td>'+
       '<td><button type="button" class="rm-btn" style="width:32px;height:32px;">\u2212</button></td>';
     tr.querySelector('.rm-btn').onclick = () => { tr.remove(); relabelMaterialRows(); };
     $('materialsBody').appendChild(tr);
     attachCombo(tr.querySelector('.m-details'), 'm_details');
     attachCombo(tr.querySelector('.m-qty'), 'm_qty');
+    $('materialsTableWrap').style.display = '';
   }
   function relabelMaterialRows(){
     const rows = $('materialsBody').querySelectorAll('tr');
     materialRowCount = rows.length;
     rows.forEach((tr,i)=>{ tr.querySelector('.letter-cell').textContent = String.fromCharCode(97+i)+'.'; });
+    if(rows.length===0) $('materialsTableWrap').style.display = 'none';
   }
   $('addMaterialRow').addEventListener('click', ()=> addMaterialRow());
 
@@ -2131,7 +2181,7 @@
         if(error) throw error;
         customersCache = (data||[]).map(customerRowToObj);
         return;
-      }catch(e){ console.error('load customers failed', e); }
+      }catch(e){ console.error('load customers failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.get('customers', false);
@@ -2152,7 +2202,7 @@
         if(error) throw error;
         await loadCustomers();
         return;
-      }catch(e){ console.error('upsert customer failed', e); }
+      }catch(e){ console.error('upsert customer failed', describeCloudError(e)); }
     }
     const idx = customersCache.findIndex(x=> x.name.toLowerCase() === rec.name.toLowerCase());
     const obj = { id: idx>=0 ? customersCache[idx].id : ('local-'+Date.now()), name: rec.name, address: rec.address, contactNo: rec.contact_no, contactPerson: rec.contact_person, email: rec.email };
@@ -2166,7 +2216,7 @@
         if(error) throw error;
         await loadCustomers();
         return true;
-      }catch(e){ console.error('delete customer failed', e); return false; }
+      }catch(e){ console.error('delete customer failed', describeCloudError(e)); return false; }
     }
     customersCache = customersCache.filter(c=>c.id!==id);
     await saveCustomersLocal();
@@ -2201,7 +2251,7 @@
         if(error) throw error;
         currentEquipmentCache = (data||[]).map(equipRowToObj);
         return;
-      }catch(e){ console.error('load customer equipment failed', e); }
+      }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.get('cequip:'+customerId, false);
@@ -2225,7 +2275,7 @@
         if(error) throw error;
         await loadCustomerEquipment(customerId);
         return;
-      }catch(e){ console.error('add customer equipment failed', e); }
+      }catch(e){ console.error('add customer equipment failed', describeCloudError(e)); }
     }
     const obj = { id:'local-'+Date.now(), customerId }; EQUIP_FIELD_KEYS.forEach(k=> obj[k]=fields[k]||'');
     currentEquipmentCache.push(obj);
@@ -2234,7 +2284,7 @@
   async function cloudDeleteCustomerEquipment(id){
     if(await ensureCloud()){
       try{ const { error } = await db.from('customer_equipment').delete().eq('id', id); if(error) throw error; }
-      catch(e){ console.error('delete equipment failed', e); return false; }
+      catch(e){ console.error('delete equipment failed', describeCloudError(e)); return false; }
     }
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
@@ -2282,16 +2332,24 @@
       $('equipPickerPanel').style.display = currentEquipTab==='existing' ? '' : 'none';
       $('equipFieldsWrap').style.display = currentEquipTab==='existing' ? 'none' : '';
       if(currentEquipTab==='existing') renderEquipPicker();
-    }else{
+    }else if(tab==='addnew'){
       $('equipPickerPanel').style.display = 'none';
       $('equipFieldsWrap').style.display = '';
+    }else{
+      // Neutral state: nothing picked yet — keep both hidden until the
+      // technician taps a tab (or picking a customer auto-picks one).
+      $('equipPickerPanel').style.display = 'none';
+      $('equipFieldsWrap').style.display = 'none';
     }
   }
   // When a customer is selected, default to whichever tab makes sense:
   // show their equipment list if they have any on file, otherwise go
   // straight to Add New so the technician isn't stuck looking at an empty list.
   function defaultEquipTabForCustomer(){
-    setEquipTab(currentEquipmentCache.length>0 ? 'existing' : 'addnew');
+    // Neutral state: show only the "Select Existing" / "+ Add New" tab
+    // buttons, with neither box expanded — the technician taps one to
+    // reveal the picker list or the entry fields.
+    setEquipTab(null);
   }
   // Dedicated autocomplete for Customer's Name — separate from the generic
   // attachCombo() used elsewhere, because selecting a result here fills
@@ -2324,7 +2382,21 @@
       // then load this customer's own equipment list for the picker.
       EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
       loadCustomerEquipment(c.id).then(defaultEquipTabForCustomer);
+      revealSectionsAfterCustomer();
     }
+    function revealSectionsAfterCustomer(){
+      $('custDetailsWrap').style.display = '';
+      ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
+        const el = $(id); if(el) el.style.display = '';
+      });
+    }
+    // Selecting from the dropdown calls this directly (fillFromCustomer, above).
+    // Typing a brand-new customer name that isn't in the list should reveal
+    // the rest of the form too, once the technician moves on from the field —
+    // otherwise a new customer would have no way to get past step 1.
+    input.addEventListener('blur', ()=>{
+      if(input.value.trim()) revealSectionsAfterCustomer();
+    });
     function render(filterText){
       const q = (filterText||'').toLowerCase();
       const filtered = customersCache.filter(c=> c.name.toLowerCase().includes(q));
@@ -2544,8 +2616,28 @@
       $('equipTabExisting').dataset.hooked = '1';
       $('equipTabExisting').addEventListener('click', ()=> setEquipTab('existing'));
       $('equipTabAddNew').addEventListener('click', ()=> setEquipTab('addnew'));
-      setEquipTab('addnew');
+      setEquipTab(null);
     }
+    document.querySelectorAll('.collapsible-head').forEach(head=>{
+      if(head.dataset.hooked) return;
+      head.dataset.hooked = '1';
+      head.addEventListener('click', ()=> toggleCollapsibleSection(head));
+    });
+  }
+  // Sections 3–8 (Report Summary through Acknowledgment) show only their
+  // title until tapped — tapping the header expands/collapses its body.
+  function toggleCollapsibleSection(head, forceOpen){
+    const body = head.nextElementSibling;
+    if(!body) return;
+    const isOpen = forceOpen!==undefined ? forceOpen : body.style.display==='none';
+    body.style.display = isOpen ? '' : 'none';
+    head.classList.toggle('open', isOpen);
+  }
+  function collapseAllSections(){
+    document.querySelectorAll('.collapsible-head').forEach(head=> toggleCollapsibleSection(head, false));
+  }
+  function expandAllSections(){
+    document.querySelectorAll('.collapsible-head').forEach(head=> toggleCollapsibleSection(head, true));
   }
 
   function fieldsInGroup(group){
@@ -3049,10 +3141,15 @@
     $('findingsList').innerHTML=''; $('recsList').innerHTML=''; $('servicesDoneList').innerHTML='';
     addListRow('findingsList'); addListRow('recsList'); addListRow('servicesDoneList');
     $('materialsBody').innerHTML=''; materialRowCount=0;
-    for(let i=0;i<1;i++) addMaterialRow();
     $('isInstallToggle').checked=false; $('installSection').classList.remove('open');
     loadCustomerEquipment(null);
-    setEquipTab('addnew');
+    setEquipTab(null);
+    $('custDetailsWrap').style.display = 'none';
+    ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
+      const el = $(id); if(el) el.style.display = 'none';
+    });
+    $('materialsTableWrap').style.display = 'none';
+    collapseAllSections();
     sigCustomerPad.clear(); sigTechPad.clear();
     $('sigCustomerPh').style.display='flex'; $('sigTechPh').style.display='flex';
     $('metaDate').textContent = fmtDate($('svcDate').value);
@@ -3157,7 +3254,7 @@
     const data = await gatherDataForOutput();
     const cloudOk = await saveReport(currentSrNo, data);
     toast(cloudOk ? 'Draft saved to shared cloud: '+currentSrNo : 'Draft saved on this device: '+currentSrNo);
-    $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
+    resetForm();
   });
 
   // ---------- build PDF ----------
@@ -3394,7 +3491,7 @@
     $('previewOverlay').classList.remove('open');
     previewRenderToken++; // invalidate any in-flight render
     const frame = $('previewFrame');
-    frame.innerHTML = '<div id="previewLoading" class="empty-state" style="display:none;">Rendering preview…</div>';
+    frame.innerHTML = '<div class="empty-state" style="display:none;">Rendering preview…</div>';
   }
   async function renderPdfPreview(doc){
     const myToken = ++previewRenderToken;
@@ -3444,6 +3541,16 @@
   $('closePreview').addEventListener('click', closePreview);
   $('previewOkBtn').addEventListener('click', closePreview);
 
+  function showShareSuccess(detail){
+    $('shareSuccessDetail').textContent = detail || '';
+    $('shareSuccessOverlay').classList.add('open');
+  }
+  $('shareSuccessHomeBtn').addEventListener('click', ()=>{
+    $('shareSuccessOverlay').classList.remove('open');
+    resetForm();
+    showHome();
+  });
+
   $('genPdfBtn').addEventListener('click', async ()=>{
     if(!validate()){ toast('Please fill required fields'); return; }
     $('genPdfBtn').disabled = true;
@@ -3461,17 +3568,17 @@
         $('genPdfBtn').textContent = 'Sending email…';
         const emailResult = await sendEmailWithPdf(doc, data, filename);
         if(emailResult.ok){
-          toast('Report emailed automatically ✓');
+          showShareSuccess('Emailed to the customer and saved to the shared cloud.');
         }else if(emailResult.reason==='too_large'){
-          toast('PDF too large to auto-email — sharing instead');
           await shareOrDownloadPdf(doc, filename);
+          showShareSuccess('PDF was too large to email, so it was shared/downloaded instead.');
         }else{
-          toast('Auto-email failed — sharing instead');
           await shareOrDownloadPdf(doc, filename);
+          showShareSuccess('Auto-email failed, so it was shared/downloaded instead.');
         }
       }else{
         const result = await shareOrDownloadPdf(doc, filename);
-        toast(result==='shared' ? 'Report shared (set up Email Setup for auto-send)' : 'PDF downloaded — set up Email Setup to auto-send next time');
+        showShareSuccess(result==='shared' ? 'Report '+filename+' was shared.' : 'Report '+filename+' was downloaded to this device.');
       }
     }catch(e){
       console.error(e);
@@ -3488,8 +3595,8 @@
   });
 
   // ---------- history ----------
-  async function loadHistory(){
-    const list = $('historyList');
+  async function loadHistory(containerId){
+    const list = $(containerId || 'historyList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     let reports = null;
     if(await ensureCloud()){
@@ -3534,6 +3641,12 @@
     // equipment dropdowns work correctly if the technician reopens this field.
     const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (d.custName||'').trim().toLowerCase());
     loadCustomerEquipment(matchedCustomer ? matchedCustomer.id : null);
+    setEquipTab('addnew');
+    $('custDetailsWrap').style.display = '';
+    ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
+      const el = $(id); if(el) el.style.display = '';
+    });
+    expandAllSections();
     $('equipType').value = d.equipType || (Array.isArray(d.equipCodes) ? d.equipCodes.join(', ') : '') || '';
     $('modelCU').value=d.modelCU||''; $('serialCU').value=d.serialCU||'';
     $('modelFCU').value=d.modelFCU||''; $('serialFCU').value=d.serialFCU||'';
@@ -3578,6 +3691,7 @@
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
+    srShowTab('new');
     window.scrollTo({top:0, behavior:'smooth'});
   }
   $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));
@@ -3626,16 +3740,11 @@
     $('historyOverlay').classList.add('open');
     loadHistory();
   });
-  $('menuEmailSetup').addEventListener('click', ()=>{
-    closeMainMenu();
-    $('settingsBtn').click();
-  });
   $('menuLogout').addEventListener('click', ()=>{
     closeMainMenu();
     doLogout();
   });
   // Technician-facing direct buttons (shown in place of Menu — see applyUserRestrictions)
-  $('userEmailSetupBtn').addEventListener('click', ()=> $('settingsBtn').click());
   $('userLogoutBtn').addEventListener('click', doLogout);
 
   // ---------- Auto-logout admin when app is closed or minimized ----------
@@ -3686,7 +3795,7 @@
         const { data, error } = await db.from('device_locks').select('device_id').eq('technician_id', userId).maybeSingle();
         if(error) throw error;
         return data ? data.device_id : null;
-      }catch(e){ console.error('device lock read failed', e); }
+      }catch(e){ console.error('device lock read failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.get('device-lock:'+userId, false);
@@ -3701,7 +3810,7 @@
         );
         if(error) throw error;
         return true;
-      }catch(e){ console.error('device lock write failed', e); }
+      }catch(e){ console.error('device lock write failed', describeCloudError(e)); }
     }
     try{ await window.storage.set('device-lock:'+userId, JSON.stringify({deviceId:devId}), false); return true; }
     catch(e){ return false; }
@@ -3714,7 +3823,7 @@
         const { error } = await db.from('device_locks').delete().eq('technician_id', userId);
         if(error) throw error;
         return true;
-      }catch(e){ console.error('device lock clear failed', e); }
+      }catch(e){ console.error('device lock clear failed', describeCloudError(e)); }
     }
     try{ await window.storage.delete('device-lock:'+userId, false); return true; }
     catch(e){ return false; }
@@ -3788,7 +3897,7 @@
           .eq('technician_id', userId).eq('date', dateISO).maybeSingle();
         if(error) throw error;
         return data ? data.data : null;
-      }catch(e){ console.error('dtr get failed', e); }
+      }catch(e){ console.error('dtr get failed', describeCloudError(e)); }
     }
     try{ const res = await window.storage.get('dtr:'+userId+':'+dateISO, false); return res ? JSON.parse(res.value) : null; }
     catch(e){ return null; }
@@ -3802,7 +3911,7 @@
         );
         if(error) throw error;
         return true;
-      }catch(e){ console.error('dtr save failed', e); }
+      }catch(e){ console.error('dtr save failed', describeCloudError(e)); }
     }
     try{ await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -3815,7 +3924,7 @@
           .eq('technician_id', userId).gte('date', sinceISO).order('date',{ascending:false});
         if(error) throw error;
         return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('dtr list failed', e); }
+      }catch(e){ console.error('dtr list failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.list('dtr:'+userId+':', false);
@@ -3975,7 +4084,7 @@
         });
         if(error) throw error;
         return true;
-      }catch(e){ console.error('leave save failed', e); }
+      }catch(e){ console.error('leave save failed', describeCloudError(e)); }
     }
     try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -3986,7 +4095,7 @@
         const { data, error } = await db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
         if(error) throw error;
         return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('leave list failed', e); }
+      }catch(e){ console.error('leave list failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.list('leave:', false);
@@ -4201,7 +4310,7 @@
         });
         if(error) throw error;
         return true;
-      }catch(e){ console.error('cash advance save failed', e); }
+      }catch(e){ console.error('cash advance save failed', describeCloudError(e)); }
     }
     try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); return true; }
     catch(e){ return false; }
@@ -4212,7 +4321,7 @@
         const { data, error } = await db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
         if(error) throw error;
         return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('cash advance list failed', e); }
+      }catch(e){ console.error('cash advance list failed', describeCloudError(e)); }
     }
     try{
       const res = await window.storage.list('cash:', false);
@@ -4989,16 +5098,30 @@
     setHeaderTitle("Technician's Homepage", 'Field digital form');
     window.scrollTo({top:0});
   }
+  // ---------- Service Report: Create New / View History tabs ----------
+  function srShowTab(which){
+    $('srTabNewBtn').classList.toggle('active', which==='new');
+    $('srTabHistoryBtn').classList.toggle('active', which==='history');
+    $('srNewPanel').style.display = which==='new' ? '' : 'none';
+    $('srHistoryPanel').style.display = which==='history' ? '' : 'none';
+    // The footer (Save Draft / Generate Report) and the SR-No./status meta
+    // bar only make sense while actively filling out a report.
+    $('footerBar').style.display = which==='new' ? 'flex' : 'none';
+    $('metaBar').style.display = which==='new' ? '' : 'none';
+    if(which==='history') loadHistory('srHistoryList');
+  }
+  $('srTabNewBtn').addEventListener('click', ()=> srShowTab('new'));
+  $('srTabHistoryBtn').addEventListener('click', ()=> srShowTab('history'));
+
   function showServiceReport(){
     $('homeScreen').style.display = 'none';
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('serviceReportView').style.display = '';
-    $('footerBar').style.display = 'flex';
-    $('metaBar').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
+    srShowTab('new');
     window.scrollTo({top:0});
   }
   function enterApp(){
