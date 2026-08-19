@@ -279,6 +279,22 @@
   .subrow input{font-size:13px; padding:8px;}
   .subrow .sublabel{grid-column:1 / -1; font-size:11px; color:var(--text-muted); font-weight:600;}
 
+  /* Operating Data — laid out as a table (label | Before Servicing | After Servicing),
+     matching the row order and shape of the generated PDF's Operating Data table. */
+  .opdata-table-wrap{overflow-x:auto; margin:-2px; padding:2px;}
+  table.opdata-table{width:100%; border-collapse:collapse; font-size:13px; min-width:520px;}
+  table.opdata-table th{
+    background:var(--green-light); color:var(--green-dark); text-align:left;
+    padding:8px; border:1px solid var(--border); font-size:11px; text-transform:uppercase;
+  }
+  table.opdata-table th:first-child{background:transparent; border:none;}
+  table.opdata-table td{border:1px solid var(--border); padding:6px; vertical-align:top;}
+  table.opdata-table td.opdata-row-label{
+    font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; background:#fafbfa;
+  }
+  table.opdata-table td .opdata-cell-inputs{display:flex; gap:4px;}
+  table.opdata-table input{font-size:13px; padding:7px; width:100%; min-width:44px;}
+
   .sig-box{border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fdfdfc;}
   .sig-canvas-wrap{position:relative; height:150px; touch-action:none;}
   canvas.sigpad{width:100%; height:100%; display:block; background:#fff;}
@@ -571,14 +587,13 @@
       <span class="home-tile-icon">🗓️</span>
       <span class="home-tile-label">Leave Form</span>
     </button>
+    <button type="button" class="home-tile" id="tile_dispatch">
+      <span class="home-tile-icon">🚚</span>
+      <span class="home-tile-label" id="tile_dispatch_label">Service Dispatch Ticket</span>
+    </button>
     <button type="button" class="home-tile" id="tile_materialRequest">
       <span class="home-tile-icon">📦</span>
       <span class="home-tile-label">Material Request Form</span>
-      <span class="home-tile-badge">Coming Soon</span>
-    </button>
-    <button type="button" class="home-tile" id="tile_liquidation">
-      <span class="home-tile-icon">📑</span>
-      <span class="home-tile-label">Liquidation Form</span>
       <span class="home-tile-badge">Coming Soon</span>
     </button>
   </div>
@@ -597,6 +612,11 @@
         <button type="button" class="btn btn-primary" id="dtrTimeInBtn">🟢 Time In</button>
         <button type="button" class="btn btn-secondary" id="dtrTimeOutBtn">🔴 Time Out</button>
       </div>
+      <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted); margin:4px 0 8px;">Overtime</div>
+      <div class="dtr-clock-row">
+        <button type="button" class="btn btn-primary" id="dtrOtTimeInBtn">🟠 OT Time In</button>
+        <button type="button" class="btn btn-secondary" id="dtrOtTimeOutBtn">🟠 OT Time Out</button>
+      </div>
       <div class="dtr-today-box">
         <div class="dtr-stat">
           <span class="dtr-stat-label">Today</span>
@@ -610,9 +630,18 @@
           <span class="dtr-stat-label">Time Out</span>
           <span class="dtr-stat-val" id="dtrTodayOut">—</span>
         </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">OT In</span>
+          <span class="dtr-stat-val" id="dtrTodayOtIn">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">OT Out</span>
+          <span class="dtr-stat-val" id="dtrTodayOtOut">—</span>
+        </div>
       </div>
       <div style="font-size:11px; color:var(--text-muted);">
         Tapping Time In / Time Out automatically records the current time and your device's location.
+        Overtime time-in unlocks once you've timed out from your regular shift.
         This account is locked to this device — signing in on another phone will not be allowed to time in/out.
       </div>
     </div>
@@ -912,6 +941,103 @@
 
 </main>
 
+<!-- Service Dispatch Ticket — admin creates & assigns; assigned workers view/acknowledge/complete -->
+<main id="dispatchView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <!-- Admin: create + manage dispatch tickets -->
+  <div id="dispatchAdminArea" style="display:none;">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="dtTabNew">New Ticket</button>
+      <button type="button" class="seg-tab" id="dtTabAll">All Tickets</button>
+    </div>
+
+    <div class="card" id="dtNewCard">
+      <div class="card-head"><span>🚚 Service Dispatch Ticket</span></div>
+      <div class="card-body">
+        <div class="grid2">
+          <div class="field"><label>Job Order No.</label><input type="text" id="dtJobOrderNo" value="—" disabled></div>
+          <div class="field"><label>Date</label><input type="date" id="dtDate"></div>
+        </div>
+        <div class="field"><label>Expected Time at Site</label><input type="time" id="dtExpectedTime"></div>
+
+        <div class="field">
+          <label>Assigned Workers <span class="req">*</span></label>
+          <div id="dtWorkerChecklist"><div class="empty-state">Loading technicians…</div></div>
+        </div>
+
+        <div class="field" style="margin-top:6px;">
+          <label>1. Customer's Information <span class="req">*</span></label>
+          <div class="combo-wrap" id="dtCustNameWrap">
+            <input type="text" id="dtCustName" placeholder="Search or type a new customer name" autocomplete="off">
+          </div>
+        </div>
+        <div class="field"><label>2. Site Address</label><textarea id="dtSiteAddress" rows="2"></textarea></div>
+        <div class="grid2">
+          <div class="field"><label>3. Contact Person at Site</label><input type="text" id="dtContactName"></div>
+          <div class="field"><label>Contact Number</label><input type="text" id="dtContactNo" inputmode="tel"></div>
+        </div>
+
+        <div class="field">
+          <label>4. Equipment Information</label>
+          <div id="dtEquipList"></div>
+          <button type="button" class="add-row-btn" data-target="dtEquipList">+ Add equipment</button>
+        </div>
+
+        <div class="field">
+          <label>5. Scope of Works per Equipment</label>
+          <div id="dtScopeList"></div>
+          <button type="button" class="add-row-btn" data-target="dtScopeList">+ Add scope item</button>
+        </div>
+
+        <div class="field"><label>6. Special Instruction / Remarks</label><textarea id="dtRemarks" rows="3"></textarea></div>
+
+        <div class="field">
+          <label>7. Requirements</label>
+          <label class="chk"><input type="checkbox" id="dtReqWorkPermit"><span>a. Work Permit</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqGatePass"><span>b. Gate Pass</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqSafety"><span>c. Safety</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqOthers"><span>d. Others</span></label>
+          <div class="field" id="dtReqOthersDetailWrap" style="display:none; margin-top:8px;">
+            <input type="text" id="dtReqOthersDetail" placeholder="Specify other requirement">
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary" id="dtCreateBtn" style="width:100%; margin-top:6px;">Create Dispatch Ticket</button>
+      </div>
+    </div>
+
+    <div class="card" id="dtAllCard" style="display:none;">
+      <div class="card-head"><span>All Dispatch Tickets</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="dtAdminFilterRow">
+          <button type="button" data-filter="open" class="active">Open</button>
+          <button type="button" data-filter="acknowledged">Acknowledged</button>
+          <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="dtAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Technician: tickets assigned to me -->
+  <div id="dispatchTechArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>🚚 My Job Order</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="dtTechFilterRow">
+          <button type="button" data-filter="open" class="active">Open</button>
+          <button type="button" data-filter="acknowledged">Acknowledged</button>
+          <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="dtTechList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
 <main id="serviceReportView" style="display:none;">
 
   <div class="seg-tabs" id="srSegTabs">
@@ -921,10 +1047,18 @@
 
   <div id="srNewPanel">
 
+  <!-- Pick up an assigned Job Order to auto-fill the fields below (technicians only) -->
+  <div class="card" id="srJobOrderCard" style="display:none;">
+    <div class="card-head collapsible-head open" id="srJobOrderHead"><span>📋 From Job Order</span><span class="card-caret">▾</span></div>
+    <div class="card-body">
+      <div id="srJobOrderList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
   <!-- 1. Customer Information -->
   <div class="card">
-    <div class="card-head"><span><span class="num">1</span>Customer's Information</span></div>
-    <div class="card-body">
+    <div class="card-head collapsible-head open" id="sec1Head"><span><span class="num">1</span>Customer's Information</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec1Body">
       <div class="grid2">
         <div class="field" id="f_custName">
           <label>Customer's Name <span class="req">*</span></label>
@@ -952,9 +1086,10 @@
             <input type="text" id="contactPerson">
           </div>
         </div>
-        <div class="field">
-          <label>Customer Email <span style="text-transform:none; font-weight:400;">(for auto-send — optional)</span></label>
+        <div class="field" id="f_custEmail">
+          <label>Customer Email <span class="req">*</span> <span style="text-transform:none; font-weight:400;">(report is auto-sent here)</span></label>
           <input type="text" id="custEmail" inputmode="email" placeholder="customer@email.com">
+          <div class="req-flag">Required</div>
         </div>
       </div>
     </div>
@@ -962,8 +1097,8 @@
 
   <!-- 2. Equipment Description -->
   <div class="card" id="sec2Card" style="display:none;">
-    <div class="card-head"><span><span class="num">2</span>Equipment Description</span></div>
-    <div class="card-body">
+    <div class="card-head collapsible-head"><span><span class="num">2</span>Equipment Description</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec2Body" style="display:none;">
       <div id="equipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
         <button type="button" id="equipTabExisting" class="equip-tab">Select Existing</button>
         <button type="button" id="equipTabAddNew" class="equip-tab">+ Add New</button>
@@ -1050,29 +1185,39 @@
   <div class="card" id="sec6Card" style="display:none;">
     <div class="card-head collapsible-head"><span><span class="num">6</span>Operating Data</span><span class="card-caret">▾</span></div>
     <div class="card-body" id="sec6Body" style="display:none;">
-      <div class="opdata-cols">
-        <div class="opdata-col">
-          <h4>Before Servicing</h4>
-          <div class="subrow"><div class="sublabel">Amperage — L1 / L2 / L3</div>
-            <input type="text" id="b_amp_l1" placeholder="L1"><input type="text" id="b_amp_l2" placeholder="L2"><input type="text" id="b_amp_l3" placeholder="L3"></div>
-          <div class="subrow"><div class="sublabel">Voltage — L12 / L23 / L31</div>
-            <input type="text" id="b_volt_l12" placeholder="L12"><input type="text" id="b_volt_l23" placeholder="L23"><input type="text" id="b_volt_l31" placeholder="L31"></div>
-          <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pressure</div>
-            <input type="text" id="b_press_suction" placeholder="Suction"><input type="text" id="b_press_discharge" placeholder="Discharge"></div>
-          <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Supply Air Temp (°C) / Air Volume (cfm)</div>
-            <input type="text" id="b_temp" placeholder="°C"><input type="text" id="b_airflow" placeholder="cfm"></div>
-        </div>
-        <div class="opdata-col">
-          <h4>After Servicing</h4>
-          <div class="subrow"><div class="sublabel">Amperage — L1 / L2 / L3</div>
-            <input type="text" id="a_amp_l1" placeholder="L1"><input type="text" id="a_amp_l2" placeholder="L2"><input type="text" id="a_amp_l3" placeholder="L3"></div>
-          <div class="subrow"><div class="sublabel">Voltage — L12 / L23 / L31</div>
-            <input type="text" id="a_volt_l12" placeholder="L12"><input type="text" id="a_volt_l23" placeholder="L23"><input type="text" id="a_volt_l31" placeholder="L31"></div>
-          <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pressure</div>
-            <input type="text" id="a_press_suction" placeholder="Suction"><input type="text" id="a_press_discharge" placeholder="Discharge"></div>
-          <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Supply Air Temp (°C) / Air Volume (cfm)</div>
-            <input type="text" id="a_temp" placeholder="°C"><input type="text" id="a_airflow" placeholder="cfm"></div>
-        </div>
+      <div class="opdata-table-wrap">
+      <table class="opdata-table">
+        <thead>
+          <tr><th></th><th>Before Servicing</th><th>After Servicing</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="opdata-row-label">Amperage (L1/L2/L3)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_amp_l1" placeholder="L1"><input type="text" id="b_amp_l2" placeholder="L2"><input type="text" id="b_amp_l3" placeholder="L3"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_amp_l1" placeholder="L1"><input type="text" id="a_amp_l2" placeholder="L2"><input type="text" id="a_amp_l3" placeholder="L3"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Voltage (L12/L23/L31)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_volt_l12" placeholder="L12"><input type="text" id="b_volt_l23" placeholder="L23"><input type="text" id="b_volt_l31" placeholder="L31"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_volt_l12" placeholder="L12"><input type="text" id="a_volt_l23" placeholder="L23"><input type="text" id="a_volt_l31" placeholder="L31"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Pressure (Suction/Discharge)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_press_suction" placeholder="Suction"><input type="text" id="b_press_discharge" placeholder="Discharge"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_press_suction" placeholder="Suction"><input type="text" id="a_press_discharge" placeholder="Discharge"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Supply Air Temp (°C)</td>
+            <td><input type="text" id="b_temp"></td>
+            <td><input type="text" id="a_temp"></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Air Volume Flow Rate (cfm)</td>
+            <td><input type="text" id="b_airflow"></td>
+            <td><input type="text" id="a_airflow"></td>
+          </tr>
+        </tbody>
+      </table>
       </div>
     </div>
   </div>
@@ -2354,6 +2499,27 @@
   // Dedicated autocomplete for Customer's Name — separate from the generic
   // attachCombo() used elsewhere, because selecting a result here fills
   // FOUR fields (address/contact/person/email) at once, not just one.
+  function revealSectionsAfterCustomer(){
+    $('custDetailsWrap').style.display = '';
+    ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
+      const el = $(id); if(el) el.style.display = '';
+    });
+  }
+  // Shared by the customer-picker combo (below) and the "From Job Order"
+  // autofill — anywhere a customer record needs to populate section 1.
+  function applyCustomerToForm(c){
+    $('custName').value = c.name;
+    $('custAddress').value = c.address||'';
+    $('contactNo').value = c.contactNo||'';
+    $('contactPerson').value = c.contactPerson||'';
+    $('custEmail').value = c.email||'';
+    // Switching customers means switching equipment context — clear the old
+    // customer's equipment values so nothing from a different site lingers,
+    // then load this customer's own equipment list for the picker.
+    EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
+    loadCustomerEquipment(c.id).then(defaultEquipTabForCustomer);
+    revealSectionsAfterCustomer();
+  }
   function attachCustomerCombo(input){
     if(input.dataset.comboAttached) return;
     input.dataset.comboAttached = '1';
@@ -2370,25 +2536,9 @@
     wrap.appendChild(panel);
 
     function fillFromCustomer(c){
-      input.value = c.name;
-      $('custAddress').value = c.address||'';
-      $('contactNo').value = c.contactNo||'';
-      $('contactPerson').value = c.contactPerson||'';
-      $('custEmail').value = c.email||'';
+      applyCustomerToForm(c);
       panel.classList.remove('open');
       input.dispatchEvent(new Event('change'));
-      // Switching customers means switching equipment context — clear the old
-      // customer's equipment values so nothing from a different site lingers,
-      // then load this customer's own equipment list for the picker.
-      EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
-      loadCustomerEquipment(c.id).then(defaultEquipTabForCustomer);
-      revealSectionsAfterCustomer();
-    }
-    function revealSectionsAfterCustomer(){
-      $('custDetailsWrap').style.display = '';
-      ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
-        const el = $(id); if(el) el.style.display = '';
-      });
     }
     // Selecting from the dropdown calls this directly (fillFromCustomer, above).
     // Typing a brand-new customer name that isn't in the list should reveal
@@ -3150,6 +3300,8 @@
     });
     $('materialsTableWrap').style.display = 'none';
     collapseAllSections();
+    toggleCollapsibleSection($('sec1Head'), true); // keep section 1 (Customer's Info) open — it's the entry point
+    if($('srJobOrderHead')) toggleCollapsibleSection($('srJobOrderHead'), true); // keep the Job Order picker open too
     sigCustomerPad.clear(); sigTechPad.clear();
     $('sigCustomerPh').style.display='flex'; $('sigTechPh').style.display='flex';
     $('metaDate').textContent = fmtDate($('svcDate').value);
@@ -3175,6 +3327,8 @@
     let ok = true;
     if(!$('custName').value.trim()){ $('f_custName').classList.add('invalid'); ok=false; }
     if(!$('svcDate').value){ $('f_date').classList.add('invalid'); ok=false; }
+    const email = $('custEmail').value.trim();
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ $('f_custEmail').classList.add('invalid'); ok=false; }
     return ok;
   }
 
@@ -3959,6 +4113,13 @@
     $('dtrTodayOut').textContent = rec && rec.timeOut ? dtrFmtTime(rec.timeOut) : '—';
     $('dtrTimeInBtn').disabled = !!(rec && rec.timeIn);
     $('dtrTimeOutBtn').disabled = !(rec && rec.timeIn) || !!(rec && rec.timeOut);
+
+    $('dtrTodayOtIn').textContent = rec && rec.otTimeIn ? dtrFmtTime(rec.otTimeIn) : '—';
+    $('dtrTodayOtOut').textContent = rec && rec.otTimeOut ? dtrFmtTime(rec.otTimeOut) : '—';
+    // Overtime is logged after the regular shift ends — OT Time In stays
+    // disabled until the regular Time Out is recorded for the day.
+    $('dtrOtTimeInBtn').disabled = !(rec && rec.timeOut) || !!(rec && rec.otTimeIn);
+    $('dtrOtTimeOutBtn').disabled = !(rec && rec.otTimeIn) || !!(rec && rec.otTimeOut);
   }
 
   async function dtrRenderDeviceBanner(){
@@ -3989,17 +4150,26 @@
       row.style.cursor = 'default';
       const inTxt = d.timeIn ? dtrFmtTime(d.timeIn) : '—';
       const outTxt = d.timeOut ? dtrFmtTime(d.timeOut) : '—';
+      const otInTxt = d.otTimeIn ? dtrFmtTime(d.otTimeIn) : null;
+      const otOutTxt = d.otTimeOut ? dtrFmtTime(d.otTimeOut) : null;
       row.innerHTML =
         '<div class="hist-info"><b>'+dtrFmtDateLabel(d.date)+'</b>'+
         '<span>In: '+inTxt+' &nbsp;·&nbsp; Out: '+outTxt+'</span>'+
+        ((otInTxt || otOutTxt) ? '<span>OT In: '+(otInTxt||'—')+' &nbsp;·&nbsp; OT Out: '+(otOutTxt||'—')+'</span>' : '')+
         (d.timeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="in">📍 In: '+escapeHtml(dtrLocLabel(d.timeInLoc))+'</button>' : '')+
         (d.timeOutLoc ? '<button type="button" class="dtr-loc-tag" data-kind="out">📍 Out: '+escapeHtml(dtrLocLabel(d.timeOutLoc))+'</button>' : '')+
+        (d.otTimeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="otin">📍 OT In: '+escapeHtml(dtrLocLabel(d.otTimeInLoc))+'</button>' : '')+
+        (d.otTimeOutLoc ? '<button type="button" class="dtr-loc-tag" data-kind="otout">📍 OT Out: '+escapeHtml(dtrLocLabel(d.otTimeOutLoc))+'</button>' : '')+
         '</div>';
       list.appendChild(row);
       const inTag = row.querySelector('[data-kind="in"]');
       if(inTag) inTag.addEventListener('click', ()=> dtrOpenLocationOverlay(d.timeInLoc, dtrFmtDateLabel(d.date)+' — Time In'));
       const outTag = row.querySelector('[data-kind="out"]');
       if(outTag) outTag.addEventListener('click', ()=> dtrOpenLocationOverlay(d.timeOutLoc, dtrFmtDateLabel(d.date)+' — Time Out'));
+      const otInTag = row.querySelector('[data-kind="otin"]');
+      if(otInTag) otInTag.addEventListener('click', ()=> dtrOpenLocationOverlay(d.otTimeInLoc, dtrFmtDateLabel(d.date)+' — OT Time In'));
+      const otOutTag = row.querySelector('[data-kind="otout"]');
+      if(otOutTag) otOutTag.addEventListener('click', ()=> dtrOpenLocationOverlay(d.otTimeOutLoc, dtrFmtDateLabel(d.date)+' — OT Time Out'));
     });
   }
 
@@ -4045,6 +4215,47 @@
   }
   $('dtrTimeInBtn').addEventListener('click', dtrDoTimeIn);
   $('dtrTimeOutBtn').addEventListener('click', dtrDoTimeOut);
+
+  async function dtrDoOtTimeIn(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
+    await dtrRenderDeviceBanner();
+    if(!allowed){ toast('This account is registered to another device. Contact your admin.'); return; }
+    const dateISO = todayISO();
+    const existing = await dtrGetDay(currentUser.id, dateISO);
+    if(!existing || !existing.timeOut){ toast('Time out from your regular shift first before starting overtime'); return; }
+    if(existing.otTimeIn){ toast('Overtime already started today at '+dtrFmtTime(existing.otTimeIn)); return; }
+    $('dtrOtTimeInBtn').disabled = true;
+    toast('Getting your location…');
+    const loc = await dtrGetLocation();
+    const now = new Date().toISOString();
+    const rec = Object.assign({}, existing, { otTimeIn: now, otTimeInLoc: loc });
+    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(ok ? 'Overtime timed in at '+dtrFmtTime(now) : 'Could not save overtime time in');
+    await dtrRenderTodayStatus();
+    await dtrRenderHistory();
+  }
+  async function dtrDoOtTimeOut(){
+    if(!currentUser || currentUser.role==='admin') return;
+    const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
+    await dtrRenderDeviceBanner();
+    if(!allowed){ toast('This account is registered to another device. Contact your admin.'); return; }
+    const dateISO = todayISO();
+    const existing = await dtrGetDay(currentUser.id, dateISO);
+    if(!existing || !existing.otTimeIn){ toast('Start overtime time in first before timing out'); return; }
+    if(existing.otTimeOut){ toast('Already timed out from overtime today at '+dtrFmtTime(existing.otTimeOut)); return; }
+    $('dtrOtTimeOutBtn').disabled = true;
+    toast('Getting your location…');
+    const loc = await dtrGetLocation();
+    const now = new Date().toISOString();
+    const rec = Object.assign({}, existing, { otTimeOut: now, otTimeOutLoc: loc });
+    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(ok ? 'Overtime timed out at '+dtrFmtTime(now) : 'Could not save overtime time out');
+    await dtrRenderTodayStatus();
+    await dtrRenderHistory();
+  }
+  $('dtrOtTimeInBtn').addEventListener('click', dtrDoOtTimeIn);
+  $('dtrOtTimeOutBtn').addEventListener('click', dtrDoOtTimeOut);
 
   // ---- Admin: DTR is per-user, so admin must pick whose to view ----
   async function dtrOpenAdminPicker(){
@@ -4276,11 +4487,405 @@
     });
   });
 
+  // ---------- Service Dispatch Ticket (table: dispatch_tickets) ----------
+  // Admin-created and assigned to one or more technicians; those technicians
+  // then acknowledge and later mark it completed. This is the reverse
+  // direction from Leave/Cash Advance (which are technician-filed, admin-
+  // reviewed) — here admin files, technician actions it.
+  function dtGenLocalId(){ return 'JO-'+todayISO().replace(/-/g,'')+'-'+Date.now(); }
+  async function dtNextJobOrderNo(){
+    const dateStr = todayISO().replace(/-/g,'');
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.rpc('next_jo_no', { p_date: todayISO() });
+        if(!error && data) return data;
+      }catch(e){ console.error('cloud JO counter failed', e); }
+    }
+    let seq = 1;
+    try{
+      const res = await window.storage.get('jo-counter:'+dateStr, false);
+      seq = res ? (JSON.parse(res.value).seq + 1) : 1;
+    }catch(e){ seq = 1; }
+    try{ await window.storage.set('jo-counter:'+dateStr, JSON.stringify({seq}), false); }catch(e){}
+    return 'JO-'+dateStr+'-'+String(seq).padStart(3,'0');
+  }
+  async function dtSaveTicket(id, data){
+    if(await ensureCloud()){
+      try{
+        const { error } = await db.from('dispatch_tickets').upsert({
+          id, status: data.status||'open',
+          created_at: data.createdAt || new Date().toISOString(), data
+        });
+        if(error) throw error;
+        return true;
+      }catch(e){ console.error('dispatch save failed', e); }
+    }
+    try{ await window.storage.set('dispatch:'+id, JSON.stringify(data), false); return true; }
+    catch(e){ return false; }
+  }
+  async function dtListAll(){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('dispatch_tickets').select('data').order('created_at',{ascending:false}).limit(300);
+        if(error) throw error;
+        return (data||[]).map(r=>r.data);
+      }catch(e){ console.error('dispatch list failed', e); }
+    }
+    try{
+      const res = await window.storage.list('dispatch:', false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
+      }
+      items.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
+      return items;
+    }catch(e){ return []; }
+  }
+  async function dtListForWorker(workerId){
+    const all = await dtListAll();
+    return all.filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
+  }
+
+  // ---------- Service Report: "From Job Order" picker ----------
+  // Shows the technician's own not-yet-completed Job Order tickets at the
+  // top of a new report, so tapping one fills in the customer/site/equipment
+  // fields captured on the dispatch ticket instead of retyping them.
+  async function srRenderJobOrderPicker(){
+    const card = $('srJobOrderCard');
+    const list = $('srJobOrderList');
+    if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
+    card.style.display = '';
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const mine = await dtListForWorker(currentUser.id);
+    const openOnes = mine.filter(r=> r.status!=='completed');
+    if(openOnes.length===0){
+      list.innerHTML = '<div class="empty-state">No Job Order tickets assigned to you right now.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    openOnes.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'user-card';
+      row.style.cursor = 'pointer';
+      row.innerHTML = '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
+            '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+
+              (r.siteAddress ? (' · '+escapeHtml(r.siteAddress)) : '')+'</div>'+
+          '</div>'+
+          dtStatusPill(r.status)+
+        '</div>';
+      row.addEventListener('click', ()=> srApplyJobOrder(r));
+      list.appendChild(row);
+    });
+  }
+  function srApplyJobOrder(ticket){
+    resetForm();
+    // Prefer a saved customer record when the name matches — it may have an
+    // email on file (dispatch tickets don't capture one), which the report
+    // needs for auto-send. Job-order-specific site/contact details still win.
+    const matched = customersCache.find(c=> c.name.toLowerCase() === (ticket.custName||'').trim().toLowerCase());
+    if(matched){ applyCustomerToForm(matched); }
+    else{ $('custName').value = ticket.custName||''; revealSectionsAfterCustomer(); }
+    if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
+    if(ticket.contactName) $('contactPerson').value = ticket.contactName;
+    if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
+    if(ticket.equipment && ticket.equipment.length){
+      $('equipType').value = ticket.equipment.join('; ');
+      setEquipTab('addnew');
+    }
+    if(ticket.scope && ticket.scope.length){
+      $('troubleCall').value = ticket.scope.join('; ');
+    }
+    toast('Job Order '+ticket.jobOrderNo+' applied — check the fields below');
+    $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  // ---- simple repeatable-textarea list (equipment / scope items) ----
+  function dtAddSimpleRow(containerId, value){
+    const wrap = document.createElement('div');
+    wrap.className = 'itemrow';
+    const ta = document.createElement('textarea');
+    ta.rows = 1; ta.value = value || '';
+    ta.placeholder = containerId==='dtEquipList' ? 'e.g. Split Type Unit — Living Room' : 'e.g. Clean coils, check refrigerant, test operation';
+    const rm = document.createElement('button');
+    rm.type = 'button'; rm.className = 'rm-btn'; rm.textContent = '\u2212';
+    rm.onclick = () => wrap.remove();
+    wrap.appendChild(ta); wrap.appendChild(rm);
+    $(containerId).appendChild(wrap);
+  }
+  document.querySelectorAll('#dtNewCard .add-row-btn[data-target]').forEach(btn=>{
+    btn.addEventListener('click', ()=> dtAddSimpleRow(btn.dataset.target));
+  });
+  function dtCollectSimpleList(containerId){
+    return Array.from($(containerId).querySelectorAll('textarea')).map(t=>t.value.trim()).filter(Boolean);
+  }
+
+  $('dtReqOthers').addEventListener('change', function(){
+    $('dtReqOthersDetailWrap').style.display = this.checked ? '' : 'none';
+  });
+
+  // ---- lightweight customer autocomplete scoped to this form's own fields ----
+  function dtSetupCustomerCombo(){
+    const input = $('dtCustName');
+    if(input.dataset.comboAttached) return;
+    input.dataset.comboAttached = '1';
+    const wrap = $('dtCustNameWrap');
+    wrap.style.position = 'relative';
+    const panel = document.createElement('div');
+    panel.className = 'combo-panel';
+    wrap.appendChild(panel);
+    function fillFrom(c){
+      input.value = c.name;
+      $('dtSiteAddress').value = c.address||'';
+      $('dtContactName').value = c.contactPerson||'';
+      $('dtContactNo').value = c.contactNo||'';
+      panel.classList.remove('open');
+    }
+    function render(filterText){
+      const q = (filterText||'').toLowerCase();
+      const filtered = customersCache.filter(c=> c.name.toLowerCase().includes(q));
+      panel.innerHTML = '';
+      if(filtered.length===0){
+        const empty = document.createElement('div');
+        empty.className = 'combo-empty';
+        empty.textContent = customersCache.length===0 ? 'No saved customers yet — just type the name' : 'No matches — new customer? Just fill in the fields below';
+        panel.appendChild(empty);
+      }
+      filtered.slice(0,25).forEach(c=>{
+        const row = document.createElement('div');
+        row.className = 'combo-item';
+        const span = document.createElement('span');
+        span.textContent = c.name + (c.address ? '  —  '+c.address : '');
+        row.appendChild(span);
+        row.addEventListener('mousedown', (e)=> e.preventDefault());
+        row.addEventListener('click', ()=> fillFrom(c));
+        panel.appendChild(row);
+      });
+      panel.classList.add('open');
+    }
+    input.addEventListener('focus', ()=> render(input.value));
+    input.addEventListener('input', ()=> render(input.value));
+    document.addEventListener('click', (e)=>{ if(!wrap.contains(e.target)) panel.classList.remove('open'); });
+  }
+
+  async function dtRenderWorkerChecklist(){
+    const box = $('dtWorkerChecklist');
+    box.innerHTML = '<div class="empty-state">Loading technicians…</div>';
+    const users = (await cloudListUsers()) || [];
+    const active = users.filter(u=> u.active!==false);
+    if(active.length===0){ box.innerHTML = '<div class="empty-state">No active technicians — add one under Manage Users.</div>'; return; }
+    box.innerHTML = '';
+    active.sort((a,b)=> a.name.localeCompare(b.name)).forEach(u=>{
+      const lbl = document.createElement('label');
+      lbl.className = 'chk';
+      lbl.innerHTML = '<input type="checkbox" value="'+u.id+'" data-name="'+escapeHtml(u.name)+'"><span>'+escapeHtml(u.name)+'</span>';
+      box.appendChild(lbl);
+    });
+  }
+
+  function dtResetForm(){
+    $('dtJobOrderNo').value = '—';
+    $('dtDate').value = todayISO();
+    $('dtExpectedTime').value = '';
+    $('dtCustName').value = ''; $('dtSiteAddress').value = '';
+    $('dtContactName').value = ''; $('dtContactNo').value = '';
+    $('dtEquipList').innerHTML=''; dtAddSimpleRow('dtEquipList');
+    $('dtScopeList').innerHTML=''; dtAddSimpleRow('dtScopeList');
+    $('dtRemarks').value = '';
+    ['dtReqWorkPermit','dtReqGatePass','dtReqSafety','dtReqOthers'].forEach(id=> $(id).checked=false);
+    $('dtReqOthersDetail').value = '';
+    $('dtReqOthersDetailWrap').style.display = 'none';
+    dtRenderWorkerChecklist();
+  }
+
+  async function dtCreateTicket(){
+    const workers = Array.from($('dtWorkerChecklist').querySelectorAll('input:checked'))
+      .map(el=>({id: el.value, name: el.dataset.name}));
+    const custName = $('dtCustName').value.trim();
+    if(workers.length===0){ toast('Assign at least one worker'); return; }
+    if(!custName){ toast('Enter the customer\'s name'); return; }
+    if(!$('dtDate').value){ toast('Set the date'); return; }
+    $('dtCreateBtn').disabled = true; $('dtCreateBtn').textContent = 'Creating…';
+    const jobOrderNo = await dtNextJobOrderNo();
+    const id = jobOrderNo || dtGenLocalId();
+    const data = {
+      id, jobOrderNo: id, status: 'open',
+      date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
+      assignedWorkerIds: workers.map(w=>w.id), assignedWorkerNames: workers.map(w=>w.name),
+      custName, siteAddress: $('dtSiteAddress').value.trim(),
+      contactName: $('dtContactName').value.trim(), contactNo: $('dtContactNo').value.trim(),
+      equipment: dtCollectSimpleList('dtEquipList'), scope: dtCollectSimpleList('dtScopeList'),
+      remarks: $('dtRemarks').value.trim(),
+      requirements: {
+        workPermit: $('dtReqWorkPermit').checked, gatePass: $('dtReqGatePass').checked,
+        safety: $('dtReqSafety').checked, others: $('dtReqOthers').checked,
+        othersDetail: $('dtReqOthersDetail').value.trim()
+      },
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser ? currentUser.name : 'Admin',
+      acknowledgedBy: [], completedAt: null
+    };
+    const ok = await dtSaveTicket(id, data);
+    $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
+    if(!ok){ toast('Could not create ticket — check your connection'); return; }
+    toast('Dispatch ticket '+id+' created');
+    dtResetForm();
+    $('dtJobOrderNo').value = '—';
+  }
+  $('dtCreateBtn').addEventListener('click', dtCreateTicket);
+
+  function dtReqSummary(r){
+    const items = [];
+    if(r.requirements){
+      if(r.requirements.workPermit) items.push('Work Permit');
+      if(r.requirements.gatePass) items.push('Gate Pass');
+      if(r.requirements.safety) items.push('Safety');
+      if(r.requirements.others) items.push('Others'+(r.requirements.othersDetail ? (' ('+escapeHtml(r.requirements.othersDetail)+')') : ''));
+    }
+    return items.length ? items.join(', ') : 'None specified';
+  }
+  function dtStatusPill(status){
+    if(status==='completed') return leaveStatusPill('approved');
+    if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Acknowledged</span>';
+    return '<span class="status-pill status-draft">Open</span>';
+  }
+  function dtCardHtml(r, forAdmin){
+    return '<div class="user-card-head">'+
+        '<div>'+
+          '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
+          '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+' · '+escapeHtml((r.assignedWorkerNames||[]).join(', '))+'</div>'+
+        '</div>'+
+        dtStatusPill(r.status)+
+      '</div>'+
+      (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
+      (r.contactName ? '<div class="leave-comment"><b>Contact at Site</b>'+escapeHtml(r.contactName)+(r.contactNo?(' · '+escapeHtml(r.contactNo)):'')+'</div>' : '')+
+      (r.equipment && r.equipment.length ? '<div class="leave-comment"><b>Equipment</b>'+r.equipment.map(escapeHtml).join('; ')+'</div>' : '')+
+      (r.scope && r.scope.length ? '<div class="leave-comment"><b>Scope of Works</b>'+r.scope.map(escapeHtml).join('; ')+'</div>' : '')+
+      (r.remarks ? '<div class="leave-comment"><b>Special Instructions</b>'+escapeHtml(r.remarks)+'</div>' : '')+
+      '<div class="leave-comment"><b>Requirements</b>'+dtReqSummary(r)+'</div>'+
+      (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '');
+  }
+
+  let dtAdminFilter = 'open';
+  async function dtRenderAdminList(){
+    const list = $('dtAdminList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await dtListAll();
+    const items = dtAdminFilter==='all' ? all : all.filter(r=> r.status===dtAdminFilter);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtAdminFilter==='all'?'':dtAdminFilter+' ')+'dispatch tickets.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      card.innerHTML = dtCardHtml(r, true);
+      list.appendChild(card);
+    });
+  }
+  document.querySelectorAll('#dtAdminFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#dtAdminFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      dtAdminFilter = btn.dataset.filter;
+      dtRenderAdminList();
+    });
+  });
+  function dtShowAdminTab(which){
+    $('dtTabNew').classList.toggle('active', which==='new');
+    $('dtTabAll').classList.toggle('active', which==='all');
+    $('dtNewCard').style.display = which==='new' ? '' : 'none';
+    $('dtAllCard').style.display = which==='all' ? '' : 'none';
+    if(which==='new') dtResetForm(); else dtRenderAdminList();
+  }
+  $('dtTabNew').addEventListener('click', ()=> dtShowAdminTab('new'));
+  $('dtTabAll').addEventListener('click', ()=> dtShowAdminTab('all'));
+
+  let dtTechFilter = 'open';
+  async function dtRenderTechList(){
+    const list = $('dtTechList');
+    if(!currentUser || currentUser.role==='admin') return;
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const mine = await dtListForWorker(currentUser.id);
+    const items = dtTechFilter==='all' ? mine : mine.filter(r=> r.status===dtTechFilter);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtTechFilter==='all'?'':dtTechFilter+' ')+'dispatch tickets assigned to you.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const alreadyAck = (r.acknowledgedBy||[]).includes(currentUser.id);
+      card.innerHTML = dtCardHtml(r, false) +
+        '<div class="user-card-actions">'+
+          (r.status==='open' && !alreadyAck ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
+          (r.status==='acknowledged' ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
+        '</div>';
+      const ackBtn = card.querySelector('[data-act="ack"]');
+      if(ackBtn) ackBtn.addEventListener('click', ()=> dtAcknowledge(r.id));
+      const compBtn = card.querySelector('[data-act="complete"]');
+      if(compBtn) compBtn.addEventListener('click', ()=> dtComplete(r.id));
+      list.appendChild(card);
+    });
+  }
+  document.querySelectorAll('#dtTechFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#dtTechFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      dtTechFilter = btn.dataset.filter;
+      dtRenderTechList();
+    });
+  });
+  async function dtAcknowledge(id){
+    const all = await dtListAll();
+    const rec = all.find(r=> r.id===id);
+    if(!rec){ toast('Ticket not found'); return; }
+    const ackBy = new Set(rec.acknowledgedBy||[]); ackBy.add(currentUser.id);
+    const updated = Object.assign({}, rec, { status: 'acknowledged', acknowledgedBy: Array.from(ackBy) });
+    const ok = await dtSaveTicket(id, updated);
+    toast(ok ? 'Acknowledged' : 'Could not save');
+    dtRenderTechList();
+  }
+  async function dtComplete(id){
+    const all = await dtListAll();
+    const rec = all.find(r=> r.id===id);
+    if(!rec){ toast('Ticket not found'); return; }
+    const updated = Object.assign({}, rec, { status: 'completed', completedAt: new Date().toISOString() });
+    const ok = await dtSaveTicket(id, updated);
+    toast(ok ? 'Marked completed' : 'Could not save');
+    dtRenderTechList();
+  }
+
+  async function showDispatchView(){
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle(
+      (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order',
+      'Assign and track field jobs'
+    );
+    window.scrollTo({top:0});
+    dtSetupCustomerCombo();
+    if(currentUser && currentUser.role==='admin'){
+      $('dispatchTechArea').style.display = 'none';
+      $('dispatchAdminArea').style.display = '';
+      dtShowAdminTab('new');
+    }else{
+      $('dispatchAdminArea').style.display = 'none';
+      $('dispatchTechArea').style.display = '';
+      dtRenderTechList();
+    }
+  }
+
   async function showLeaveView(){
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -5061,6 +5666,7 @@
     $('serviceReportView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -5092,10 +5698,12 @@
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
     setHeaderTitle("Technician's Homepage", 'Field digital form');
+    $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / View History tabs ----------
@@ -5108,6 +5716,7 @@
     // bar only make sense while actively filling out a report.
     $('footerBar').style.display = which==='new' ? 'flex' : 'none';
     $('metaBar').style.display = which==='new' ? '' : 'none';
+    if(which==='new') srRenderJobOrderPicker();
     if(which==='history') loadHistory('srHistoryList');
   }
   $('srTabNewBtn').addEventListener('click', ()=> srShowTab('new'));
@@ -5118,6 +5727,7 @@
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
@@ -5139,9 +5749,9 @@
     setTimeout(()=>{ if($('homeScreen').style.display !== 'none') setHeaderTitle("Technician's Homepage", 'Field digital form'); }, 2200);
   }
   $('tile_cashAdvance').addEventListener('click', showCashAdvanceView);
+  $('tile_dispatch').addEventListener('click', showDispatchView);
   $('tile_leave').addEventListener('click', showLeaveView);
   $('tile_materialRequest').addEventListener('click', ()=> flashComingSoonHeader('Material Request Form', 'Material Request Form — coming soon'));
-  $('tile_liquidation').addEventListener('click', ()=> flashComingSoonHeader('Liquidation Form', 'Liquidation Form — coming soon'));
   $('homeBtn').addEventListener('click', showHome);
 
 })();
