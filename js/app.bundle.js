@@ -3527,7 +3527,8 @@
       $('caBlockedCard').style.display = '';
       const needsSubmit = !active.liquidation || active.liquidation.status==='disapproved';
       $('caBlockedSummary').innerHTML =
-        '<div class="leave-comment"><b>'+(needsSubmit ? 'Needs liquidation' : 'Awaiting admin approval')+'</b>'+
+        '<div class="leave-comment"><b>You Cannot Request a New Cash Advance at the Moment</b>'+
+        (needsSubmit ? 'Needs liquidation — ' : 'Awaiting admin approval — ')+
         caFmtPeso(active.amountGiven)+' given on '+leaveFmtDate(active.dateGiven)+' — '+escapeHtml(active.purpose)+'</div>'+
         (active.liquidation && active.liquidation.status==='disapproved' && active.liquidation.comment
           ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(active.liquidation.comment)+'</div>' : '');
@@ -3608,6 +3609,15 @@
           (r.liquidation && r.liquidation.status==='disapproved' && r.liquidation.comment ? '<div style="margin-top:4px;">'+escapeHtml(r.liquidation.comment)+'</div>' : '')+
           '</div>'
         : '';
+      // The four milestones requested at a glance: Requested / Approved / Given / Liquidated.
+      // Each shows "—" until that milestone has actually happened.
+      const datesLine =
+        '<div class="leave-comment" style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">'+
+          '<div><b>Date Requested</b>'+leaveFmtWhen(r.submittedAt)+'</div>'+
+          '<div><b>Date Approved</b>'+(r.status==='approved' ? leaveFmtWhen(r.decidedAt) : '—')+'</div>'+
+          '<div><b>Date Given</b>'+(r.disbursed ? leaveFmtDate(r.dateGiven) : '—')+'</div>'+
+          '<div><b>Date Liquidated</b>'+(r.liquidation && r.liquidation.status==='approved' ? leaveFmtWhen(r.liquidation.decidedAt) : '—')+'</div>'+
+        '</div>';
       row.innerHTML =
         '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
           '<div class="hist-info"><b>'+caFmtPeso(r.amount)+'</b>'+
@@ -3615,6 +3625,7 @@
           '</div>'+
           (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Given</span>' : leaveStatusPill(r.status))+
         '</div>'+
+        datesLine+
         '<div class="leave-comment"><b>Purpose</b>'+escapeHtml(r.purpose)+'</div>'+
         disbursementLine+
         liqLine+
