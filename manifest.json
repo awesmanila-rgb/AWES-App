@@ -1,31 +1,15 @@
 {
-  "name": "AWES Service Report",
-  "short_name": "AWES SR",
-  "description": "AWES field technician service reports, DTR, leave, and cash advance forms.",
+  "name": "Awes Service Report",
+  "short_name": "Awes",
+  "description": "Digital field service report for AWES technicians",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#F7F8F6",
+  "orientation": "portrait",
+  "background_color": "#F3F5F2",
   "theme_color": "#154D34",
   "icons": [
-    {
-      "src": "icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-512-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

@@ -1,90 +1,80 @@
-// AWES Service Report — Service Worker
-//
-// IMPORTANT: bump CACHE_VERSION every time you deploy a new version of the
-// app. That's the only thing that makes the phone realize a new version
-// exists — otherwise it will happily keep serving the old cached copy
-// forever, which is exactly the "changes don't show on mobile" issue this
-// was built to fix. A simple date/counter string is fine, e.g. 'v4',
-// 'v2026-08-18', etc.
-const CACHE_VERSION = 'awes-sr-v2';
-
-// Core files needed for the app to load offline. Keep this list to files
-// that actually live next to this service worker on the server.
+const CACHE_NAME = 'awes-sr-v3';
 const APP_SHELL = [
-  './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './css/app.css',
+  './js/app.bundle.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js'
 ];
+
+function isAppShellDoc(url){
+  return url.endsWith('index.html') || url.endsWith('manifest.json')
+      || url.endsWith('app.bundle.js') || url.endsWith('app.css') || url.endsWith('/');
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .catch(() => { /* offline shell caching is best-effort */ })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).catch(()=>{})
   );
-  // Take over immediately once told to (see the SKIP_WAITING message
-  // handler below) instead of waiting for every open tab to close. This is
-  // what lets the in-app "Update available" prompt apply an update right
-  // away rather than requiring the user to fully quit and reopen the app.
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))
-      ))
-      .then(() => self.clients.claim())
+    caches.keys().then((names) =>
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+    )
   );
+  self.clients.claim();
 });
 
-// Lets the page force this waiting worker to activate immediately (used by
-// the "Update available — tap to refresh" prompt in index.html).
+// SKIP_WAITING message support — lets index.html's "new version available"
+// banner apply an update immediately instead of waiting for all tabs to close.
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
-// Strategy:
-//  - HTML documents: network-first, falling back to cache when offline.
-//    This is the key fix — it means the app always tries to fetch the
-//    latest version when the device has a connection, instead of serving
-//    a stale cached shell indefinitely.
-//  - Everything else (CDN libraries, icons, manifest): cache-first, since
-//    those rarely change and cache-first keeps the app fast and usable
-//    offline in the field.
 self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
+  if (event.request.method !== 'GET') return;
+  const url = event.request.url;
 
-  const isHTML = req.mode === 'navigate' ||
-    (req.headers.get('accept') || '').includes('text/html');
-
-  if (isHTML) {
+  if (event.request.mode === 'navigate' || isAppShellDoc(url)) {
+    // Network-first for the app shell — always show the latest deploy when
+    // online, fall back to cache only when offline.
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
-          return res;
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
         })
-        .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+        .catch(() => caches.match(event.request))
     );
     return;
   }
 
+  // Cache-first for CDN libraries — they change rarely, prefer speed/offline.
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
-        if (res && res.status === 200 && res.type !== 'opaque') {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
-        }
-        return res;
-      }).catch(() => cached);
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
     })
   );
 });
