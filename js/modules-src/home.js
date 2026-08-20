@@ -95,4 +95,5 @@
   $('tile_dispatch').addEventListener('click', showDispatchView);
   $('tile_leave').addEventListener('click', showLeaveView);
   $('tile_materialRequest').addEventListener('click', ()=> flashComingSoonHeader('Material Request Form', 'Material Request Form — coming soon'));
+  $('tile_changePassword').addEventListener('click', ()=> showChangePasswordScreen(false));
   $('homeBtn').addEventListener('click', showHome);

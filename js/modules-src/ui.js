@@ -27,6 +27,7 @@
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
     currentSrNo = null;
+    currentTechnicianId = null;
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();
@@ -64,6 +65,7 @@
 
     return {
       srNo: currentSrNo,
+      technicianId: currentTechnicianId || (currentUser ? currentUser.id : null),
       date: $('svcDate').value,
       custName: $('custName').value.trim(),
       custAddress: $('custAddress').value.trim(),

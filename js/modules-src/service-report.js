@@ -1,5 +1,11 @@
 // ---------- SR number counter (persisted, shared when cloud is connected) ----------
   let currentSrNo = null;
+  // Tracks which technician a report belongs to across edits. Set when a
+  // report is freshly created (the logged-in user) or reopened from history
+  // (the report's original technician) — NOT reset to "whoever is currently
+  // editing" on every save, since an admin reviewing/fixing someone else's
+  // report shouldn't reassign it to themselves.
+  let currentTechnicianId = null;
   async function nextSrNo(){
     const dateStr = ($('svcDate').value || todayISO()).replace(/-/g,'');
     if(await ensureCloud()){

@@ -178,6 +178,10 @@ window.awesLibs = {
       <span class="home-tile-label">Material Request Form</span>
       <span class="home-tile-badge">Coming Soon</span>
     </button>
+    <button type="button" class="home-tile" id="tile_changePassword" style="display:none;">
+      <span class="home-tile-icon">🔑</span>
+      <span class="home-tile-label">Change My Password</span>
+    </button>
   </div>
 </div>
 
@@ -1031,6 +1035,31 @@ window.awesLibs = {
     <div style="border-top:1px solid var(--border); padding-top:12px;">
       <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Already used this app offline on this phone?</div>
       <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border); width:100%;" id="migrateBtn" type="button">Upload this device's saved data to the cloud</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password sheet — used both for the forced first-login change
+     (no Cancel button shown) and the voluntary "Change My Password" tile
+     on the technician homepage (Cancel shown). z-index:95 so it can sit on
+     top of everything, including right after the login screen closes. -->
+<div class="overlay" id="changePasswordOverlay" style="z-index:95;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="cpTitle">Change Password</h3>
+    </div>
+    <p id="cpMessage" style="font-size:13px; color:var(--text-muted); margin-top:0;"></p>
+    <div class="field">
+      <label>New Password</label>
+      <input type="password" id="cpNew" placeholder="At least 4 characters">
+    </div>
+    <div class="field">
+      <label>Confirm New Password</label>
+      <input type="password" id="cpConfirm" placeholder="Re-enter the password">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-primary" id="cpSaveBtn" type="button" style="flex:1;">Save Password</button>
+      <button class="btn btn-secondary" id="cpCancelBtn" type="button">Cancel</button>
     </div>
   </div>
 </div>
