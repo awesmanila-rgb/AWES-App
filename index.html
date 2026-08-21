@@ -16,7 +16,15 @@ window.loadAwesScript = function(key, src){
     s.onload=resolve; s.onerror=()=>reject(new Error('Failed to load '+key));
     document.head.appendChild(s);
   });
-  return window.__awesScripts[key];
+  // On a weak field signal, a script request can stall indefinitely rather
+  // than ever firing onerror. A 12s timeout forces a failure so the retry
+  // logic in ensureCloud()/initCloud() gets a chance to try again soon,
+  // instead of the "Loading…" state hanging forever.
+  const timeout = new Promise((_,reject)=> setTimeout(()=> reject(new Error('Timed out loading '+key)), 12000));
+  return Promise.race([window.__awesScripts[key], timeout]).catch(err=>{
+    delete window.__awesScripts[key]; // let a future call try again fresh
+    throw err;
+  });
 };
 window.awesLibs = {
   supabase: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
