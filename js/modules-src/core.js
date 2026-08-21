@@ -50,7 +50,13 @@
     try{
       const raw = localStorage.getItem('cloud-config');
       if(raw) return JSON.parse(raw); // {url, anonKey}
-    }catch(e){}
+    }catch(e){
+      // A corrupt override used to fail completely silently, so the app would
+      // quietly fall back to the built-in project with no clue why the custom
+      // one was ignored. Log it and clear the bad value so it stops happening.
+      console.warn('Ignoring unreadable cloud-config override, using defaults', e);
+      try{ localStorage.removeItem('cloud-config'); }catch(_){}
+    }
     return DEFAULT_CLOUD_CONFIG;
   }
   function setCloudStatusUI(connected){
@@ -131,39 +137,92 @@
   }
 
   // ---- Service Reports (table: service_reports) ----
-  // Maps the app's existing camelCase report object <-> the Postgres snake_case columns,
-  // so every other part of the app that already builds/reads a report object needs no changes.
+  // Maps the report object built by gatherData() <-> the Postgres snake_case
+  // columns.
+  //
+  // IMPORTANT: the key names below MUST match what gatherData() in ui.js
+  // actually produces, and what pdf.js / history.js actually read back. They
+  // previously did not: reportToRow looked for data.recommendations,
+  // data.installation, data.customerSignature, data.customerPrintedName and
+  // data.technicianName, while gatherData emits recs, install, sigCustomer,
+  // custPrintedName and techName. The result was that on EVERY cloud save the
+  // recommendations, both signatures, both printed names and all installation
+  // data were written as empty and permanently lost — invisible on the
+  // technician's own phone because the local copy keeps the correct shape.
+  // Do not "tidy" these names without changing gatherData/pdf.js to match.
+  const REPORT_STRING_FIELDS = [
+    ['sr_no','srNo'], ['technician_id','technicianId'], ['date','date'],
+    ['cust_name','custName'], ['cust_address','custAddress'], ['contact_no','contactNo'],
+    ['contact_person','contactPerson'], ['cust_email','custEmail'], ['equip_type','equipType'],
+    ['model_cu','modelCU'], ['serial_cu','serialCU'], ['model_fcu','modelFCU'], ['serial_fcu','serialFCU'],
+    ['cool_cap','coolCap'], ['mount_type','mountType'], ['brand','brand'], ['refrigerant_type','refrigerantType'],
+    ['compressor_type','compressorType'], ['equip_location','equipLocation'], ['trouble_call','troubleCall'],
+    ['time_in','timeIn'], ['time_out','timeOut'], ['remarks','remarks'],
+    ['customer_printed_name','custPrintedName'], ['technician_name','techName']
+  ];
   function reportToRow(data){
-    return {
-      sr_no: data.srNo, technician_id: data.technicianId, date: data.date,
-      cust_name: data.custName, cust_address: data.custAddress, contact_no: data.contactNo,
-      contact_person: data.contactPerson, cust_email: data.custEmail, equip_type: data.equipType,
-      model_cu: data.modelCU, serial_cu: data.serialCU, model_fcu: data.modelFCU, serial_fcu: data.serialFCU,
-      cool_cap: data.coolCap, mount_type: data.mountType, brand: data.brand, refrigerant_type: data.refrigerantType,
-      compressor_type: data.compressorType, equip_location: data.equipLocation, trouble_call: data.troubleCall,
-      findings: data.findings||[], recommendations: data.recommendations||[], materials: data.materials||[],
-      services_done: data.servicesDone||[], before_data: data.before||{}, after_data: data.after||{},
-      installation: data.installation||{}, time_in: data.timeIn, time_out: data.timeOut, remarks: data.remarks,
-      customer_printed_name: data.customerPrintedName, technician_name: data.technicianName,
-      customer_signature: data.customerSignature||{}, technician_signature: data.technicianSignature||{},
-      completed: !!data.completed
-    };
+    const row = {};
+    REPORT_STRING_FIELDS.forEach(([col, key])=>{ row[col] = data[key] != null ? data[key] : null; });
+    row.findings      = data.findings || [];
+    row.recommendations = data.recs || [];
+    row.materials     = data.materials || [];
+    row.services_done = data.servicesDone || [];
+    row.before_data   = data.before || {};
+    row.after_data    = data.after || {};
+    row.is_install    = !!data.isInstall;
+    row.installation  = data.install || {};
+    // Signatures are PNG data-URL strings. Default to null, never {} — an
+    // empty object is indistinguishable from "signature was lost in transit".
+    row.customer_signature   = data.sigCustomer || null;
+    row.technician_signature = data.sigTech || null;
+    row.completed = !!data.completed;
+    return row;
   }
   function rowToReport(row){
     if(!row) return null;
+    const data = {};
+    REPORT_STRING_FIELDS.forEach(([col, key])=>{ data[key] = row[col]; });
+    data.findings     = row.findings || [];
+    data.recs         = row.recommendations || [];
+    data.materials    = row.materials || [];
+    data.servicesDone = row.services_done || [];
+    data.before       = normalizeOperatingData(row.before_data);
+    data.after        = normalizeOperatingData(row.after_data);
+    data.isInstall    = !!row.is_install;
+    data.install      = normalizeInstallData(row.installation);
+    data.sigCustomer  = asSignature(row.customer_signature);
+    data.sigTech      = asSignature(row.technician_signature);
+    data.completed    = !!row.completed;
+    return data;
+  }
+  // Legacy rows may hold {} (or a stray object) where a data-URL string was
+  // expected, because of the field-name bug described above. Treat anything
+  // that is not a data URL as "no signature" rather than handing jsPDF a
+  // value it will throw on.
+  function asSignature(v){
+    return (typeof v === 'string' && v.indexOf('data:image') === 0) ? v : null;
+  }
+  // pdf.js calls .join() on these arrays, so guarantee their shape even for
+  // rows written by older versions of the app.
+  function normalizeOperatingData(d){
+    d = d || {};
     return {
-      srNo: row.sr_no, technicianId: row.technician_id, date: row.date,
-      custName: row.cust_name, custAddress: row.cust_address, contactNo: row.contact_no,
-      contactPerson: row.contact_person, custEmail: row.cust_email, equipType: row.equip_type,
-      modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
-      coolCap: row.cool_cap, mountType: row.mount_type, brand: row.brand, refrigerantType: row.refrigerant_type,
-      compressorType: row.compressor_type, equipLocation: row.equip_location, troubleCall: row.trouble_call,
-      findings: row.findings||[], recommendations: row.recommendations||[], materials: row.materials||[],
-      servicesDone: row.services_done||[], before: row.before_data||{}, after: row.after_data||{},
-      installation: row.installation||{}, timeIn: row.time_in, timeOut: row.time_out, remarks: row.remarks,
-      customerPrintedName: row.customer_printed_name, technicianName: row.technician_name,
-      customerSignature: row.customer_signature||{}, technicianSignature: row.technician_signature||{},
-      completed: !!row.completed
+      amp:      Array.isArray(d.amp) ? d.amp : ['','',''],
+      volt:     Array.isArray(d.volt) ? d.volt : ['','',''],
+      pressure: Array.isArray(d.pressure) ? d.pressure : ['',''],
+      temp:     d.temp || '',
+      airflow:  d.airflow || ''
+    };
+  }
+  function normalizeInstallData(d){
+    d = d || {};
+    return {
+      pd: Array.isArray(d.pd) ? d.pd : ['','',''],
+      pl: Array.isArray(d.pl) ? d.pl : ['',''],
+      ws: Array.isArray(d.ws) ? d.ws : ['',''],
+      pi: Array.isArray(d.pi) ? d.pi : ['',''],
+      breaker: d.breaker || '', riser: d.riser || '',
+      ptrap: d.ptrap || '', bracketType: d.bracketType || ''
     };
   }
   async function cloudSaveReport(srNo, data){
@@ -181,14 +240,31 @@
       const { data, error } = await db.from('service_reports').select('*').eq('sr_no', srNo).maybeSingle();
       if(error) throw error;
       return rowToReport(data);
-    }catch(e){ return null; }
+    }catch(e){ console.error('cloud get report failed', srNo, describeCloudError(e)); return null; }
   }
+  // History used to be hard-capped at the newest 150 reports with no indication
+  // that anything had been cut off, so older jobs simply became invisible in the
+  // app even though they were sitting in the database. Page through instead.
+  const REPORT_PAGE = 200;      // Supabase caps a single response at 1000 rows
+  const REPORT_MAX_ROWS = 5000; // hard stop so a huge table can't exhaust memory
   async function cloudListReports(){
     if(!(await ensureCloud())) return null;
     try{
-      const { data, error } = await db.from('service_reports').select('*').order('date',{ascending:false}).limit(150);
-      if(error) throw error;
-      return (data||[]).map(rowToReport);
+      const rows = [];
+      for(let from = 0; from < REPORT_MAX_ROWS; from += REPORT_PAGE){
+        const { data, error } = await db.from('service_reports')
+          .select('*')
+          .order('date',{ascending:false})
+          .order('sr_no',{ascending:false})   // stable tiebreak: without it, rows
+                                              // sharing a date can repeat or be
+                                              // skipped across page boundaries
+          .range(from, from + REPORT_PAGE - 1);
+        if(error) throw error;
+        const batch = data || [];
+        rows.push(...batch);
+        if(batch.length < REPORT_PAGE) break;
+      }
+      return rows.map(rowToReport);
     }catch(e){ console.error('cloud list failed', describeCloudError(e)); return null; }
   }
   async function cloudNextSrNo(dateStr){
@@ -201,3 +277,177 @@
       return data;
     }catch(e){ console.error('cloud SR counter failed', describeCloudError(e)); return null; }
   }
+
+  // ---------- password prompt ----------
+  // window.prompt() was used for every admin-password gate. On iOS Safari that
+  // dialog shows the typed password in clear text (and in screenshots), it can't
+  // be styled to match the app, and several in-app browsers (Facebook, Messenger,
+  // Gmail) block it outright — in which case prompt() returns null and the admin
+  // could never get past the gate. This overlay is a proper masked input.
+  function askPassword(opts){
+    opts = opts || {};
+    const overlay = $('adminPwOverlay');
+    if(!overlay){
+      // Extremely defensive: if the markup is missing, fall back rather than
+      // leaving the caller hanging on a promise that never settles.
+      return Promise.resolve(window.prompt(opts.label || 'Enter Admin Password') || null);
+    }
+    const input = $('adminPwInput'), msg = $('adminPwMsg');
+    $('adminPwTitle').textContent = opts.title || 'Admin Password';
+    $('adminPwLabel').textContent = opts.label || 'Enter Admin Password';
+    input.placeholder = opts.placeholder || 'Password';
+    input.value = '';
+    msg.textContent = opts.message || '';
+    overlay.classList.add('open');
+    setTimeout(()=>{ try{ input.focus(); }catch(e){} }, 60);
+
+    return new Promise(resolve=>{
+      let done = false;
+      function finish(value){
+        if(done) return;
+        done = true;
+        overlay.classList.remove('open');
+        input.value = '';   // never leave the password sitting in the DOM
+        msg.textContent = '';
+        cleanup();
+        resolve(value);
+      }
+      const onOk = ()=> finish(input.value ? input.value : null);
+      const onCancel = ()=> finish(null);
+      const onKey = (e)=>{
+        if(e.key==='Enter'){ e.preventDefault(); onOk(); }
+        else if(e.key==='Escape'){ e.preventDefault(); onCancel(); }
+      };
+      const onBackdrop = (e)=>{ if(e.target===overlay) onCancel(); };
+      function cleanup(){
+        $('adminPwOk').removeEventListener('click', onOk);
+        $('adminPwCancel').removeEventListener('click', onCancel);
+        $('adminPwCancel2').removeEventListener('click', onCancel);
+        input.removeEventListener('keydown', onKey);
+        overlay.removeEventListener('click', onBackdrop);
+      }
+      $('adminPwOk').addEventListener('click', onOk);
+      $('adminPwCancel').addEventListener('click', onCancel);
+      $('adminPwCancel2').addEventListener('click', onCancel);
+      input.addEventListener('keydown', onKey);
+      overlay.addEventListener('click', onBackdrop);
+    });
+  }
+
+  // ---------- outbox: pending cloud writes ----------
+  // Anything saved while the phone has no usable connection used to be written
+  // to local storage only and then forgotten: History falls back to local data
+  // ONLY while still offline, so as soon as signal returned the offline work
+  // became invisible and was never uploaded. The only recovery was the manual
+  // "upload this device's data" button, which covered reports and field lists
+  // but not DTR, customers, leave, cash advances or dispatch tickets.
+  //
+  // Every save helper now queues a pending operation instead, and the outbox is
+  // flushed on app start, whenever the browser fires 'online', and after any
+  // successful cloud call.
+  const OUTBOX_PREFIX = 'outbox:';
+  const SAVE_CLOUD  = 'cloud';   // written straight to the shared cloud
+  const SAVE_QUEUED = 'queued';  // saved on this device, queued for upload
+  const SAVE_FAILED = 'failed';  // could not be stored at all
+  const outboxHandlers = Object.create(null);
+
+  // Each module registers how to replay its own kind of pending write.
+  // handler(id, payload) must throw if the cloud rejected the write; returning
+  // normally is treated as success.
+  function registerOutboxHandler(kind, handler){ outboxHandlers[kind] = handler; }
+
+  function outboxKey(kind, id){
+    // ':' is used as the separator, so keep ids from splitting the key.
+    return OUTBOX_PREFIX + kind + ':' + String(id).replace(/:/g, '_');
+  }
+  async function outboxQueue(kind, id, payload){
+    try{
+      await window.storage.set(outboxKey(kind, id), JSON.stringify({
+        kind, id, payload, queuedAt: new Date().toISOString()
+      }), false);
+      updateOutboxBadge();
+      return true;
+    }catch(e){ console.error('could not queue pending write', kind, id, describeCloudError(e)); return false; }
+  }
+  async function outboxList(){
+    try{
+      const res = await window.storage.list(OUTBOX_PREFIX, false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        try{
+          const item = await window.storage.get(key, false);
+          if(item) items.push(Object.assign(JSON.parse(item.value), {storageKey: key}));
+        }catch(e){ /* skip an unreadable entry rather than stalling the queue */ }
+      }
+      // Oldest first, so work reaches the cloud in the order it was done.
+      // String() matters: an entry written by an older build (or hand-edited)
+      // could carry a numeric timestamp, and calling localeCompare on a number
+      // throws — which the catch below would turn into an empty queue, hiding
+      // the pending-sync banner and silently abandoning the user's offline work.
+      items.sort((a,b)=> String(a.queuedAt||'').localeCompare(String(b.queuedAt||'')));
+      return items;
+    }catch(e){
+      console.error('could not read the pending-sync queue', e);
+      return [];
+    }
+  }
+  async function outboxCount(){ return (await outboxList()).length; }
+
+  let outboxFlushing = false;
+  async function outboxFlush(opts){
+    opts = opts || {};
+    if(outboxFlushing) return {sent:0, left:0};
+    if(!(await ensureCloud())) return {sent:0, left:await outboxCount()};
+    outboxFlushing = true;
+    let sent = 0, left = 0;
+    try{
+      const items = await outboxList();
+      for(const item of items){
+        const handler = outboxHandlers[item.kind];
+        if(!handler){ left++; continue; }
+        let ok = false;
+        try{ await handler(item.id, item.payload); ok = true; }
+        catch(e){ console.error('outbox replay failed', item.kind, item.id, describeCloudError(e)); }
+        if(ok){
+          sent++;
+          try{ await window.storage.delete(item.storageKey); }catch(e){}
+        }else{
+          left++;
+          // Stop on the first failure: the connection is probably still bad,
+          // and hammering it just burns the technician's mobile data.
+          break;
+        }
+      }
+    }finally{
+      outboxFlushing = false;
+    }
+    if(sent && !opts.quiet) toast('Uploaded '+sent+' pending item'+(sent===1?'':'s')+' to the shared cloud');
+    updateOutboxBadge();
+    return {sent, left};
+  }
+  async function updateOutboxBadge(){
+    const el = $('pendingSyncBanner');
+    if(!el) return;
+    const n = await outboxCount();
+    el.style.display = n ? 'flex' : 'none';
+    const label = $('pendingSyncText');
+    if(label) label.textContent = n+' item'+(n===1?'':'s')+' saved on this device only — waiting for a connection';
+  }
+  window.addEventListener('online', ()=>{ outboxFlush(); });
+  // Also retry when the app is brought back to the foreground, since phones
+  // often reconnect while the screen is off and never fire 'online' again.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible') outboxFlush({quiet:true});
+  });
+  // Reveal stranded offline work as soon as the bundle runs. This deliberately
+  // does NOT wait for the startup data load: that chain can block for up to 12
+  // seconds behind the CDN script timeout, and a technician who opens the app to
+  // check whether yesterday's report went through should not stare at a screen
+  // that says nothing for 12 seconds.
+  updateOutboxBadge();
+
+  const pendingSyncBtn = $('pendingSyncBtn');
+  if(pendingSyncBtn) pendingSyncBtn.addEventListener('click', async ()=>{
+    const res = await outboxFlush();
+    if(!res.sent) toast(res.left ? 'Still no connection — will keep trying' : 'Nothing pending');
+  });

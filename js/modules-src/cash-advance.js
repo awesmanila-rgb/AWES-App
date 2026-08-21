@@ -1,41 +1,124 @@
 // ---------- Cash Advance Form (table: cash_advance_requests) ----------
-  function caGenId(userId){ return userId+'_'+Date.now(); }
+  function caGenId(userId){
+    const rand = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
+    return userId+'_'+rand;
+  }
+
+  // Receipt images live inside the JSONB row as base64 data URLs. That keeps the
+  // app dependency-free but means a row can be megabytes, so cap it: an
+  // oversized row is rejected outright by Postgres/PostgREST and the old code
+  // just showed "could not submit" with no explanation.
+  const CA_ATTACHMENT_MAX_BYTES = 1_500_000; // ~1.5 MB per receipt, post-compression
+  const CA_RECORD_MAX_BYTES = 6_000_000;     // ~6 MB for the whole liquidation
+  function caAttachmentSize(dataUrl){
+    if(!dataUrl) return 0;
+    const comma = dataUrl.indexOf(',');
+    const b64 = comma>=0 ? dataUrl.slice(comma+1) : dataUrl;
+    return Math.floor(b64.length * 3 / 4);
+  }
 
   async function caSaveRequest(id, data){
+    const payload = {
+      id, technician_id: data.userId, status: data.status || 'pending',
+      submitted_at: data.submittedAt || new Date().toISOString(), data
+    };
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('cash_advance_requests').upsert({
-          id, technician_id: data.userId, status: data.status || 'pending',
-          submitted_at: data.submittedAt || new Date().toISOString(), data
-        });
+        const { error } = await db.from('cash_advance_requests').upsert(payload);
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('cash advance save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); }
+    catch(e){ return SAVE_FAILED; }
+    return (await outboxQueue('cash-advance', id, payload)) ? SAVE_QUEUED : SAVE_FAILED;
   }
-  async function caListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('cash advance list failed', describeCloudError(e)); }
+  registerOutboxHandler('cash-advance', async (id, payload)=>{
+    const { error } = await db.from('cash_advance_requests').upsert(payload);
+    if(error) throw error;
+  });
+
+  const CA_PAGE = 200;
+  async function caFetchPaged(applyFilter){
+    const out = [];
+    for(let from = 0; ; from += CA_PAGE){
+      let q = db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).range(from, from+CA_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const batch = data || [];
+      batch.forEach(r=> out.push(r.data));
+      if(batch.length < CA_PAGE) break;
+      if(out.length >= 5000) break;
     }
+    return out;
+  }
+  async function caLocalList(userId){
     try{
       const res = await window.storage.list('cash:', false);
       const items = [];
       for(const key of (res.keys||[])){
         try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
       }
-      items.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
-      return items;
+      const filtered = userId ? items.filter(r=> r && r.userId===userId) : items;
+      filtered.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+      return filtered;
     }catch(e){ return []; }
   }
-  async function caListForUser(userId){
-    const all = await caListAll();
-    return all.filter(r=> r.userId===userId);
+  // Strips receipt payloads for list views. Rendering a summary list does not
+  // need every technician's base64 receipt images — downloading all of them was
+  // the single most expensive thing the admin screens did, on a mobile
+  // connection, every time the tab was opened.
+  function caStripAttachments(rec){
+    if(!rec || !rec.liquidation || !Array.isArray(rec.liquidation.items)) return rec;
+    return Object.assign({}, rec, {
+      liquidation: Object.assign({}, rec.liquidation, {
+        items: rec.liquidation.items.map(i=> i && i.attachmentData
+          ? Object.assign({}, i, {attachmentData: null, attachmentTruncated: true})
+          : i)
+      })
+    });
+  }
+  async function caListAll(opts){
+    const summary = !(opts && opts.full);
+    if(await ensureCloud()){
+      try{
+        const rows = await caFetchPaged(null);
+        return summary ? rows.map(caStripAttachments) : rows;
+      }catch(e){ console.error('cash advance list failed', describeCloudError(e)); }
+    }
+    return await caLocalList(null);
+  }
+  // Server-side filter: a technician's client no longer downloads every
+  // colleague's cash advances (amounts, purposes and receipts) just to hide them
+  // in JavaScript.
+  async function caListForUser(userId, opts){
+    if(!userId) return [];
+    const summary = !(opts && opts.full);
+    if(await ensureCloud()){
+      try{
+        const rows = await caFetchPaged(q=> q.eq('technician_id', userId));
+        return summary ? rows.map(caStripAttachments) : rows;
+      }catch(e){ console.error('cash advance list (user) failed', describeCloudError(e)); }
+    }
+    return await caLocalList(userId);
+  }
+  // Fetches ONE record complete with attachment data, for the detail/attachment
+  // views that actually need it.
+  async function caGetRequest(id){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('cash_advance_requests').select('data').eq('id', id).maybeSingle();
+        if(error) throw error;
+        return data ? data.data : null;
+      }catch(e){ console.error('cash advance get failed', describeCloudError(e)); }
+    }
+    try{
+      const item = await window.storage.get('cash:'+id, false);
+      return item ? JSON.parse(item.value) : null;
+    }catch(e){ return null; }
   }
   function caFmtPeso(n){
     const v = Number(n)||0;
@@ -58,7 +141,9 @@
     return !!(r.disbursed && (!r.liquidation || r.liquidation.status !== 'approved'));
   }
   async function caFindActiveLiquidationRecord(userId){
-    const all = await caListForUser(userId);
+    // Needs the full record: a disapproved liquidation is reloaded into the form
+    // so the technician can fix it, receipts included.
+    const all = await caListForUser(userId, {full:true});
     const outstanding = all.filter(caNeedsLiquidation);
     outstanding.sort((a,b)=> (b.disbursedAt||'').localeCompare(a.disbursedAt||''));
     return outstanding[0] || null;
@@ -120,13 +205,14 @@
       liquidation: null
     };
     $('caSubmitBtn').disabled = true;
-    const ok = await caSaveRequest(id, data);
+    const res = await caSaveRequest(id, data);
     $('caSubmitBtn').disabled = false;
-    if(ok){
-      toast('Cash advance request submitted for approval');
-      caResetForm();
-      caShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? 'Cash advance request submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    caResetForm();
+    caShowTab('history');
   }
   $('caSubmitBtn').addEventListener('click', caSubmit);
 
@@ -305,6 +391,12 @@
               item.attachmentData = dataUrl;
               item.attachmentMime = file.type || 'application/octet-stream';
             }
+            if(caAttachmentSize(item.attachmentData) > CA_ATTACHMENT_MAX_BYTES){
+              item.attachmentData = null; item.attachmentMime = null;
+              toast('That file is too large — take a photo instead of attaching a full-size file');
+              caLiqRenderItems();
+              return;
+            }
             item.attachmentName = file.name;
             toast('File attached');
             caLiqRenderItems();
@@ -428,16 +520,62 @@
     }else{
       $('liqAttachmentTitle').textContent = item.description || 'Attachment';
       $('liqAttachmentTransportWrap').style.display = 'none';
+      if(!item.attachmentData){
+        // List views deliberately fetch records without receipt payloads.
+        $('liqAttachmentImageWrap').style.display = 'none';
+        toast('Opening receipt…');
+        caLoadAttachmentThenOpen(item);
+        return;
+      }
       if(item.attachmentMime && item.attachmentMime.startsWith('image/')){
         $('liqAttachmentImageWrap').style.display = '';
         $('liqAttachmentImg').src = item.attachmentData;
       }else{
-        // Non-image (e.g. PDF) — open it directly rather than trying to
-        // render it inline.
-        window.open(item.attachmentData, '_blank');
+        // Non-image (e.g. PDF): window.open() on a data: URL is blocked outright
+        // by Chrome and Safari (top-frame navigation to data: URLs), so this
+        // silently did nothing. Convert to a Blob and open an object URL, which
+        // is allowed — and revoke it afterwards so it doesn't leak.
+        try{
+          const blob = caDataUrlToBlob(item.attachmentData, item.attachmentMime);
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if(!win){
+            // Pop-up blocked: fall back to a same-gesture download.
+            const a = document.createElement('a');
+            a.href = url; a.download = item.attachmentName || 'receipt';
+            document.body.appendChild(a); a.click(); a.remove();
+          }
+          setTimeout(()=> URL.revokeObjectURL(url), 60000);
+        }catch(e){
+          console.error('could not open attachment', e);
+          toast('Could not open that file');
+        }
       }
     }
     $('liqAttachmentOverlay').classList.add('open');
+  }
+  function caDataUrlToBlob(dataUrl, fallbackMime){
+    const match = /^data:([^;,]+)?(;base64)?,(.*)$/.exec(dataUrl || '');
+    if(!match) throw new Error('not a data URL');
+    const mime = match[1] || fallbackMime || 'application/octet-stream';
+    const body = match[3];
+    if(match[2]){
+      const bin = atob(body);
+      const bytes = new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], {type: mime});
+    }
+    return new Blob([decodeURIComponent(body)], {type: mime});
+  }
+  // Re-fetches the owning record so a summary-loaded item can still show its
+  // receipt on demand.
+  async function caLoadAttachmentThenOpen(item){
+    const recordId = item.__recordId;
+    if(!recordId){ toast('Receipt not available'); return; }
+    const full = await caGetRequest(recordId);
+    const match = full && full.liquidation && (full.liquidation.items||[]).find(i=> i.id===item.id);
+    if(!match || !match.attachmentData){ toast('Receipt not available'); return; }
+    openLiquidationAttachment(Object.assign({}, match, {__recordId: recordId}));
   }
   $('closeLiqAttachment').addEventListener('click', ()=> $('liqAttachmentOverlay').classList.remove('open'));
   $('liqAttachmentOverlay').addEventListener('click', (e)=>{ if(e.target.id==='liqAttachmentOverlay') $('liqAttachmentOverlay').classList.remove('open'); });
@@ -449,15 +587,15 @@
       '<div style="margin-top:6px;">Total liquidated: <b>'+caFmtPeso(liq.totalAmount)+'</b> of '+caFmtPeso(record.amountGiven)+' given</div>'+
       (liq.comment ? '<div style="margin-top:6px;"><b>Notes</b> '+escapeHtml(liq.comment)+'</div>' : '')+
       '</div>';
-    liq.items.forEach(item=>{
-      html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+item.id+'">'+
+    (liq.items||[]).forEach(item=>{
+      html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+escapeHtml(item.id)+'">'+
         '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(item.description)+'</b>'+
         '<span>'+caFmtPeso(item.amount)+'</span></div></div>';
     });
     wrap.innerHTML = html;
-    liq.items.forEach(item=>{
-      const el = wrap.querySelector('[data-view-item="'+item.id+'"]');
-      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(item));
+    (liq.items||[]).forEach(item=>{
+      const el = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: record.id})));
     });
   }
 
@@ -486,8 +624,12 @@
         // rather than starting from scratch.
         caLiqItems = (active.liquidation.items||[]).map(i=> Object.assign({}, i));
         $('caLiqNotes').value = active.liquidation.comment && active.liquidation.userNotes ? active.liquidation.userNotes : '';
+        // Remove any banner from a previous visit to this tab: the old code
+        // prepend()ed a new one every single time, so the disapproval message
+        // stacked up copy after copy.
+        $('caLiqEditView').querySelectorAll('.ca-liq-disapproval-banner').forEach(el=> el.remove());
         const banner = document.createElement('div');
-        banner.className = 'dtr-banner dtr-banner-warn';
+        banner.className = 'dtr-banner dtr-banner-warn ca-liq-disapproval-banner';
         banner.style.display = 'block';
         banner.style.marginBottom = '12px';
         banner.textContent = 'Disapproved — '+(active.liquidation.comment || 'please review and resubmit.');
@@ -514,10 +656,25 @@
       if(!item.amount || item.amount<=0){ toast('Every item needs a valid amount'); return; }
       if(!item.attachmentData){ toast('Attach a file for every item — "'+item.description+'" is missing one'); return; }
     }
+    // Reject oversized receipts up front, with a message that says what to do,
+    // instead of letting the whole submission fail opaquely at the database.
+    let totalBytes = 0;
+    for(const item of caLiqItems){
+      const size = caAttachmentSize(item.attachmentData);
+      if(size > CA_ATTACHMENT_MAX_BYTES){
+        toast('"'+(item.description||'An item')+'" attachment is too large — retake the photo or use a smaller file');
+        return;
+      }
+      totalBytes += size;
+    }
+    if(totalBytes > CA_RECORD_MAX_BYTES){
+      toast('These receipts total too much data — remove or retake a few and submit again');
+      return;
+    }
     const totalAmount = caLiqUpdateTotals();
     const notes = $('caLiqNotes').value.trim();
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===caLiqActiveRecord.id);
+    // Fetch just this one record rather than pulling the entire table down.
+    const rec = await caGetRequest(caLiqActiveRecord.id);
     if(!rec){ toast('Cash advance record not found'); return; }
     const updated = Object.assign({}, rec, {
       liquidation: {
@@ -530,12 +687,13 @@
       }
     });
     $('caLiqSubmitBtn').disabled = true;
-    const ok = await caSaveRequest(rec.id, updated);
+    const res = await caSaveRequest(rec.id, updated);
     $('caLiqSubmitBtn').disabled = false;
-    if(ok){
-      toast('Liquidation submitted for approval');
-      caShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? 'Liquidation submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    caShowTab('history');
   }
   $('caLiqSubmitBtn').addEventListener('click', caSubmitLiquidation);
 
@@ -668,9 +826,11 @@
         (liq.comment ? '<div style="margin-top:4px;">'+escapeHtml(liq.comment)+'</div>' : '')+'</div>';
     }
     panel.innerHTML = html;
-    liq.items.forEach(item=>{
-      const el = panel.querySelector('[data-view-item="'+item.id+'"]');
-      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(item));
+    (liq.items||[]).forEach(item=>{
+      const el = panel.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      // Pass the owning record id so the viewer can fetch the receipt on demand
+      // (admin lists are loaded without attachment payloads).
+      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: r.id})));
     });
     const approveBtn = panel.querySelector('[data-act="liq-approve"]');
     const disapproveBtn = panel.querySelector('[data-act="liq-disapprove"]');
@@ -678,56 +838,92 @@
     if(disapproveBtn) disapproveBtn.addEventListener('click', ()=> caDecideLiquidation(r.id, 'disapproved', panel.querySelector('[data-f="liqComment"]').value.trim()));
   }
 
+  // All three admin actions below now:
+  //   * require a live connection (a decision queued on one phone and replayed
+  //     later would silently clobber whatever happened in between),
+  //   * fetch only the one record they are changing,
+  //   * write a targeted .update() rather than upserting the technician's whole
+  //     record back, and
+  //   * guard against acting twice on the same record.
+  function caAdminGuard(){
+    if(!currentUser || currentUser.role!=='admin'){ toast('Admin only'); return false; }
+    return true;
+  }
+  async function caApplyAdminChange(id, mutate, okMsg){
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return false; }
+    try{
+      const rec = await caGetRequest(id);
+      if(!rec){ toast('Request not found'); return false; }
+      const change = mutate(rec);
+      if(!change) return false;
+      const merged = Object.assign({}, rec, change.data);
+      let q = db.from('cash_advance_requests').update(
+        change.status ? { status: change.status, data: merged } : { data: merged }
+      ).eq('id', id);
+      if(change.expectStatus) q = q.eq('status', change.expectStatus);
+      const { data: rows, error } = await q.select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){
+        toast('This request changed on another device — refreshing');
+        return false;
+      }
+      if(okMsg) toast(okMsg);
+      return true;
+    }catch(e){
+      console.error('cash advance admin update failed', describeCloudError(e));
+      toast('Could not save — please try again');
+      return false;
+    }
+  }
+
   async function caDecideLiquidation(id, status, comment){
+    if(!caAdminGuard()) return;
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec || !rec.liquidation){ toast('Liquidation not found'); return; }
-    const updated = Object.assign({}, rec, {
-      liquidation: Object.assign({}, rec.liquidation, {
-        status, comment,
+    await caApplyAdminChange(id, (rec)=>{
+      if(!rec.liquidation){ toast('Liquidation not found'); return null; }
+      if(rec.liquidation.status===status){ toast('Already '+status); return null; }
+      return { data: { liquidation: Object.assign({}, rec.liquidation, {
+        status, comment: comment || '',
         decidedAt: new Date().toISOString(),
-        decidedBy: currentUser ? currentUser.name : 'Admin'
-      })
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? ('Liquidation '+status) : 'Could not save decision');
+        decidedBy: currentUser.name || 'Admin'
+      }) } };
+    }, 'Liquidation '+status);
     caRenderAdminList();
   }
 
   async function caDecide(id, status, comment){
+    if(!caAdminGuard()) return;
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      status, comment,
-      decidedAt: new Date().toISOString(),
-      decidedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? ('Request '+status) : 'Could not save decision');
+    await caApplyAdminChange(id, ()=>({
+      status,
+      expectStatus: 'pending',
+      data: {
+        status, comment: comment || '',
+        decidedAt: new Date().toISOString(),
+        decidedBy: currentUser.name || 'Admin'
+      }
+    }), 'Request '+status);
     caRenderAdminList();
   }
   // Monitoring: records that the requested cash was actually handed over, with
   // the date and amount actually given (which can differ from what was requested).
   async function caRecordDisbursement(id, dateGiven, amountGiven){
+    if(!caAdminGuard()) return;
     if(!dateGiven){ toast('Set the date the cash was given'); return; }
     if(!amountGiven || amountGiven<=0){ toast('Enter a valid amount given'); return; }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      disbursed: true, dateGiven, amountGiven,
-      disbursedAt: new Date().toISOString(),
-      disbursedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? 'Disbursement recorded' : 'Could not save disbursement');
+    await caApplyAdminChange(id, (rec)=>{
+      if(rec.status!=='approved'){ toast('Approve the request before recording disbursement'); return null; }
+      if(rec.disbursed){ toast('Already recorded as disbursed'); return null; }
+      return { data: {
+        disbursed: true, dateGiven, amountGiven,
+        disbursedAt: new Date().toISOString(),
+        disbursedBy: currentUser.name || 'Admin'
+      } };
+    }, 'Disbursement recorded');
     caRenderAdminList();
   }
   document.querySelectorAll('#caAdminFilterRow button').forEach(btn=>{

@@ -30,6 +30,42 @@
     }
     return await localListUsers();
   }
+  // The login screen needs a list of technicians BEFORE anyone is signed in.
+  // It used to call cloudListUsers() directly, which required the `profiles`
+  // table to be readable by the anonymous key — meaning anyone holding the
+  // public key shipped in this app could dump every staff row, restrictions and
+  // must-change-password flags included. This goes through an Edge Function that
+  // returns only {id, name} for active technicians, so anon SELECT on `profiles`
+  // can be revoked (see the migration in supabase/ in this package).
+  async function publicListTechnicians(){
+    const cfg = getCloudConfig();
+    if(cfg && navigator.onLine){
+      try{
+        const res = await fetch(cfg.url.replace(/\/$/,'')+'/functions/v1/list-technicians', {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer '+cfg.anonKey, 'apikey': cfg.anonKey }
+        });
+        if(res.ok){
+          const body = await res.json();
+          const rows = Array.isArray(body) ? body : (body.technicians || []);
+          // Cache so the login screen still works on a phone with no signal.
+          try{ await window.storage.set('tech-roster', JSON.stringify(rows), false); }catch(e){}
+          return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+        }
+        console.error('list-technicians failed', res.status);
+      }catch(e){ console.error('list-technicians request failed', e); }
+    }
+    // Offline / function unavailable: fall back to the last roster we saw, then
+    // to any locally provisioned users.
+    try{
+      const cached = await window.storage.get('tech-roster', false);
+      if(cached){
+        const rows = JSON.parse(cached.value) || [];
+        if(rows.length) return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+      }
+    }catch(e){}
+    return await localListUsers();
+  }
   async function cloudGetUser(id){
     if(await ensureCloud()){
       try{
@@ -53,16 +89,17 @@
           patch.no_report = !!data.restrictions.noReport;
           patch.read_only = !!data.restrictions.readOnly;
         }
-        const { error } = await db.from('profiles').update(patch).eq('id', id);
+        const { data: rows, error } = await db.from('profiles').update(patch).eq('id', id).select('id');
         if(error) throw error;
+        if(!rows || !rows.length) throw new Error('no profile row was updated');
         return true;
-      }catch(e){ console.error('save user failed', describeCloudError(e)); }
+      }catch(e){ console.error('save user failed', describeCloudError(e)); return false; }
     }
-    const users = await localListUsers();
-    const idx = users.findIndex(u=>u.id===id);
-    if(idx>=0) users[idx] = Object.assign({}, users[idx], data, {id});
-    else users.push(Object.assign({id}, data));
-    return await localSaveUsers(users);
+    // Admin account changes are NOT written to a local fallback any more. The
+    // old code wrote them into this device's `local-users` list and returned
+    // success, so deactivating a technician or changing their access looked like
+    // it worked while the real account on the server was untouched.
+    return false;
   }
   async function cloudDeleteUser(id){
     if(await ensureCloud()){
@@ -74,10 +111,11 @@
         const { error } = await db.from('profiles').delete().eq('id', id);
         if(error) throw error;
         return true;
-      }catch(e){}
+      }catch(e){ console.error('delete user failed', describeCloudError(e)); return false; }
     }
-    const users = (await localListUsers()).filter(u=>u.id!==id);
-    return await localSaveUsers(users);
+    // Same reasoning as cloudSetUser: never report a deletion that only
+    // happened in this phone's local list.
+    return false;
   }
   // Clears the caller's OWN must_change_password flag via a narrow RPC
   // (see clear_my_must_change_password in the schema) — deliberately not a
@@ -207,7 +245,7 @@
     techBtn.textContent = '👷 Technician';
     techBtn.addEventListener('click', async ()=>{
       container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await cloudListUsers();
+      const users = await publicListTechnicians();
       renderTechnicianList(users || []);
     });
     const adminLoginBtn = document.createElement('button');
@@ -321,7 +359,7 @@
     back.textContent = '← Back';
     back.addEventListener('click', async ()=>{
       container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await cloudListUsers();
+      const users = await publicListTechnicians();
       renderTechnicianList(users || []);
     });
     container.appendChild(back);
@@ -333,7 +371,8 @@
     }
     const field = document.createElement('div');
     field.className = 'field';
-    field.innerHTML = '<label>Password for '+u.name+'</label>';
+    // Technician names are admin-entered free text; escape before injecting.
+    field.innerHTML = '<label>Password for '+escapeHtml(u.name)+'</label>';
     const input = document.createElement('input');
     input.type = 'password'; input.id = 'loginTechPin';
     input.placeholder = 'Enter your password';
@@ -371,17 +410,61 @@
     showRoleChooser(message);
   }
 
+  // Reads the role from the VERIFIED Supabase session rather than trusting
+  // whatever localStorage says.
+  //
+  // Previously an admin session was restored purely because
+  // localStorage['current-user'].role === 'admin' — anyone could open devtools,
+  // write that one key, reload, and get the full admin UI (Manage Users,
+  // approvals, dropdown-list editing). Now the identity has to come back from
+  // Supabase Auth, and "admin" specifically has to match the admin account's
+  // email on the server-issued JWT.
+  async function getVerifiedSession(){
+    if(!(await ensureCloud())) return null;
+    try{
+      const { data, error } = await db.auth.getSession();
+      if(error || !data || !data.session || !data.session.user) return null;
+      const user = data.session.user;
+      const email = (user.email||'').toLowerCase();
+      return {
+        id: user.id,
+        email,
+        role: email === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'tech'
+      };
+    }catch(e){ return null; }
+  }
+
   async function checkLoginGate(){
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
-    if(saved && saved.role==='admin'){
-      currentUser = saved;
+    const verified = await getVerifiedSession();
+    // A stored session that Supabase no longer recognises is stale (expired or
+    // forged). Drop it rather than honouring it.
+    if(saved && !verified){
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      saved = null;
+    }
+    if(verified && verified.role==='admin'){
+      currentUser = {id: verified.id, name: 'Admin', role: 'admin'};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
       enterAdminMode();
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       enterApp();
       return;
+    }
+    // Claimed admin but the verified session is a technician: refuse the upgrade.
+    if(saved && saved.role==='admin'){
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      await showLoginScreen('Please sign in again.');
+      return;
+    }
+    if(saved && verified && saved.id !== verified.id){
+      // Stored identity disagrees with the signed-in account. Trust the server.
+      saved = {id: verified.id};
     }
     if(saved){
       const fresh = await cloudGetUser(saved.id);
@@ -433,6 +516,12 @@
     await showLoginScreen();
   }
 
+  // Tapping the header cloud chip opens the connection panel, so a technician
+  // who sees "Not Connected" has somewhere to go instead of just a dead label.
+  const cloudStatusBtn = $('cloudBtn');
+  if(cloudStatusBtn) cloudStatusBtn.addEventListener('click', ()=>{
+    $('cloudOverlay').classList.add('open');
+  });
   $('closeCloud').addEventListener('click', ()=> $('cloudOverlay').classList.remove('open'));
   $('cloudOverlay').addEventListener('click', (e)=>{ if(e.target.id==='cloudOverlay') $('cloudOverlay').classList.remove('open'); });
   $('connectCloudBtn').addEventListener('click', async ()=>{

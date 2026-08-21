@@ -4,6 +4,8 @@
   // direction from Leave/Cash Advance (which are technician-filed, admin-
   // reviewed) — here admin files, technician actions it.
   function dtGenLocalId(){ return 'JO-'+todayISO().replace(/-/g,'')+'-'+Date.now(); }
+  const DT_PAGE = 200;
+  const DT_MAX_ROWS = 5000;
   async function dtNextJobOrderNo(){
     const dateStr = todayISO().replace(/-/g,'');
     if(await ensureCloud()){
@@ -20,6 +22,8 @@
     try{ await window.storage.set('jo-counter:'+dateStr, JSON.stringify({seq}), false); }catch(e){}
     return 'JO-'+dateStr+'-'+String(seq).padStart(3,'0');
   }
+  // Returns a tri-state result so callers can tell "saved to the server" from
+  // "only saved on this phone" instead of showing a success message either way.
   async function dtSaveTicket(id, data){
     if(await ensureCloud()){
       try{
@@ -28,20 +32,23 @@
           created_at: data.createdAt || new Date().toISOString(), data
         });
         if(error) throw error;
-        return true;
-      }catch(e){ console.error('dispatch save failed', e); }
+        return SAVE_CLOUD;
+      }catch(e){ console.error('dispatch save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('dispatch:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{
+      await window.storage.set('dispatch:'+id, JSON.stringify(data), false);
+      return (await outboxQueue('dispatch', id, data)) ? SAVE_QUEUED : SAVE_FAILED;
+    }catch(e){ return SAVE_FAILED; }
   }
-  async function dtListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('dispatch_tickets').select('data').order('created_at',{ascending:false}).limit(300);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('dispatch list failed', e); }
-    }
+  registerOutboxHandler('dispatch', async (id, payload)=>{
+    const { error } = await db.from('dispatch_tickets').upsert({
+      id, status: payload.status||'open',
+      created_at: payload.createdAt || new Date().toISOString(), data: payload
+    });
+    if(error) throw error;
+  });
+
+  async function dtLocalList(){
     try{
       const res = await window.storage.list('dispatch:', false);
       const items = [];
@@ -52,9 +59,39 @@
       return items;
     }catch(e){ return []; }
   }
+  // Pages through results instead of silently stopping at 300 rows, which used
+  // to make older tickets vanish from the admin list with no warning.
+  async function dtFetchPaged(applyFilter){
+    const out = [];
+    for(let from=0; from<DT_MAX_ROWS; from+=DT_PAGE){
+      let q = db.from('dispatch_tickets').select('data')
+        .order('created_at',{ascending:false}).range(from, from+DT_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const rows = data || [];
+      rows.forEach(r=> out.push(r.data));
+      if(rows.length < DT_PAGE) break;
+    }
+    return out;
+  }
+  async function dtListAll(){
+    if(await ensureCloud()){
+      try{ return await dtFetchPaged(null); }
+      catch(e){ console.error('dispatch list failed', describeCloudError(e)); }
+    }
+    return dtLocalList();
+  }
+  // Filters on the server (`assigned_worker_ids @> [workerId]`) rather than
+  // downloading every technician's tickets and filtering in JavaScript.
   async function dtListForWorker(workerId){
-    const all = await dtListAll();
-    return all.filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
+    if(!workerId) return [];
+    if(await ensureCloud()){
+      try{
+        return await dtFetchPaged(q=> q.contains('data->assignedWorkerIds', JSON.stringify([workerId])));
+      }catch(e){ console.error('dispatch worker list failed', describeCloudError(e)); }
+    }
+    return (await dtLocalList()).filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
   }
 
   // ---------- Service Report: "From Job Order" picker ----------
@@ -235,12 +272,14 @@
       },
       createdAt: new Date().toISOString(),
       createdBy: currentUser ? currentUser.name : 'Admin',
-      acknowledgedBy: [], completedAt: null
+      acknowledgedBy: [], completedBy: [], completedAt: null
     };
-    const ok = await dtSaveTicket(id, data);
+    const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
-    if(!ok){ toast('Could not create ticket — check your connection'); return; }
-    toast('Dispatch ticket '+id+' created');
+    if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? ('Dispatch ticket '+id+' created')
+      : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));
     dtResetForm();
     $('dtJobOrderNo').value = '—';
   }
@@ -323,11 +362,17 @@
     items.forEach(r=>{
       const card = document.createElement('div');
       card.className = 'user-card';
+      // Buttons now follow THIS technician's own progress, not the whole
+      // ticket's status. Previously a shared ticket could sit at "open" so a
+      // colleague who had already acknowledged never got a Complete button,
+      // and one person's Complete closed it for everyone.
       const alreadyAck = (r.acknowledgedBy||[]).includes(currentUser.id);
+      const alreadyDone = r.status==='completed' || (r.completedBy||[]).includes(currentUser.id);
       card.innerHTML = dtCardHtml(r, false) +
         '<div class="user-card-actions">'+
-          (r.status==='open' && !alreadyAck ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
-          (r.status==='acknowledged' ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
+          (!alreadyAck && !alreadyDone ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
+          (alreadyAck && !alreadyDone ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
+          (alreadyDone && r.status!=='completed' ? '<span class="u-status">Waiting for the other assigned technician(s)</span>' : '')+
         '</div>';
       const ackBtn = card.querySelector('[data-act="ack"]');
       if(ackBtn) ackBtn.addEventListener('click', ()=> dtAcknowledge(r.id));
@@ -344,23 +389,80 @@
       dtRenderTechList();
     });
   });
+  // Fetches only the ticket being changed, checks the current user is actually
+  // assigned to it, and writes a targeted update instead of upserting the whole
+  // record — so two technicians acting at once no longer overwrite each other.
+  async function dtGetTicket(id){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('dispatch_tickets').select('data').eq('id', id).maybeSingle();
+        if(error) throw error;
+        return data ? data.data : null;
+      }catch(e){ console.error('dispatch fetch failed', describeCloudError(e)); return null; }
+    }
+    try{
+      const item = await window.storage.get('dispatch:'+id, false);
+      return item ? JSON.parse(item.value) : null;
+    }catch(e){ return null; }
+  }
+  async function dtApplyWorkerChange(id, mutate){
+    if(!currentUser){ toast('Please sign in again'); return false; }
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return false; }
+    try{
+      const rec = await dtGetTicket(id);
+      if(!rec){ toast('Ticket not found'); return false; }
+      const assigned = rec.assignedWorkerIds || [];
+      if(currentUser.role!=='admin' && !assigned.includes(currentUser.id)){
+        toast('This ticket is not assigned to you');
+        return false;
+      }
+      const change = mutate(rec, assigned);
+      if(!change) return false;
+      const merged = Object.assign({}, rec, change);
+      const { data: rows, error } = await db.from('dispatch_tickets')
+        .update({ status: merged.status, data: merged }).eq('id', id).select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){ toast('This ticket changed elsewhere — refreshing'); return false; }
+      return true;
+    }catch(e){
+      console.error('dispatch update failed', describeCloudError(e));
+      toast('Could not save — please try again');
+      return false;
+    }
+  }
   async function dtAcknowledge(id){
-    const all = await dtListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Ticket not found'); return; }
-    const ackBy = new Set(rec.acknowledgedBy||[]); ackBy.add(currentUser.id);
-    const updated = Object.assign({}, rec, { status: 'acknowledged', acknowledgedBy: Array.from(ackBy) });
-    const ok = await dtSaveTicket(id, updated);
-    toast(ok ? 'Acknowledged' : 'Could not save');
+    const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
+      const ackBy = new Set(rec.acknowledgedBy||[]);
+      if(ackBy.has(currentUser.id)){ toast('You already acknowledged this'); return null; }
+      ackBy.add(currentUser.id);
+      const list = Array.from(ackBy);
+      // A multi-worker ticket is only fully "acknowledged" once everyone
+      // assigned has confirmed; before that it stays open so the remaining
+      // technicians still see the Acknowledge button.
+      const everyone = assigned.length>0 && assigned.every(w=> list.includes(w));
+      return { acknowledgedBy: list, status: everyone ? 'acknowledged' : (rec.status||'open') };
+    });
+    if(ok) toast('Acknowledged');
     dtRenderTechList();
   }
   async function dtComplete(id){
-    const all = await dtListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Ticket not found'); return; }
-    const updated = Object.assign({}, rec, { status: 'completed', completedAt: new Date().toISOString() });
-    const ok = await dtSaveTicket(id, updated);
-    toast(ok ? 'Marked completed' : 'Could not save');
+    const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
+      if(rec.status==='completed'){ toast('Already completed'); return null; }
+      const ackBy = rec.acknowledgedBy || [];
+      if(currentUser.role!=='admin' && !ackBy.includes(currentUser.id)){
+        toast('Acknowledge this ticket first'); return null;
+      }
+      const done = new Set(rec.completedBy||[]);
+      done.add(currentUser.id);
+      const list = Array.from(done);
+      const everyone = assigned.length>0 && assigned.every(w=> list.includes(w));
+      if(!everyone){
+        toast('Recorded — waiting for the other assigned technician(s)');
+        return { completedBy: list, status: rec.status||'acknowledged' };
+      }
+      return { completedBy: list, status: 'completed', completedAt: new Date().toISOString() };
+    });
+    if(ok) toast('Marked completed');
     dtRenderTechList();
   }
 

@@ -112,10 +112,18 @@
     currentEquipmentCache.push(obj);
     try{ await window.storage.set('cequip:'+customerId, JSON.stringify(currentEquipmentCache), false); }catch(e){}
   }
+  // Deleting equipment requires a connection: there is no local delete queue,
+  // so the old offline path just dropped it from the in-memory cache and
+  // reported success — the record was still on the server and reappeared on the
+  // next refresh.
   async function cloudDeleteCustomerEquipment(id){
-    if(await ensureCloud()){
-      try{ const { error } = await db.from('customer_equipment').delete().eq('id', id); if(error) throw error; }
-      catch(e){ console.error('delete equipment failed', describeCloudError(e)); return false; }
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.from('customer_equipment').delete().eq('id', id);
+      if(error) throw error;
+    }catch(e){
+      console.error('delete equipment failed', describeCloudError(e));
+      return false;
     }
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
@@ -456,9 +464,14 @@
     if(!e.target.closest('.combo-wrap')) closeAllCombos(null);
   });
   function attachAllCombos(){
-    document.querySelectorAll('input[type=text]').forEach(el=>{
-      if(el.id==='custName') return;
-      attachCombo(el);
+    // Only attach the suggestion dropdown to fields that actually have saved
+    // suggestions (the FIELD_META keys). The old version attached it to every
+    // text input in the document, which meant Dispatch, Leave, Cash Advance and
+    // Admin inputs all sprouted an empty suggestion panel and a caret button.
+    Object.keys(FIELD_META).forEach(key=>{
+      if(key==='custName') return; // has its own customer-record combo below
+      const el = $(key);
+      if(el && el.tagName==='INPUT' && el.type==='text') attachCombo(el);
     });
     attachCombo($('troubleCall'), 'troubleCall');
     attachCustomerCombo($('custName'));
@@ -522,7 +535,7 @@
           edit.addEventListener('click', async ()=>{
             const idx = list.indexOf(item);
             if(idx===-1) return;
-            const next = prompt('Rename "'+item+'" to:', item);
+            const next = prompt('Rename "'+item+'" to:', item); // plain text, not a secret
             if(next===null) return;
             const trimmed = next.trim();
             if(!trimmed) return;
@@ -563,7 +576,10 @@
 
   $('adminBtn').addEventListener('click', async ()=>{
     if(!adminMode){
-      const pin = prompt('Enter Admin Password to manage dropdown lists:');
+      const pin = await askPassword({
+        title: 'Manage Dropdown Lists',
+        label: 'Enter the Admin Password to edit the dropdown lists'
+      });
       if(pin===null) return;
       if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return; }
       enterAdminMode();

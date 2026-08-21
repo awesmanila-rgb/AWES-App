@@ -3,8 +3,13 @@
 
   // ---------- init defaults ----------
   function resetForm(){
-    document.querySelectorAll('input[type=text], input[type=number], textarea').forEach(el=>el.value='');
-    document.querySelectorAll('input[type=checkbox]').forEach(el=>{ el.checked=false; el.closest('.chk')?.classList.remove('checked'); });
+    // Scoped to the Service Report view only. This used to select every text,
+    // number, textarea and checkbox on the page, so starting a new report also
+    // wiped whatever the user had typed into the Dispatch, Leave, Cash Advance,
+    // Customers and Admin forms — all of which live in the same document.
+    const scope = $('serviceReportView') || document;
+    scope.querySelectorAll('input[type=text], input[type=number], textarea').forEach(el=>el.value='');
+    scope.querySelectorAll('input[type=checkbox]').forEach(el=>{ el.checked=false; el.closest('.chk')?.classList.remove('checked'); });
     $('svcDate').value = todayISO();
     $('timeIn').value=''; $('timeOut').value='';
     $('findingsList').innerHTML=''; $('recsList').innerHTML=''; $('servicesDoneList').innerHTML='';
@@ -114,22 +119,57 @@
   }
 
   // ---------- save draft ----------
+  // Returns SAVE_CLOUD / SAVE_QUEUED / SAVE_FAILED so callers stop telling the
+  // user "saved" when the write actually failed and nothing was retained.
   async function saveReport(srNo, data){
-    let cloudOk = false;
-    if(await ensureCloud()) cloudOk = await cloudSaveReport(srNo, data);
-    try{ await window.storage.set('report:'+srNo, JSON.stringify(data), false); }catch(e){}
+    let result = SAVE_FAILED;
+    if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
+    // Keep only the downscaled signatures on disk: the full-resolution raw
+    // canvas exports are several hundred KB each and were being persisted for
+    // no reason, filling local storage and bloating every upload.
+    const persisted = Object.assign({}, data);
+    delete persisted.sigCustomerRaw;
+    delete persisted.sigTechRaw;
+    try{ await window.storage.set('report:'+srNo, JSON.stringify(persisted), false); }
+    catch(e){ console.error('local report save failed', e); }
+    if(result!==SAVE_CLOUD){
+      // Queue it so it uploads by itself the next time there is a connection,
+      // instead of living only on this phone until someone reopens it.
+      if(await outboxQueue('report', srNo, persisted)) result = SAVE_QUEUED;
+    }
     // Record this equipment against the matching customer, so it shows up
     // in this customer's own equipment dropdowns next time — never mixed
     // in with another customer's equipment.
     const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
     if(matchedCustomer) await cloudAddCustomerEquipment(matchedCustomer.id, data);
-    return cloudOk;
+    return result;
   }
+  registerOutboxHandler('report', async (srNo, payload)=>{
+    let finalSr = srNo;
+    // A report numbered offline gets a real sequential SR number now that the
+    // server is reachable, so provisional ids never reach the shared history.
+    if(isProvisionalSrNo(srNo)){
+      const real = await cloudNextSrNo((payload.date || todayISO()).replace(/-/g,''));
+      if(real) finalSr = real;
+    }
+    payload.srNo = finalSr;
+    const ok = await cloudSaveReport(finalSr, payload);
+    if(!ok) throw new Error('report upload failed');
+    if(finalSr !== srNo){
+      try{
+        await window.storage.set('report:'+finalSr, JSON.stringify(payload), false);
+        await window.storage.delete('report:'+srNo);
+      }catch(e){}
+    }
+  });
   $('saveDraftBtn').addEventListener('click', async ()=>{
     if(!$('custName').value.trim()){ toast('Add a customer name before saving'); $('f_custName').classList.add('invalid'); return; }
     if(!currentSrNo){ currentSrNo = await nextSrNo(); $('metaSrNo').textContent = currentSrNo; }
     const data = await gatherDataForOutput();
-    const cloudOk = await saveReport(currentSrNo, data);
-    toast(cloudOk ? 'Draft saved to shared cloud: '+currentSrNo : 'Draft saved on this device: '+currentSrNo);
+    const res = await saveReport(currentSrNo, data);
+    if(res===SAVE_FAILED){ toast('Could not save '+currentSrNo+' — nothing was stored, please try again'); return; }
+    toast(res===SAVE_CLOUD
+      ? ('Draft saved to shared cloud: '+currentSrNo)
+      : ('Draft saved on this device — it will upload automatically when you are online'));
     resetForm();
   });

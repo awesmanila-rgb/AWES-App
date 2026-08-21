@@ -23,7 +23,9 @@
   $('closeSettings').addEventListener('click', ()=> $('settingsOverlay').classList.remove('open'));
   $('settingsOverlay').addEventListener('click', (e)=>{ if(e.target.id==='settingsOverlay') $('settingsOverlay').classList.remove('open'); });
   $('settingsHelpBtn').addEventListener('click', ()=>{
-    toast('Ask your Claude chat for the step-by-step EmailJS setup guide');
+    // Point at the real vendor docs instead of an unreachable chat session.
+    toast('Opening the EmailJS setup guide…');
+    window.open('https://www.emailjs.com/docs/tutorial/overview/', '_blank', 'noopener');
   });
   $('saveSettingsBtn').addEventListener('click', async ()=>{
     emailCfg = {

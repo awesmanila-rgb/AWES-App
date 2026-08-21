@@ -294,11 +294,22 @@
   });
 
   async function doChangeAdminPin(){
-    const cur = prompt('Enter current Admin Password:');
+    const cur = await askPassword({
+      title: 'Change Admin Password',
+      label: 'Enter your CURRENT admin password'
+    });
     if(cur===null) return;
     if(!(await verifyAdminPassword(cur))){ toast('Incorrect password'); return; }
-    const next = prompt('Enter new Admin Password:');
-    if(!next || next.length < 4){ toast('Password must be at least 4 characters'); return; }
+    const next = await askPassword({
+      title: 'Change Admin Password',
+      label: 'Enter your NEW admin password (at least 8 characters)',
+      placeholder: 'New password'
+    });
+    if(next===null) return;
+    // Raised from 4 to 8: this single password protects every technician
+    // account, all reports and all cash-advance approvals in the business.
+    if(next.length < 8){ toast('Password must be at least 8 characters'); return; }
+    if(next===cur){ toast('That is the same as your current password'); return; }
     const { error } = await db.auth.updateUser({ password: next });
     if(error){ toast('Could not update password: '+error.message); return; }
     toast('Password updated');

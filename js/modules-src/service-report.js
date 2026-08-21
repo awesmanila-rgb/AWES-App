@@ -12,14 +12,23 @@
       const cloudSr = await cloudNextSrNo(dateStr);
       if(cloudSr) return cloudSr;
     }
+    // Offline fallback. The old code produced a plain 'SR-YYYYMMDD-001' from a
+    // per-device counter, so two technicians working offline on the same day
+    // both generated SR-...-001 and whichever synced second silently
+    // overwrote the other's report (sr_no is the conflict key). Offline numbers
+    // are now clearly provisional and carry a device tag so they can never
+    // collide; the real sequential number is assigned when the report uploads.
     let seq = 1;
     try{
       const res = await window.storage.get('sr-counter:'+dateStr, false);
       seq = res ? (JSON.parse(res.value).seq + 1) : 1;
     }catch(e){ seq = 1; }
     try{ await window.storage.set('sr-counter:'+dateStr, JSON.stringify({seq}), false); }catch(e){}
-    return 'SR-'+dateStr+'-'+String(seq).padStart(3,'0');
+    const tag = String(getDtrDeviceId()).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase() || 'LOCL';
+    return 'SR-'+dateStr+'-P'+tag+'-'+String(seq).padStart(3,'0');
   }
+  // Provisional numbers are the ones minted offline by the branch above.
+  function isProvisionalSrNo(srNo){ return /-P[A-Z0-9]{2,6}-\d+$/.test(srNo||''); }
 
   // ---------- dynamic list rows (findings / recommendations) ----------
   const LIST_KEY_BY_CONTAINER = {
@@ -107,7 +116,16 @@
   ['sigCustomer','sigTech'].forEach(id=>{
     $(id).addEventListener('pointerdown', ()=>{ ensureSignaturePads().catch(()=>toast('Signature tool could not be loaded')); }, {once:true});
   });
-  loadFieldLists().then(async ()=>{ await seedDefaultLists(); await loadCustomers(); attachAllCombos(); checkLoginGate(); });
+  loadFieldLists().then(async ()=>{
+    await seedDefaultLists();
+    await loadCustomers();
+    attachAllCombos();
+    checkLoginGate();
+    // Try to push anything stranded from a previous offline session. The banner
+    // itself is shown much earlier (see core.js) — it must not wait on this
+    // chain, which can sit for up to 12s behind the CDN load timeout.
+    if(navigator.onLine) outboxFlush({quiet:true});
+  });
   document.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       await ensureSignaturePads();
@@ -185,14 +203,49 @@
   // in Supabase (see setup instructions) — change it here if a different email was used.
   const ADMIN_EMAIL = 'awes.manila@gmail.com';
   function techEmail(technicianId){ return technicianId + '@awes-app.local'; }
-  // Re-verifies the admin's password against Supabase Auth without disturbing the
-  // current session (signing in again as the same already-logged-in user is safe;
-  // it's only creating OTHER accounts that would hijack the session — see addTechnician).
+  // Re-verifies the admin's password against Supabase Auth.
+  //
+  // This used to call db.auth.signInWithPassword() on the SHARED client, which
+  // silently replaced whatever session was active. A technician who typed the
+  // admin password into the prompt was logged in AS THE ADMIN for the rest of
+  // the visit, with the admin's real Supabase JWT persisted in local storage —
+  // full privilege escalation, and it also stranded the technician's own
+  // identity for report attribution. The old comment claiming this was "safe
+  // because it's the same already-logged-in user" was simply wrong: the caller
+  // is usually NOT the admin.
+  //
+  // The fix is a throwaway client with persistSession:false and its own
+  // storageKey, so the sign-in attempt validates the password and then
+  // evaporates without touching the live session.
+  let verifyClientPromise = null;
+  async function getVerifyClient(){
+    if(!verifyClientPromise){
+      verifyClientPromise = (async ()=>{
+        if(!(await ensureCloud())) return null;
+        const cfg = getCloudConfig();
+        if(!cfg || !cfg.url || !cfg.anonKey) return null;
+        if(!window.supabase || !window.supabase.createClient) return null;
+        return window.supabase.createClient(cfg.url, cfg.anonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            storageKey: 'awes-verify-only'
+          }
+        });
+      })().catch(()=>null);
+    }
+    return verifyClientPromise;
+  }
   async function verifyAdminPassword(pw){
-    if(!(await ensureCloud())) return false;
+    if(!pw) return false;
+    const client = await getVerifyClient();
+    if(!client) return false;
     try{
-      const { error } = await db.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
-      return !error;
+      const { data, error } = await client.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
+      // Always tear the throwaway session down, whatever the outcome.
+      try{ await client.auth.signOut(); }catch(e){}
+      return !error && !!(data && data.user);
     }catch(e){ return false; }
   }
 

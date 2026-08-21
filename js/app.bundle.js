@@ -52,7 +52,13 @@
     try{
       const raw = localStorage.getItem('cloud-config');
       if(raw) return JSON.parse(raw); // {url, anonKey}
-    }catch(e){}
+    }catch(e){
+      // A corrupt override used to fail completely silently, so the app would
+      // quietly fall back to the built-in project with no clue why the custom
+      // one was ignored. Log it and clear the bad value so it stops happening.
+      console.warn('Ignoring unreadable cloud-config override, using defaults', e);
+      try{ localStorage.removeItem('cloud-config'); }catch(_){}
+    }
     return DEFAULT_CLOUD_CONFIG;
   }
   function setCloudStatusUI(connected){
@@ -133,39 +139,92 @@
   }
 
   // ---- Service Reports (table: service_reports) ----
-  // Maps the app's existing camelCase report object <-> the Postgres snake_case columns,
-  // so every other part of the app that already builds/reads a report object needs no changes.
+  // Maps the report object built by gatherData() <-> the Postgres snake_case
+  // columns.
+  //
+  // IMPORTANT: the key names below MUST match what gatherData() in ui.js
+  // actually produces, and what pdf.js / history.js actually read back. They
+  // previously did not: reportToRow looked for data.recommendations,
+  // data.installation, data.customerSignature, data.customerPrintedName and
+  // data.technicianName, while gatherData emits recs, install, sigCustomer,
+  // custPrintedName and techName. The result was that on EVERY cloud save the
+  // recommendations, both signatures, both printed names and all installation
+  // data were written as empty and permanently lost — invisible on the
+  // technician's own phone because the local copy keeps the correct shape.
+  // Do not "tidy" these names without changing gatherData/pdf.js to match.
+  const REPORT_STRING_FIELDS = [
+    ['sr_no','srNo'], ['technician_id','technicianId'], ['date','date'],
+    ['cust_name','custName'], ['cust_address','custAddress'], ['contact_no','contactNo'],
+    ['contact_person','contactPerson'], ['cust_email','custEmail'], ['equip_type','equipType'],
+    ['model_cu','modelCU'], ['serial_cu','serialCU'], ['model_fcu','modelFCU'], ['serial_fcu','serialFCU'],
+    ['cool_cap','coolCap'], ['mount_type','mountType'], ['brand','brand'], ['refrigerant_type','refrigerantType'],
+    ['compressor_type','compressorType'], ['equip_location','equipLocation'], ['trouble_call','troubleCall'],
+    ['time_in','timeIn'], ['time_out','timeOut'], ['remarks','remarks'],
+    ['customer_printed_name','custPrintedName'], ['technician_name','techName']
+  ];
   function reportToRow(data){
-    return {
-      sr_no: data.srNo, technician_id: data.technicianId, date: data.date,
-      cust_name: data.custName, cust_address: data.custAddress, contact_no: data.contactNo,
-      contact_person: data.contactPerson, cust_email: data.custEmail, equip_type: data.equipType,
-      model_cu: data.modelCU, serial_cu: data.serialCU, model_fcu: data.modelFCU, serial_fcu: data.serialFCU,
-      cool_cap: data.coolCap, mount_type: data.mountType, brand: data.brand, refrigerant_type: data.refrigerantType,
-      compressor_type: data.compressorType, equip_location: data.equipLocation, trouble_call: data.troubleCall,
-      findings: data.findings||[], recommendations: data.recommendations||[], materials: data.materials||[],
-      services_done: data.servicesDone||[], before_data: data.before||{}, after_data: data.after||{},
-      installation: data.installation||{}, time_in: data.timeIn, time_out: data.timeOut, remarks: data.remarks,
-      customer_printed_name: data.customerPrintedName, technician_name: data.technicianName,
-      customer_signature: data.customerSignature||{}, technician_signature: data.technicianSignature||{},
-      completed: !!data.completed
-    };
+    const row = {};
+    REPORT_STRING_FIELDS.forEach(([col, key])=>{ row[col] = data[key] != null ? data[key] : null; });
+    row.findings      = data.findings || [];
+    row.recommendations = data.recs || [];
+    row.materials     = data.materials || [];
+    row.services_done = data.servicesDone || [];
+    row.before_data   = data.before || {};
+    row.after_data    = data.after || {};
+    row.is_install    = !!data.isInstall;
+    row.installation  = data.install || {};
+    // Signatures are PNG data-URL strings. Default to null, never {} — an
+    // empty object is indistinguishable from "signature was lost in transit".
+    row.customer_signature   = data.sigCustomer || null;
+    row.technician_signature = data.sigTech || null;
+    row.completed = !!data.completed;
+    return row;
   }
   function rowToReport(row){
     if(!row) return null;
+    const data = {};
+    REPORT_STRING_FIELDS.forEach(([col, key])=>{ data[key] = row[col]; });
+    data.findings     = row.findings || [];
+    data.recs         = row.recommendations || [];
+    data.materials    = row.materials || [];
+    data.servicesDone = row.services_done || [];
+    data.before       = normalizeOperatingData(row.before_data);
+    data.after        = normalizeOperatingData(row.after_data);
+    data.isInstall    = !!row.is_install;
+    data.install      = normalizeInstallData(row.installation);
+    data.sigCustomer  = asSignature(row.customer_signature);
+    data.sigTech      = asSignature(row.technician_signature);
+    data.completed    = !!row.completed;
+    return data;
+  }
+  // Legacy rows may hold {} (or a stray object) where a data-URL string was
+  // expected, because of the field-name bug described above. Treat anything
+  // that is not a data URL as "no signature" rather than handing jsPDF a
+  // value it will throw on.
+  function asSignature(v){
+    return (typeof v === 'string' && v.indexOf('data:image') === 0) ? v : null;
+  }
+  // pdf.js calls .join() on these arrays, so guarantee their shape even for
+  // rows written by older versions of the app.
+  function normalizeOperatingData(d){
+    d = d || {};
     return {
-      srNo: row.sr_no, technicianId: row.technician_id, date: row.date,
-      custName: row.cust_name, custAddress: row.cust_address, contactNo: row.contact_no,
-      contactPerson: row.contact_person, custEmail: row.cust_email, equipType: row.equip_type,
-      modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
-      coolCap: row.cool_cap, mountType: row.mount_type, brand: row.brand, refrigerantType: row.refrigerant_type,
-      compressorType: row.compressor_type, equipLocation: row.equip_location, troubleCall: row.trouble_call,
-      findings: row.findings||[], recommendations: row.recommendations||[], materials: row.materials||[],
-      servicesDone: row.services_done||[], before: row.before_data||{}, after: row.after_data||{},
-      installation: row.installation||{}, timeIn: row.time_in, timeOut: row.time_out, remarks: row.remarks,
-      customerPrintedName: row.customer_printed_name, technicianName: row.technician_name,
-      customerSignature: row.customer_signature||{}, technicianSignature: row.technician_signature||{},
-      completed: !!row.completed
+      amp:      Array.isArray(d.amp) ? d.amp : ['','',''],
+      volt:     Array.isArray(d.volt) ? d.volt : ['','',''],
+      pressure: Array.isArray(d.pressure) ? d.pressure : ['',''],
+      temp:     d.temp || '',
+      airflow:  d.airflow || ''
+    };
+  }
+  function normalizeInstallData(d){
+    d = d || {};
+    return {
+      pd: Array.isArray(d.pd) ? d.pd : ['','',''],
+      pl: Array.isArray(d.pl) ? d.pl : ['',''],
+      ws: Array.isArray(d.ws) ? d.ws : ['',''],
+      pi: Array.isArray(d.pi) ? d.pi : ['',''],
+      breaker: d.breaker || '', riser: d.riser || '',
+      ptrap: d.ptrap || '', bracketType: d.bracketType || ''
     };
   }
   async function cloudSaveReport(srNo, data){
@@ -183,14 +242,31 @@
       const { data, error } = await db.from('service_reports').select('*').eq('sr_no', srNo).maybeSingle();
       if(error) throw error;
       return rowToReport(data);
-    }catch(e){ return null; }
+    }catch(e){ console.error('cloud get report failed', srNo, describeCloudError(e)); return null; }
   }
+  // History used to be hard-capped at the newest 150 reports with no indication
+  // that anything had been cut off, so older jobs simply became invisible in the
+  // app even though they were sitting in the database. Page through instead.
+  const REPORT_PAGE = 200;      // Supabase caps a single response at 1000 rows
+  const REPORT_MAX_ROWS = 5000; // hard stop so a huge table can't exhaust memory
   async function cloudListReports(){
     if(!(await ensureCloud())) return null;
     try{
-      const { data, error } = await db.from('service_reports').select('*').order('date',{ascending:false}).limit(150);
-      if(error) throw error;
-      return (data||[]).map(rowToReport);
+      const rows = [];
+      for(let from = 0; from < REPORT_MAX_ROWS; from += REPORT_PAGE){
+        const { data, error } = await db.from('service_reports')
+          .select('*')
+          .order('date',{ascending:false})
+          .order('sr_no',{ascending:false})   // stable tiebreak: without it, rows
+                                              // sharing a date can repeat or be
+                                              // skipped across page boundaries
+          .range(from, from + REPORT_PAGE - 1);
+        if(error) throw error;
+        const batch = data || [];
+        rows.push(...batch);
+        if(batch.length < REPORT_PAGE) break;
+      }
+      return rows.map(rowToReport);
     }catch(e){ console.error('cloud list failed', describeCloudError(e)); return null; }
   }
   async function cloudNextSrNo(dateStr){
@@ -203,6 +279,180 @@
       return data;
     }catch(e){ console.error('cloud SR counter failed', describeCloudError(e)); return null; }
   }
+
+  // ---------- password prompt ----------
+  // window.prompt() was used for every admin-password gate. On iOS Safari that
+  // dialog shows the typed password in clear text (and in screenshots), it can't
+  // be styled to match the app, and several in-app browsers (Facebook, Messenger,
+  // Gmail) block it outright — in which case prompt() returns null and the admin
+  // could never get past the gate. This overlay is a proper masked input.
+  function askPassword(opts){
+    opts = opts || {};
+    const overlay = $('adminPwOverlay');
+    if(!overlay){
+      // Extremely defensive: if the markup is missing, fall back rather than
+      // leaving the caller hanging on a promise that never settles.
+      return Promise.resolve(window.prompt(opts.label || 'Enter Admin Password') || null);
+    }
+    const input = $('adminPwInput'), msg = $('adminPwMsg');
+    $('adminPwTitle').textContent = opts.title || 'Admin Password';
+    $('adminPwLabel').textContent = opts.label || 'Enter Admin Password';
+    input.placeholder = opts.placeholder || 'Password';
+    input.value = '';
+    msg.textContent = opts.message || '';
+    overlay.classList.add('open');
+    setTimeout(()=>{ try{ input.focus(); }catch(e){} }, 60);
+
+    return new Promise(resolve=>{
+      let done = false;
+      function finish(value){
+        if(done) return;
+        done = true;
+        overlay.classList.remove('open');
+        input.value = '';   // never leave the password sitting in the DOM
+        msg.textContent = '';
+        cleanup();
+        resolve(value);
+      }
+      const onOk = ()=> finish(input.value ? input.value : null);
+      const onCancel = ()=> finish(null);
+      const onKey = (e)=>{
+        if(e.key==='Enter'){ e.preventDefault(); onOk(); }
+        else if(e.key==='Escape'){ e.preventDefault(); onCancel(); }
+      };
+      const onBackdrop = (e)=>{ if(e.target===overlay) onCancel(); };
+      function cleanup(){
+        $('adminPwOk').removeEventListener('click', onOk);
+        $('adminPwCancel').removeEventListener('click', onCancel);
+        $('adminPwCancel2').removeEventListener('click', onCancel);
+        input.removeEventListener('keydown', onKey);
+        overlay.removeEventListener('click', onBackdrop);
+      }
+      $('adminPwOk').addEventListener('click', onOk);
+      $('adminPwCancel').addEventListener('click', onCancel);
+      $('adminPwCancel2').addEventListener('click', onCancel);
+      input.addEventListener('keydown', onKey);
+      overlay.addEventListener('click', onBackdrop);
+    });
+  }
+
+  // ---------- outbox: pending cloud writes ----------
+  // Anything saved while the phone has no usable connection used to be written
+  // to local storage only and then forgotten: History falls back to local data
+  // ONLY while still offline, so as soon as signal returned the offline work
+  // became invisible and was never uploaded. The only recovery was the manual
+  // "upload this device's data" button, which covered reports and field lists
+  // but not DTR, customers, leave, cash advances or dispatch tickets.
+  //
+  // Every save helper now queues a pending operation instead, and the outbox is
+  // flushed on app start, whenever the browser fires 'online', and after any
+  // successful cloud call.
+  const OUTBOX_PREFIX = 'outbox:';
+  const SAVE_CLOUD  = 'cloud';   // written straight to the shared cloud
+  const SAVE_QUEUED = 'queued';  // saved on this device, queued for upload
+  const SAVE_FAILED = 'failed';  // could not be stored at all
+  const outboxHandlers = Object.create(null);
+
+  // Each module registers how to replay its own kind of pending write.
+  // handler(id, payload) must throw if the cloud rejected the write; returning
+  // normally is treated as success.
+  function registerOutboxHandler(kind, handler){ outboxHandlers[kind] = handler; }
+
+  function outboxKey(kind, id){
+    // ':' is used as the separator, so keep ids from splitting the key.
+    return OUTBOX_PREFIX + kind + ':' + String(id).replace(/:/g, '_');
+  }
+  async function outboxQueue(kind, id, payload){
+    try{
+      await window.storage.set(outboxKey(kind, id), JSON.stringify({
+        kind, id, payload, queuedAt: new Date().toISOString()
+      }), false);
+      updateOutboxBadge();
+      return true;
+    }catch(e){ console.error('could not queue pending write', kind, id, describeCloudError(e)); return false; }
+  }
+  async function outboxList(){
+    try{
+      const res = await window.storage.list(OUTBOX_PREFIX, false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        try{
+          const item = await window.storage.get(key, false);
+          if(item) items.push(Object.assign(JSON.parse(item.value), {storageKey: key}));
+        }catch(e){ /* skip an unreadable entry rather than stalling the queue */ }
+      }
+      // Oldest first, so work reaches the cloud in the order it was done.
+      // String() matters: an entry written by an older build (or hand-edited)
+      // could carry a numeric timestamp, and calling localeCompare on a number
+      // throws — which the catch below would turn into an empty queue, hiding
+      // the pending-sync banner and silently abandoning the user's offline work.
+      items.sort((a,b)=> String(a.queuedAt||'').localeCompare(String(b.queuedAt||'')));
+      return items;
+    }catch(e){
+      console.error('could not read the pending-sync queue', e);
+      return [];
+    }
+  }
+  async function outboxCount(){ return (await outboxList()).length; }
+
+  let outboxFlushing = false;
+  async function outboxFlush(opts){
+    opts = opts || {};
+    if(outboxFlushing) return {sent:0, left:0};
+    if(!(await ensureCloud())) return {sent:0, left:await outboxCount()};
+    outboxFlushing = true;
+    let sent = 0, left = 0;
+    try{
+      const items = await outboxList();
+      for(const item of items){
+        const handler = outboxHandlers[item.kind];
+        if(!handler){ left++; continue; }
+        let ok = false;
+        try{ await handler(item.id, item.payload); ok = true; }
+        catch(e){ console.error('outbox replay failed', item.kind, item.id, describeCloudError(e)); }
+        if(ok){
+          sent++;
+          try{ await window.storage.delete(item.storageKey); }catch(e){}
+        }else{
+          left++;
+          // Stop on the first failure: the connection is probably still bad,
+          // and hammering it just burns the technician's mobile data.
+          break;
+        }
+      }
+    }finally{
+      outboxFlushing = false;
+    }
+    if(sent && !opts.quiet) toast('Uploaded '+sent+' pending item'+(sent===1?'':'s')+' to the shared cloud');
+    updateOutboxBadge();
+    return {sent, left};
+  }
+  async function updateOutboxBadge(){
+    const el = $('pendingSyncBanner');
+    if(!el) return;
+    const n = await outboxCount();
+    el.style.display = n ? 'flex' : 'none';
+    const label = $('pendingSyncText');
+    if(label) label.textContent = n+' item'+(n===1?'':'s')+' saved on this device only — waiting for a connection';
+  }
+  window.addEventListener('online', ()=>{ outboxFlush(); });
+  // Also retry when the app is brought back to the foreground, since phones
+  // often reconnect while the screen is off and never fire 'online' again.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible') outboxFlush({quiet:true});
+  });
+  // Reveal stranded offline work as soon as the bundle runs. This deliberately
+  // does NOT wait for the startup data load: that chain can block for up to 12
+  // seconds behind the CDN script timeout, and a technician who opens the app to
+  // check whether yesterday's report went through should not stare at a screen
+  // that says nothing for 12 seconds.
+  updateOutboxBadge();
+
+  const pendingSyncBtn = $('pendingSyncBtn');
+  if(pendingSyncBtn) pendingSyncBtn.addEventListener('click', async ()=>{
+    const res = await outboxFlush();
+    if(!res.sent) toast(res.left ? 'Still no connection — will keep trying' : 'Nothing pending');
+  });
 
 
 // ---------- technician user accounts (table: profiles, role='technician') ----------
@@ -237,6 +487,42 @@
     }
     return await localListUsers();
   }
+  // The login screen needs a list of technicians BEFORE anyone is signed in.
+  // It used to call cloudListUsers() directly, which required the `profiles`
+  // table to be readable by the anonymous key — meaning anyone holding the
+  // public key shipped in this app could dump every staff row, restrictions and
+  // must-change-password flags included. This goes through an Edge Function that
+  // returns only {id, name} for active technicians, so anon SELECT on `profiles`
+  // can be revoked (see the migration in supabase/ in this package).
+  async function publicListTechnicians(){
+    const cfg = getCloudConfig();
+    if(cfg && navigator.onLine){
+      try{
+        const res = await fetch(cfg.url.replace(/\/$/,'')+'/functions/v1/list-technicians', {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer '+cfg.anonKey, 'apikey': cfg.anonKey }
+        });
+        if(res.ok){
+          const body = await res.json();
+          const rows = Array.isArray(body) ? body : (body.technicians || []);
+          // Cache so the login screen still works on a phone with no signal.
+          try{ await window.storage.set('tech-roster', JSON.stringify(rows), false); }catch(e){}
+          return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+        }
+        console.error('list-technicians failed', res.status);
+      }catch(e){ console.error('list-technicians request failed', e); }
+    }
+    // Offline / function unavailable: fall back to the last roster we saw, then
+    // to any locally provisioned users.
+    try{
+      const cached = await window.storage.get('tech-roster', false);
+      if(cached){
+        const rows = JSON.parse(cached.value) || [];
+        if(rows.length) return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+      }
+    }catch(e){}
+    return await localListUsers();
+  }
   async function cloudGetUser(id){
     if(await ensureCloud()){
       try{
@@ -260,16 +546,17 @@
           patch.no_report = !!data.restrictions.noReport;
           patch.read_only = !!data.restrictions.readOnly;
         }
-        const { error } = await db.from('profiles').update(patch).eq('id', id);
+        const { data: rows, error } = await db.from('profiles').update(patch).eq('id', id).select('id');
         if(error) throw error;
+        if(!rows || !rows.length) throw new Error('no profile row was updated');
         return true;
-      }catch(e){ console.error('save user failed', describeCloudError(e)); }
+      }catch(e){ console.error('save user failed', describeCloudError(e)); return false; }
     }
-    const users = await localListUsers();
-    const idx = users.findIndex(u=>u.id===id);
-    if(idx>=0) users[idx] = Object.assign({}, users[idx], data, {id});
-    else users.push(Object.assign({id}, data));
-    return await localSaveUsers(users);
+    // Admin account changes are NOT written to a local fallback any more. The
+    // old code wrote them into this device's `local-users` list and returned
+    // success, so deactivating a technician or changing their access looked like
+    // it worked while the real account on the server was untouched.
+    return false;
   }
   async function cloudDeleteUser(id){
     if(await ensureCloud()){
@@ -281,10 +568,11 @@
         const { error } = await db.from('profiles').delete().eq('id', id);
         if(error) throw error;
         return true;
-      }catch(e){}
+      }catch(e){ console.error('delete user failed', describeCloudError(e)); return false; }
     }
-    const users = (await localListUsers()).filter(u=>u.id!==id);
-    return await localSaveUsers(users);
+    // Same reasoning as cloudSetUser: never report a deletion that only
+    // happened in this phone's local list.
+    return false;
   }
   // Clears the caller's OWN must_change_password flag via a narrow RPC
   // (see clear_my_must_change_password in the schema) — deliberately not a
@@ -414,7 +702,7 @@
     techBtn.textContent = '👷 Technician';
     techBtn.addEventListener('click', async ()=>{
       container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await cloudListUsers();
+      const users = await publicListTechnicians();
       renderTechnicianList(users || []);
     });
     const adminLoginBtn = document.createElement('button');
@@ -528,7 +816,7 @@
     back.textContent = '← Back';
     back.addEventListener('click', async ()=>{
       container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await cloudListUsers();
+      const users = await publicListTechnicians();
       renderTechnicianList(users || []);
     });
     container.appendChild(back);
@@ -540,7 +828,8 @@
     }
     const field = document.createElement('div');
     field.className = 'field';
-    field.innerHTML = '<label>Password for '+u.name+'</label>';
+    // Technician names are admin-entered free text; escape before injecting.
+    field.innerHTML = '<label>Password for '+escapeHtml(u.name)+'</label>';
     const input = document.createElement('input');
     input.type = 'password'; input.id = 'loginTechPin';
     input.placeholder = 'Enter your password';
@@ -578,17 +867,61 @@
     showRoleChooser(message);
   }
 
+  // Reads the role from the VERIFIED Supabase session rather than trusting
+  // whatever localStorage says.
+  //
+  // Previously an admin session was restored purely because
+  // localStorage['current-user'].role === 'admin' — anyone could open devtools,
+  // write that one key, reload, and get the full admin UI (Manage Users,
+  // approvals, dropdown-list editing). Now the identity has to come back from
+  // Supabase Auth, and "admin" specifically has to match the admin account's
+  // email on the server-issued JWT.
+  async function getVerifiedSession(){
+    if(!(await ensureCloud())) return null;
+    try{
+      const { data, error } = await db.auth.getSession();
+      if(error || !data || !data.session || !data.session.user) return null;
+      const user = data.session.user;
+      const email = (user.email||'').toLowerCase();
+      return {
+        id: user.id,
+        email,
+        role: email === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'tech'
+      };
+    }catch(e){ return null; }
+  }
+
   async function checkLoginGate(){
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
-    if(saved && saved.role==='admin'){
-      currentUser = saved;
+    const verified = await getVerifiedSession();
+    // A stored session that Supabase no longer recognises is stale (expired or
+    // forged). Drop it rather than honouring it.
+    if(saved && !verified){
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      saved = null;
+    }
+    if(verified && verified.role==='admin'){
+      currentUser = {id: verified.id, name: 'Admin', role: 'admin'};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
       enterAdminMode();
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       enterApp();
       return;
+    }
+    // Claimed admin but the verified session is a technician: refuse the upgrade.
+    if(saved && saved.role==='admin'){
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      await showLoginScreen('Please sign in again.');
+      return;
+    }
+    if(saved && verified && saved.id !== verified.id){
+      // Stored identity disagrees with the signed-in account. Trust the server.
+      saved = {id: verified.id};
     }
     if(saved){
       const fresh = await cloudGetUser(saved.id);
@@ -640,6 +973,12 @@
     await showLoginScreen();
   }
 
+  // Tapping the header cloud chip opens the connection panel, so a technician
+  // who sees "Not Connected" has somewhere to go instead of just a dead label.
+  const cloudStatusBtn = $('cloudBtn');
+  if(cloudStatusBtn) cloudStatusBtn.addEventListener('click', ()=>{
+    $('cloudOverlay').classList.add('open');
+  });
   $('closeCloud').addEventListener('click', ()=> $('cloudOverlay').classList.remove('open'));
   $('cloudOverlay').addEventListener('click', (e)=>{ if(e.target.id==='cloudOverlay') $('cloudOverlay').classList.remove('open'); });
   $('connectCloudBtn').addEventListener('click', async ()=>{
@@ -703,14 +1042,23 @@
       const cloudSr = await cloudNextSrNo(dateStr);
       if(cloudSr) return cloudSr;
     }
+    // Offline fallback. The old code produced a plain 'SR-YYYYMMDD-001' from a
+    // per-device counter, so two technicians working offline on the same day
+    // both generated SR-...-001 and whichever synced second silently
+    // overwrote the other's report (sr_no is the conflict key). Offline numbers
+    // are now clearly provisional and carry a device tag so they can never
+    // collide; the real sequential number is assigned when the report uploads.
     let seq = 1;
     try{
       const res = await window.storage.get('sr-counter:'+dateStr, false);
       seq = res ? (JSON.parse(res.value).seq + 1) : 1;
     }catch(e){ seq = 1; }
     try{ await window.storage.set('sr-counter:'+dateStr, JSON.stringify({seq}), false); }catch(e){}
-    return 'SR-'+dateStr+'-'+String(seq).padStart(3,'0');
+    const tag = String(getDtrDeviceId()).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase() || 'LOCL';
+    return 'SR-'+dateStr+'-P'+tag+'-'+String(seq).padStart(3,'0');
   }
+  // Provisional numbers are the ones minted offline by the branch above.
+  function isProvisionalSrNo(srNo){ return /-P[A-Z0-9]{2,6}-\d+$/.test(srNo||''); }
 
   // ---------- dynamic list rows (findings / recommendations) ----------
   const LIST_KEY_BY_CONTAINER = {
@@ -798,7 +1146,16 @@
   ['sigCustomer','sigTech'].forEach(id=>{
     $(id).addEventListener('pointerdown', ()=>{ ensureSignaturePads().catch(()=>toast('Signature tool could not be loaded')); }, {once:true});
   });
-  loadFieldLists().then(async ()=>{ await seedDefaultLists(); await loadCustomers(); attachAllCombos(); checkLoginGate(); });
+  loadFieldLists().then(async ()=>{
+    await seedDefaultLists();
+    await loadCustomers();
+    attachAllCombos();
+    checkLoginGate();
+    // Try to push anything stranded from a previous offline session. The banner
+    // itself is shown much earlier (see core.js) — it must not wait on this
+    // chain, which can sit for up to 12s behind the CDN load timeout.
+    if(navigator.onLine) outboxFlush({quiet:true});
+  });
   document.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       await ensureSignaturePads();
@@ -876,14 +1233,49 @@
   // in Supabase (see setup instructions) — change it here if a different email was used.
   const ADMIN_EMAIL = 'awes.manila@gmail.com';
   function techEmail(technicianId){ return technicianId + '@awes-app.local'; }
-  // Re-verifies the admin's password against Supabase Auth without disturbing the
-  // current session (signing in again as the same already-logged-in user is safe;
-  // it's only creating OTHER accounts that would hijack the session — see addTechnician).
+  // Re-verifies the admin's password against Supabase Auth.
+  //
+  // This used to call db.auth.signInWithPassword() on the SHARED client, which
+  // silently replaced whatever session was active. A technician who typed the
+  // admin password into the prompt was logged in AS THE ADMIN for the rest of
+  // the visit, with the admin's real Supabase JWT persisted in local storage —
+  // full privilege escalation, and it also stranded the technician's own
+  // identity for report attribution. The old comment claiming this was "safe
+  // because it's the same already-logged-in user" was simply wrong: the caller
+  // is usually NOT the admin.
+  //
+  // The fix is a throwaway client with persistSession:false and its own
+  // storageKey, so the sign-in attempt validates the password and then
+  // evaporates without touching the live session.
+  let verifyClientPromise = null;
+  async function getVerifyClient(){
+    if(!verifyClientPromise){
+      verifyClientPromise = (async ()=>{
+        if(!(await ensureCloud())) return null;
+        const cfg = getCloudConfig();
+        if(!cfg || !cfg.url || !cfg.anonKey) return null;
+        if(!window.supabase || !window.supabase.createClient) return null;
+        return window.supabase.createClient(cfg.url, cfg.anonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            storageKey: 'awes-verify-only'
+          }
+        });
+      })().catch(()=>null);
+    }
+    return verifyClientPromise;
+  }
   async function verifyAdminPassword(pw){
-    if(!(await ensureCloud())) return false;
+    if(!pw) return false;
+    const client = await getVerifyClient();
+    if(!client) return false;
     try{
-      const { error } = await db.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
-      return !error;
+      const { data, error } = await client.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
+      // Always tear the throwaway session down, whatever the outcome.
+      try{ await client.auth.signOut(); }catch(e){}
+      return !error && !!(data && data.user);
     }catch(e){ return false; }
   }
 
@@ -1032,10 +1424,18 @@
     currentEquipmentCache.push(obj);
     try{ await window.storage.set('cequip:'+customerId, JSON.stringify(currentEquipmentCache), false); }catch(e){}
   }
+  // Deleting equipment requires a connection: there is no local delete queue,
+  // so the old offline path just dropped it from the in-memory cache and
+  // reported success — the record was still on the server and reappeared on the
+  // next refresh.
   async function cloudDeleteCustomerEquipment(id){
-    if(await ensureCloud()){
-      try{ const { error } = await db.from('customer_equipment').delete().eq('id', id); if(error) throw error; }
-      catch(e){ console.error('delete equipment failed', describeCloudError(e)); return false; }
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.from('customer_equipment').delete().eq('id', id);
+      if(error) throw error;
+    }catch(e){
+      console.error('delete equipment failed', describeCloudError(e));
+      return false;
     }
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
@@ -1376,9 +1776,14 @@
     if(!e.target.closest('.combo-wrap')) closeAllCombos(null);
   });
   function attachAllCombos(){
-    document.querySelectorAll('input[type=text]').forEach(el=>{
-      if(el.id==='custName') return;
-      attachCombo(el);
+    // Only attach the suggestion dropdown to fields that actually have saved
+    // suggestions (the FIELD_META keys). The old version attached it to every
+    // text input in the document, which meant Dispatch, Leave, Cash Advance and
+    // Admin inputs all sprouted an empty suggestion panel and a caret button.
+    Object.keys(FIELD_META).forEach(key=>{
+      if(key==='custName') return; // has its own customer-record combo below
+      const el = $(key);
+      if(el && el.tagName==='INPUT' && el.type==='text') attachCombo(el);
     });
     attachCombo($('troubleCall'), 'troubleCall');
     attachCustomerCombo($('custName'));
@@ -1442,7 +1847,7 @@
           edit.addEventListener('click', async ()=>{
             const idx = list.indexOf(item);
             if(idx===-1) return;
-            const next = prompt('Rename "'+item+'" to:', item);
+            const next = prompt('Rename "'+item+'" to:', item); // plain text, not a secret
             if(next===null) return;
             const trimmed = next.trim();
             if(!trimmed) return;
@@ -1483,7 +1888,10 @@
 
   $('adminBtn').addEventListener('click', async ()=>{
     if(!adminMode){
-      const pin = prompt('Enter Admin Password to manage dropdown lists:');
+      const pin = await askPassword({
+        title: 'Manage Dropdown Lists',
+        label: 'Enter the Admin Password to edit the dropdown lists'
+      });
       if(pin===null) return;
       if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return; }
       enterAdminMode();
@@ -1792,11 +2200,22 @@
   });
 
   async function doChangeAdminPin(){
-    const cur = prompt('Enter current Admin Password:');
+    const cur = await askPassword({
+      title: 'Change Admin Password',
+      label: 'Enter your CURRENT admin password'
+    });
     if(cur===null) return;
     if(!(await verifyAdminPassword(cur))){ toast('Incorrect password'); return; }
-    const next = prompt('Enter new Admin Password:');
-    if(!next || next.length < 4){ toast('Password must be at least 4 characters'); return; }
+    const next = await askPassword({
+      title: 'Change Admin Password',
+      label: 'Enter your NEW admin password (at least 8 characters)',
+      placeholder: 'New password'
+    });
+    if(next===null) return;
+    // Raised from 4 to 8: this single password protects every technician
+    // account, all reports and all cash-advance approvals in the business.
+    if(next.length < 8){ toast('Password must be at least 8 characters'); return; }
+    if(next===cur){ toast('That is the same as your current password'); return; }
     const { error } = await db.auth.updateUser({ password: next });
     if(error){ toast('Could not update password: '+error.message); return; }
     toast('Password updated');
@@ -1828,7 +2247,9 @@
   $('closeSettings').addEventListener('click', ()=> $('settingsOverlay').classList.remove('open'));
   $('settingsOverlay').addEventListener('click', (e)=>{ if(e.target.id==='settingsOverlay') $('settingsOverlay').classList.remove('open'); });
   $('settingsHelpBtn').addEventListener('click', ()=>{
-    toast('Ask your Claude chat for the step-by-step EmailJS setup guide');
+    // Point at the real vendor docs instead of an unreachable chat session.
+    toast('Opening the EmailJS setup guide…');
+    window.open('https://www.emailjs.com/docs/tutorial/overview/', '_blank', 'noopener');
   });
   $('saveSettingsBtn').addEventListener('click', async ()=>{
     emailCfg = {
@@ -1905,8 +2326,13 @@
 
   // ---------- init defaults ----------
   function resetForm(){
-    document.querySelectorAll('input[type=text], input[type=number], textarea').forEach(el=>el.value='');
-    document.querySelectorAll('input[type=checkbox]').forEach(el=>{ el.checked=false; el.closest('.chk')?.classList.remove('checked'); });
+    // Scoped to the Service Report view only. This used to select every text,
+    // number, textarea and checkbox on the page, so starting a new report also
+    // wiped whatever the user had typed into the Dispatch, Leave, Cash Advance,
+    // Customers and Admin forms — all of which live in the same document.
+    const scope = $('serviceReportView') || document;
+    scope.querySelectorAll('input[type=text], input[type=number], textarea').forEach(el=>el.value='');
+    scope.querySelectorAll('input[type=checkbox]').forEach(el=>{ el.checked=false; el.closest('.chk')?.classList.remove('checked'); });
     $('svcDate').value = todayISO();
     $('timeIn').value=''; $('timeOut').value='';
     $('findingsList').innerHTML=''; $('recsList').innerHTML=''; $('servicesDoneList').innerHTML='';
@@ -2016,23 +2442,58 @@
   }
 
   // ---------- save draft ----------
+  // Returns SAVE_CLOUD / SAVE_QUEUED / SAVE_FAILED so callers stop telling the
+  // user "saved" when the write actually failed and nothing was retained.
   async function saveReport(srNo, data){
-    let cloudOk = false;
-    if(await ensureCloud()) cloudOk = await cloudSaveReport(srNo, data);
-    try{ await window.storage.set('report:'+srNo, JSON.stringify(data), false); }catch(e){}
+    let result = SAVE_FAILED;
+    if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
+    // Keep only the downscaled signatures on disk: the full-resolution raw
+    // canvas exports are several hundred KB each and were being persisted for
+    // no reason, filling local storage and bloating every upload.
+    const persisted = Object.assign({}, data);
+    delete persisted.sigCustomerRaw;
+    delete persisted.sigTechRaw;
+    try{ await window.storage.set('report:'+srNo, JSON.stringify(persisted), false); }
+    catch(e){ console.error('local report save failed', e); }
+    if(result!==SAVE_CLOUD){
+      // Queue it so it uploads by itself the next time there is a connection,
+      // instead of living only on this phone until someone reopens it.
+      if(await outboxQueue('report', srNo, persisted)) result = SAVE_QUEUED;
+    }
     // Record this equipment against the matching customer, so it shows up
     // in this customer's own equipment dropdowns next time — never mixed
     // in with another customer's equipment.
     const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
     if(matchedCustomer) await cloudAddCustomerEquipment(matchedCustomer.id, data);
-    return cloudOk;
+    return result;
   }
+  registerOutboxHandler('report', async (srNo, payload)=>{
+    let finalSr = srNo;
+    // A report numbered offline gets a real sequential SR number now that the
+    // server is reachable, so provisional ids never reach the shared history.
+    if(isProvisionalSrNo(srNo)){
+      const real = await cloudNextSrNo((payload.date || todayISO()).replace(/-/g,''));
+      if(real) finalSr = real;
+    }
+    payload.srNo = finalSr;
+    const ok = await cloudSaveReport(finalSr, payload);
+    if(!ok) throw new Error('report upload failed');
+    if(finalSr !== srNo){
+      try{
+        await window.storage.set('report:'+finalSr, JSON.stringify(payload), false);
+        await window.storage.delete('report:'+srNo);
+      }catch(e){}
+    }
+  });
   $('saveDraftBtn').addEventListener('click', async ()=>{
     if(!$('custName').value.trim()){ toast('Add a customer name before saving'); $('f_custName').classList.add('invalid'); return; }
     if(!currentSrNo){ currentSrNo = await nextSrNo(); $('metaSrNo').textContent = currentSrNo; }
     const data = await gatherDataForOutput();
-    const cloudOk = await saveReport(currentSrNo, data);
-    toast(cloudOk ? 'Draft saved to shared cloud: '+currentSrNo : 'Draft saved on this device: '+currentSrNo);
+    const res = await saveReport(currentSrNo, data);
+    if(res===SAVE_FAILED){ toast('Could not save '+currentSrNo+' — nothing was stored, please try again'); return; }
+    toast(res===SAVE_CLOUD
+      ? ('Draft saved to shared cloud: '+currentSrNo)
+      : ('Draft saved on this device — it will upload automatically when you are online'));
     resetForm();
   });
 
@@ -2040,7 +2501,28 @@
 // ---------- build PDF ----------
   const AWES_LOGO_B64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwsAAAEECAYAAABnb6hGAAByo0lEQVR42u2dd5xjZdXHvyfJAsvSWVg6KCi9i4JIERCRpliwK6j42gv2+lpeFVTsiKIgqIBSRURABJXee5Xe29JZym6S8/7xnGfzzN2bmcxMkrk3Od/PJ5/Znclkknufcn7PaeA4juM4juM4jpOD+CUoP6paSf5byf64x2OmGf+OiKjfDcdxHMdxHBcLTv8FgSRiQEwEKICINAsmWiqJkIjv0YWE4ziO4ziOiwWnS8IgfaiINEZ5/mrAdGAasC2wBDDXfvxyYFEz3CsTfUv2PmYDVwELAVXgHuAS+7uPiMjsUd5jLXktLYrAcRzHcRzHcVwslEEgVMyYzxUGqjrDjPRNgZnANsDa9r0tgEUmIQYmQ8OEQxQSTeA84CbgTuAWYI6IzMsRRFUTD033PDiO4ziO47hYcBYUBwCN1Fg2Q3o9YBWCp2BlYCeC92CZMV663sP7rDmvWx3jdx41IXE2cBfBE3GHiNzZTiy5eHAcx3Ecx3GxMGziIIYUVcwYbmZ+vpoJgi0IXoN1yfcUxDwATe5fZQrvqWbeG8l7ayckngWuA/4NXABcLCIPZq5H/F0PWXIcx3Ecx3GxMLAioQJURKSe+f4awHYmDja1x/QcYdBMBIGU8J5FYZN+jqwIegq4ELgSuBT4j4g8mhFaVTIeGMdxHMdxHMfFQmkFAokHQVWnAesAWwFvALbPEQcNM6zLKgwmIiDyxMNs4DTgL8DVInJbcm2jx8FDlRzHcRzHcVwslEYgpCFGaf7BpsB7gNcREpLzxIEkAmEoLx+t8Kps+NJcgsfhb8ARInJvVjiMVinKcRzHcRzHcbEwlSJhgTAjVV0L2AXYE3g1UMsIBIZcHHQiHho5wuFx4EzgZOBfIvJAItQ8TMlxHMdxHMfFQmFEwohTbVWdbsLgE4QQo4WTp9fJD7dxOhMO0fOQiq4ngZOAQ0XkwuS+1MhJIHccx3Ecx3FcLPRLJMwPNVLVlwJvBN5LyEmIuAehN8IhioDU43AucBRwfEyMtvvklZQcx3Ecx3FcLPRcICwQ5qKqOyYiYYY9Ncbdu0Don3BIr/W9wKHAKSJyVSIawBOiHcdxHMdxXCz0QCjUMvkIuwJfIDRLi3iY0dQSS8zWkvtxInCAiFyZ3LuqJ0M7juM4juO4WOiGSJgfbqSqSwJvBt4B7JAYqO5FKNhtI4R/RdHQAI4BTgD+KiJND09yHMdxHMdxsTBZkaBmWAqwP/BR4EUZkVD1q1Vo0dDM3KNLgR+IyHHZ++yXy3Ecx3Ecx8XCWCKhApA0UdsZ+Bywkz2lzoKlPJ1yiAaS+/Zb4Gcicm0iGjyfwXEcx3Ecx8VCW6EwPy9BVV9NyEl4bSISPB+h/ETRUCE0evsT8H0RuT6KBs9ncBzHcRzHcbGQioRq0ifhxcCPCY3UonHp4UaDRyO5p3OBXwL/KyJPZb1LjuM4juM4LhaGUyQIoetyQ1WnAV8DPgks4SJhOIYAI3Ma7gS+KSJH2PgYUQHLcRzHcRzHxcLwCIU05OgtwJeBTezHDRcJQyca0upJpwNfFZHLbXx4aJLjOI7jOC4WhkQkzA8xUdVZwLeB/ezHdRMJnsMxnKTepOeAbwE/EpG5ngDtOI7jOI6LhcEXCmluwv6EKkcrMDLp1XFSz9J1wJdF5JQoNj2XwXEcx3EcFwuDJRLS3IRNgAOBnXMMQ8eZP2wYGZr0G+BrIvKQ5zI4juM4juNiYXCEQupNeDtwOLAIHnLkdEbqdboD2FtELjMBioclOY7jOI4zDAxk+I2dADdUdWlVPQw42oRCPDF2oeB0MjcqJi5fBJynql+IQsFyGRzHcRzHcQaagTKa7dRXLIl5MxMJa5tIqLhIcCZI08aOAH8D3i8iD3u1JMdxHMdxBp2B8SyY4aYmFP4HuNCEgocdOd2aJ3Vgd+AKVd3evFcSK205juM4juO4WCimUIhhR8uq6knAr4BphBPhmt9mpwuIjaUGsDLwL1X9Dswvx+thSY7jOI7jDKQBNAhCoa6qrySEHa2Ohx05vSUNSzqXkPz8oFdLchzHcRxn0CitZ8HCP6JQeA9wmgkFDzty+jFvxMbaNgQvwzY2Fqf55XEcx3EcZ1AopUFtMeJqVWm+DHzHftTEG6w5/aVOCE+aB7xRRP7mXZ8dx3EcxxkUSmdYJ510F1LV75lQqBOaablQcPpNzGOYBpyoqvtYhSSJPRkcx3Ecx3HKSqmMmSTsaCZwCrAl3onZKcjwTObU70TkfbFKkolbx3Ecx3EcFwt9EgpnApsQQj88RtwpkmCIjf+OEpF32dj1fgyO4ziO45SSUoTtJEJhg0Qo1F0oOAUU3zF/4Z2qeoyqzrSyvu79chzHcRynlMZNWYTC3sCRwCJ46JFTfGLi813AriJyg5dWdRzHcRzHxUJ3hcI0EZlnQuEYgifEhYJTNsFwP7CziFzvgsFxHMdxHBcL3RUKrwdOit/GKx455SKK2/uB7UXkFhcMjuM4juOUhUIa3olQ2As43kSCCwWnjFRNMKwEnKWq61hYXc0vjeM4juM4LhbGLxSqiVD4M62QIxcKTtkFw6rAmaq6vgkGD6dzHMdxHMfFwjiEQs0qx7wNOIEQ7+0eBWeQBMMqBA/DBl4lyXEcx3GcolOYnIWk6tGmwOXx2y4UnAEj5jDcDawLPAeIN25zHMdxHKeIFMIQV9VK0nDt9/btpgsFZwCpEqokrQYcJiJqc0D80jiO4ziO42IhRyiELzoTOAPYwISCh2c4g0rNBMPbVPUP5lWoumBwHMdxHMfFwkihIPYeFgL+DmxmRpQLBWcYBMM84F2q+msrpeoVkhzHcRzHcbGQUDUj6TvAFmY8ucHkDAvTTBx/UFXfbFXAfPw7juM4juNiIUlo/jLwGTOapvktcYaMWCXpj6q6u/dgcBzHcRynSExJjHQiFPYBfmdCwQ0kZ1hRm4tzgZeJyLXWb6Thl8ZxHMdxnKESC9EIUtUtgLOARe19eOUjZ5iJJVWvB14NPAaol1R1HMdxHGdoxIIlNAswHbiR0NHWS6Q6TiB62E4RkT2jB84vi+M4juM4U0W/jfSKnZQeYUKh7kLBceYTKyTtoaqf9fwFx3Ecx3Gmmr55FpI8hU8AP8XzFBwnd6oQvG0KbC8i53v+guM4juM4Ay0WkjyFlwGX0uql4E2oHGdBYmje/cC6wNMAsduz4ziO4zhOv+h5CJB1aMY6NB9LODGtuFBwnFHnZQNYCTjaRII3KnQcx3EcZ/DEAiFPoQH8BHiRGUGep+A4o1MleOB2U9UPev6C4ziO4zhTQU9P95PwozcBx+N5Co4zrilECEl6GthcRG5X1YqXU3Ucx3Ecp/RiwcKPFHgJcCWwiP09Dz9ynM6J+QvXAC83wd30/AXHcRzHcfpBL8OBxAyaXxAar2mXhUI8dY2PhhlSnT4amd+PFWjcCHOKNkfrwEbA1yykz/MXHMdxHMfpCz055U/Cj/YHDmJi4UeaeaTiptc5D027Ns2MeEgTs91D4vQLNXELsIOInOvlVB3HcRzHKaVYiNWPgCWB24ElOjDwoyBoJs8dSxA8ATwAPG+fYx7w3+Q1msBjwDMmVBaxxxL23FnAKiZkhHBauxKwFJ2d3GpGTEjynl1ION0mehTOF5FXeXdnx3Ecx3HKKhaiV+EPwLsSIydLamjn/Xy2CYJrgPuARwi5D08Cc4C7RWR2l9/70sBMQnfpJ4G1CHXulwWmA1sCS5v4WH6Ul6on1zd9OM5kiB66D4nIr10wOI7jOI5TKrGQCIU3ACflCIWYG5D1HDSAm4CrgXOAG4HrgKfGMoZUNf0M44nlbopIM/5+Jwmj9txFzWDbyATDqsDWwArAOsAy5HtFGrTyNlxAOBOaYvZ4GtgcuMPGrldHchzHcRyn2GLBDOkYznMj8OLEOI45AKkRfRfBa3AccDFwa57Ro6ppp2fNGE1d7WqbfAah1TyudbHGFi5Lm4DYkeCB2BZYGVib/JyNBiOb1Ll4cMYiehf+LCJv89wFx3Ecx3HKIhaiV+GbwNcJeQGSMZJvA04DTgHOE5Fn2wiD+fkLRSoRmfFiVDIiRtud8KrqOoQSsi8jeCTWJzSoq7l4cCZAbGy4q4ic7oLBcRzHcZxCi4Wkp8LKwPWE+P5p9uMngH8ARwJnicgLmd+rmDDQsteOTzwT0SPRHMVbsg6wKfAaYAPgpcBio4gH73rtpOOiSgjb2zwZa17213Ecx3GcQoqF6FU4AXijfftG4HfAn0TknoyhPFTGjYmiKCTaCYiVCQnU2wCvAjbL3J+Y7xHFiHsdhpsYjvR5EfmBexccx3EcxymkWEiEwvuAw4DTCV6Ek6IXYRgFwhjXLPVAaJ6Rp6rrA68EtgJ2AFbPMRZdOAwvUXA+TghxewKKFbbnOI7jOI6LBVS1YlWF9gCWFJE/Jj+rAQ03YDoWEJVg741MpFbVGQRvw5aEsKUtGVn5Ke0V4QwP0btwkIh81r0LjuM4juMUTizkiQda4TYuEiZ3HXM9D6q6IbA78FoTDgvHH9FKfvUchyEYJvb1aULey33gpVQdx3EcxymgWIjGrTeJ6olwSMONRnhqVPWlJhx2B16d/FrMcajiYUqDzDxCMYHPishB3qjNcRzHcZxCigWnr+Iheg6ywmEbQoL57oTu01nh4B6HwSLe0yeAW4EPA1eAexccx3Ecx3Gx4LQRDqq6CKGq0puB3QglbV04DBYxX+FR4DPAEcB/RGR7z11wHMcZartAMjZeJ7be/Ka3HkLuuFgY7AWiSiZBWlWXJHSSfgOwE7BajnDwqkrlFAqPE7qFbwkcTMhX2Qy4jhAS6IKhdxtxnCuVNhvueNZdpUdd6R3HGYq1KF2TtBtrf9Ikd8Qa5euTiwVnsBaQihkejeT7sarSG8zIfEnmVxvJuHCvQ/FoJgbqhcB7ReQWVb0eWM9+doCIfMlzF7q+Gcf50PPqbplNeiAaVjqO0/X1qK0osDVkFrCIPXdpRq+WWCccPinwjIg8PMp7qPna5GLBGR7hsLAJh61MOLyC0Hmb5CShgXsdCnEb7V7ERfpnwJdFZI6q7gqcaot9lVAZaR3gQbvnvpB3eTNW1WWBpYAlgZcR8oMWInRgX7KDezkbmGv37G7gKuAR26yfFpE5OX9zfnU0vNKc4wz9Hm4/mwHMBNYmhB4vb/9fH1iFUCmx07LqDVtfngVuI+TBPWx7yVm2Vj2UU9q95uuSiwVneBad1YFNCXkOWwNrtFlIXDz0l0ay0N8AfFpE/pH0NzkZ2AM75TFB8T0R+bJ7F8Y1N3KruVkY38qEMsWr2hzZ2ITBtC6/jWeAp4BLbKO+xzbp+0Tkicz7KmWjyySWuvib4wSva5k+40Q/5zB8xiLu1aq6GLAm8DoTCDsBy9Eqnz7aIcVk7cFngTttTbqe0ID37kyRlZqtSV5gYwDW1vTeusHnwkGyk1tVpwMbEiorbU44PV0q8xKe79DD20Or7C0Eb8G3gINF5DlVXUhE5qrqpsBl9pxKsiE8Qei78EAZN8opmAPNzIb3EmBPG/s7Ek7qKm3uUzfyQkYrNqCEJPaLgEuBfwNXi8iTWeHgOSqOMxBrUjWTdzgT2BnYjlDpcKWcX437cbTrJLMnjyfBOd2DInkl2J8HbgZOAc4ELhGR55PDF/E1qWdjJBsq3nOBJn3+gAN5CjAgA3C+wZ/jdZgFbAFsTwhX2ghYYpTFqpKzWDnjFwnzgOOAb4rIf+1e1JLnnG/3JfU+xOTnb4vI19270PGGvC7wJkI+z4aEsKKUerJmVnqwfmryVZP/13Ke+xDhVO9M4NTU62Djo1HENdTWmFklGSZNEXlogp9zKUaGdBaZJ0TkuQl8xmkmostAXUQeKcP+G/deq2i4K7CXfV2mzXrUz71Wkz0qL7TpFuBPwPEick3mMMNDlCa3X+X22co8r2r7ltj6s9Ak//RTaUis9PiDzd8Ex6MwExe74Fn4U61cF1CsqroCwdvwcmAHYN2cxQxGhi6JC4j2holdp1QkHA38WESujkagiNSTrx8CDknEQfpaYgv3ZgTXsQvwZG3KbMh7A+8mxPsunNmMeyUMJiIi0jEiGeHwN+AY4OykfHJhNuhkzO4H/JiR+TdFJO5V+4jIiZ2UIlZVERFV1eUJ3r5lk7WvqGtOBbiWUC1vXifrRHIvfwx8MGf9KeK9VOBtInJa0cpK56xJqwLvAt5PCDfKfo4iNVnVzAGXJGvnGcBhwMnRfvCS3uMWj+3sr4UJeXIvJ0R8rGj/XtlEQmWSYiGuDVfa2qB0Y5LHU7o4oG2xyUsKnAEs2sFLPikic8e4gHGgulrtAXZN57shc5Ttg2ag/A34um2QGxDCNjYmJE4vT/7pWiMxgIY5hCntsB3H9CMEl+7PEpFQNaFct/vQtLjVLyaTOqVi1/ilwE4icrKdNg+tdyGzITdsvO4DfICRFcHqyXgsigEU50Y1s0nH4gOzzLB4P3CVqh4CHBVPhAp2qrc8MKPgRjTJ+1tjAkJxGrAC3c9n6RUvBmoW1jiez7mS7edluZfLTbHoz7WbzLvZUNW1gU8Cb6cV8hsPCCp0lqA8FWtTeqAS97Qaob/TbsCVqvoj4BgRaZgN501DR9mnbL9vJvbXsnaYtSEhP3F5QvJ6r8fEarZv1lVVapP4QKlLJHXnL2YG40q2EW9BON3cnpAUOBaPqGp0Yf2TEHd9B3CzuUubo7wfTS60013x0BhlDDwMnG2PqHxXJIQrbW5jYAMzbBZqYzgrg+2FSAVYhZFx6hcBfwb+KCKzMyIhFd41EZmnqt8BVmdk+FHe33sPcDKdJbcN6gJcTUTCTMJp6MfNoCMZ1xWKfUKa3aRr6aGJvf9NgF8Dn1fVQ4Ffx9yGgpzqzbP3W/TT6Pj+5k7wEGCu/X4ZPAsvTHB9mFuyezmvgGtSXVXXAD5rhxczMocWZStfPqJim439TYE/APur6ndF5PgCHmJM9XhIQ9Cih2kd4JXAO812Wr7N2M4Kt24I4rg2PJ+uDbVxfKARp3PJ91cEdiGEomxlAmEycalL0HK/7ZW8+QdU9QrgJkJZr8sJmfgPk/FkpJUE4rdcQPRNPKiIvEComnAn8Fd7zgwb8K8yVbyh3ed1WDD/YawJ0a1J0Wtx0EwMhmrmFOYu4O/A0SJyXrqR5IiEuMHMU9XXAJ8YY5OO92JPVV1FRO6N1ZOG7ZTGTrMWAT5M6HS9cmZDrpZ9OiafIY63NYEDgQ+r6k+BQ0XkWduUpjKcsywHAZN9j2VYo7r1GQf9XnZ7TRJbk5YE9re1fKnk4KJMhxbjWZM2BY5T1bOAr4jIxQU6xJjyPcr+vyTBc/AeQvhPGhYbIzIqOQdGfZkzHf+xaCCaS2RNM+R3JIQ75NUWT+PVlc7DTTTnpKNqm/zKdjEjs1X1bkKM6G3ABcADInIb+aFQ1eT9uKrtrXhIH2phEXfYI70nK9t4WsPE5jImKGJTmdoYY6WRM8i1T5tEOlazSanZBLBn7LOfCJwDXCQizybXq0rw0jTanDw07Vr9LrNotJvsUUx8CPiqPX8oxELGm/BG4Nu0mtbFfhS1Afzo2XCANQg5Avup6tdE5MRh36AdZ4rXJFXVN5mYXzMjEqoD+NErGdGwI7C9qv6cUITjsSIXZejTHvViQkjsOwmhP6kNTVHGRq2DDxWNrZnA9wilu2aNIgwqdN4EpJ2h084o08zfmWmPzZLnzlPViwjhS38h1C2/TkTuyjmtXUABu4DomnjQvFMVFsw5uQ+4zwzo39tzZ9jz1iZ4rBYnuOSWNANoDRu7i3QwhjVn8k2Wakac5PEkIUHoJuA84D+EevmaEa8x+b8+xulDXVUPNsHc6GB+xev8LlX9ls0LGeTxnfEmrGQb8ruGQCTk3ftKIhrWA05Q1ZOAT4rIPR4G4Dh9W5Oqtn6vDPyUUHUtXZOqQ3ApKhlh9CmC5/vTIhKjDwbe+x0/o+1RKwBfAN5HK7qiUAJhXGLB3nADeC8hiS4aYGl3315/KBlDRDST9zqNkAwCodIJwHOqehNwoxlwFxFyIB7JGmmZTqlehan7AqKZc73T+6tJua7LaPUR+GXyOyvSSiR8mYmG6fbvNYE5ZlQvQysOtNPxPq65D9xO6GvwJPAvggfhbOBBC5HLLhZpt8tOxEvMU/gp8Ho6jxGOY3h1Qt7IRbSSnwd2EbaTmr1tU14hWadqQzjtUtGgBG/w1qr6BRE5Ylg2aMeZ4jWprqpvAX7ma9KIEt8vBk5W1R8CXxWRFwa51HdSSawKfIxQpGSFsgjHTgZr00rC7WiDvGmGWhEGel5zimysOGZIbmqPd9j3HlbV24CLCZ1xLwFuNUM1a9B6+FLvRESzzWkMLOiJQEQaIvKAfe9uu295E3M6IRZ05WScrGuTc01gNiOb2Cxv43ohQvJek9DqPi5cMwneqnuBq+39PGtjZl67zYKMG3Y8C6GqTjOh8EZCbOt4S07G579aRC4sW9fVCSzCiwE/IIReQfGTL/spGuJ4WB74napuR/AyPOW9OByn62tS1U6PpxE8nJ9O5mDVrxC1xE77rB1ivFNE7hi09SjJVamr6hYmGrfMiIRaGW7YmMpYVdcjJFyUIUM/LwQq20wkGofLE+LkI3ep6n8Jp9mXAtcBt+WEL43I+nfx0HUBoRnh105IZD1Oagu0WOWs58zAj1zSy8UgRxg0mWCegC2Y81R1T0IN/cYE5l58/rtV9WfAnEELRUqEwjp2nTZhcBIFu02Vlld4H+Blqvo2EbneBYPjdH1NWp0QWrstg52XMNlDjLrZYReq6vtF5NRBWY8yuSpfBL5FOJQsXVhsrYOb2QT2I9RULutJ3VgeiHgtVrfHa+x7c4FbVfVyQpOr/wDXWMfUZsZYrLp46LuQaPucRFRUMuNgzPndwfOaGYGSG2LVhc3mDYQOztVxvP/s/G0QKk69VkROGJSeC5lY4DcDvyF4ktybMPZaGMfABsB5qvoeETnFBYPjdG3t3hH4I8GT7WvS2HZog5AL+zfLY/hJ2fOqkrEwCzgSeK39qFHG8VAbbTO2D7oIsGeO4TUIm2Y1xwhMk6gXIiQHrpc85yEr4XoRofvlRRYWU3fxUEhR0SjZAhNDj94AHE/LgzXRuRfH89uBExiAnguZpO9PAz8q8yI8xRv0UsBfVfWjIvJLFwyOM2njcB/gt7TyPX1NGpsqrcO2H6vqLBH5kqpWVJWy2VDJWNiQUAFxLUqe0D7aII6nkhsRElEmY7CUhUobQ6uZ/HwW8Dp7ADyjqjcQch/+BfxHRB4bRTx4zwdnLKGwO3BsF4RCXIQF2E5VFxORZ8ocipSpVf4DQryru/gnv0EfrKqLi8iBLhgcZ9xrUvRy7g8clNgNviaNz/6Kjf6+qKozRWQ/Va2qamkOXROhsC2hIufSDIB3abQ3H0MeNrKvw6iQxwpfqhC6Ur/cHh8nJE7fSIiPP4NQtvUh3PPgjL7ZVBKhcCKtDrCVLoxhJZwgvxi4JvleWYVCU1V/Q6hNXU8EkTO5DfoAy1P7ngsGxxnX2l1X1S8ABySHFxW/QhPar2LH7Q+YV6E0giERCjubUJg+KLbzaB8gnji9NSMefDCPPC3IVl+KidPbAZ8DHreyrf8GzifkPNyTEQ/x9dzrMHybTYVgATcspOb7tCpFdGuziYvVm00slK5BW5JErqp6DPA2PBa422taHfiuqtZF5AcuGBxnzDUpehQOINTM98OL7jAtEQxVEXlf0QVDRiicTCjpPjDepVo7A8ZO79YGtmc4QpB6IR4qBBfUVrSqLj2rqpcAlxNiyG+0hGlyxIN7HQZ7s5lvjKnqIYSSn9qD+RZf6x2q+l3ghTKFImU8CkeZUJhnG4rTfcHwfVV9UkQOdcHgOG2JQuG7LhR6Khj2VdWGeRhq9u9C7V2Z0KNUKAyM3VwZ4/u70EqE8wkwvk23RsvFHzv0NglVpbYHPgNcANysqseq6ttUdV2Y30ugYVV9qvbw6z84IkGSxWUVVT3DhEI9GUPdnudK6C+xoS20lbJcK9uUm6p6OKFPiguF3q5dDeDXqrpL0kTIcZzWujTN5sbngC+5UOi5YPiAqh5gBxfVgo2FKBrXBU4aRKEwmliIqu1lPlZ7Kh6UELL0FkKN+GtU9UpVPURVt1PVRVw4DNwmUxURtcVlT+BcYGdaITW9urexKtRmPRIkvSIuxD8C9nWh0Jf1SmyzO0ZVX2ohcu5ZdhxG9MDZhxA26kKhP4LhC6q6v+0HtYKMhUr4ojOBU4BlmFhPpNKKhaZ1HtxkjOd1QtMuXiePYYjXT8WDJOIhxpVvQjhl/jdwlar+XlX3tlJiqXCouXAo1QZTsU2moaqLqerBBHflGvQ3AWrLzIFA0Tfluqp+ltAB1YVC//aFmBR/oqrOAMTXGsfX8fmnyDsQyqM2XCj0hdgb5iBV3bkIHs80PBY4iuC5L5zno2diwfIVFHgRsH6b5zUTEVBPHpp5xN+tdvioJIZM+mhm/k49eQ9lFxiSfP70syqwNvBu4M/ADap6gqruq6rLi0jdPQ6l2mCatsDtRCiz+5Fk/Fb7ONe3sXyFRpHHSyIU3gj8AE9m7jcxf2F94MfWhdTDkZxhXscrtm6uTmiWWaHliXN6byfFwhxHqeoaBfB4Vu09fIWR0QEDq9byjIomIa4ewmmeZAzb8dygK4DnOnzukoSuotJmoLSjmREZJBOZEk3mbKnWaEwKwb31Rns8pKp/IpTmukhEnk8NU3t+w5OjCyESGskG8zngo/bjfi8s8bR4FUI55KspaAlV25TrqvoS4HBa8Z++Kfd/f6gD+6nq6SJyYhzTfmmcIVvLheBdm0EobR3DTVxA93cPawAzgRNU9ZVAfSqKdSQeppcD3x6GsZBnrMSLvqVtznlu/xvsd68G/kuoJXsXIf56YVplRJ8RkevGOSE3IXROToXLEsC29l6awLKE0qQN+9kqY7x0I3lPlMjwSGs1p83hZgGftMetqvoPgvfhChF5Jkc4NL0k65SJhCrwNWB/YPFE0E7FCUTD5ucrbe4WroRqsikvRkgWW9I35Slfg5rAL1T1HOCxMjf1c5wJEo3Dgwl5X+7pnKL7YNd+M+AAEfm05S/0rWKb7VGqqgsBh1G+Q+nJi4UkPGEJYG/79s2EBmM3AVcCD4vI5eM5YerUVWQG7ZVtfnxm9jWtQsoMQlnSqomI3YG5wIaEGLIZo4iiWOUpfRSVtESrJgbUWvb4CHC/qp4FnAacJSIPZwZ4/H33OvRmAanG8DATCW8iVMrYJDHWpzK+Nf7dHYFDKGbeQprQvL5vyoUQC3VgReAgEXmvjW33LjjDsrbHNeltwHt9TSqE3VoHPqWqZ4rI3/vs8YzhaB8hRMIMxXioZYz1aDw8Q2jg9CBwg4jMzTHsG8nJdaSZ+b9arHazw0k5mtEumb9ft69zgH8mPzo6ea1lgeXshm4CbEHouLwZ4YQ1e4OjB6LosYiSvPc07n0lQo7DuwkngGcQGsGdKiJ3smAjuBiG4v0cJr6RVGzxqGMuUWAv4MvA5sm4qjD1p+NxPL9MVRcXkaeLdEqcbMpvBfbzTblQ+0QDeI+q/k5E/u3hSM4Qre+qqssDv2QAS2KW+BBDgYNVdWPgmX7sZba/N1V1OULEwMA0XRuXWEgM8SZwehvDcn5eQLc3C7vR2ulNs+TeNMY/vkcx4222PW4kJCTF310NeCnwKkL89kbAyoT6uGTETxRARQ1daheqtAzwdnscqKo3ApcRvESni8gDOZMgbQbnYUujLxhVgoemaYvHqsDrCeU9N0tEghRoMYnjdwVC+N7TBdyUZwE/9025kAcUAD9X1c2AhocjOcMw7u1g9BBCg1UPiSyO3VMnVBP8roh8rE8ez+hV+LjZWENzoFUbZfOO1Xm0iCdIcZOyr402Bh1kEobN03E3cDfmkbCYtzUIoUvbEpK71yCUDkwNlqJ7HrKhSrGT9AxCz4yXEcqyPm7xx5fGh4g8zkjPQyqQmomIHGaBUElEcuy8/EpgN0IY2FKJyKSAm4rYGJ5mguY+WkljRdmUf0bwBvqmXMzNeQPg3SJyuIcjOQO+5sdqN28mFBbxNalYxPXnQ6r6WxG5qpcezyRMfyngfxJbcCiojbJzl3oTSE680tP2eNNTY79pXohb7XGS/XwZQpL3FvZ1E0IDtZR6MmiLLhzS67A04RT89fb/R1T1BkKC+s2ECku3Zg2BGHJDy/sz0OFLyTiJ86Fh358OvIvQTO81mfFQKfgCojYuVkzGSVE25V0IuVIeflRcwaDA16wa23PuXXAGdO2PSayLAz9iwRBrpxg2TrS/DiLk4vVyLaqqasPspuWHbZ8ayg05e0KeyZVIQ5j+Zg9UdWngdcArCDV1X0TIe4g0kg21iMIh9bCkXocK4SR3O3sAzFPVqwlhS5cB1wD3icj95FTPyYSpgeWqlFQYiL3/RvoZVHVhYBtCLs8OwEuSaxlPnMown+LY3AM4lClOck425RpwICOrljnFEwsNgtd1XxE5uN+VSBynX2M9qaG/qh9gFJboXdhBVV8vIif30LvQtND3dwzjPuWDnwVzJZIQpvlhOBamczRwtBmWLzbxsCmwC62T2igc4gluEQdUNo4+FQ+xXG4MW4rMUdULgfsJ/R3uB64SkRfyJmZSASs9ZU8FhE5BbeQ0dEwSgZMrblR1U0JFnt0Jycpr5YjDaknn0SoxWWuqF3tLav4AIXfIXf3FF5tKqERyqAsFZ9CwvaupqmsAH2ewkljTiAvN7IVS8s/1DVX9Kz04ADMPalNVZ5pdNFbvLxcLQyQeUoNwRAx/Erb0c/vZkgQXWDx1npVjVBa5t8No4iGOkxnATvb/99jXW1V1DqHx3tOEzsQ3A49YXgijGaM57do7aRKWvl6lg8+lyX1ttHt9S1BeiRBytiWwnhmv2b8dE2/LunnEXKQNgfVE5PpYhngKNmUhJMrOAL6OexXKQPQurAW8ATg+dtv2S+MMjgkgTVX9MrAo5fcqRO93GiLbbp0tg72St6c1CKHibxGRY3uwJsX+DtsypA35XCyMT0A0EiMnigcVkScJXR1PVNVlCAnSe5pxvXIJJ2JeBZ+s96FC66R948xzn1bVS+3f/yF4IaYBFwGP2+8+ICLPTfJ9jsvVaP1DZtp/NzRRt6l9jpfRSlDO/g1NFtpOTxOKXM0njt95U73Im1fhozZP3NVfLj4iIsepqldOcwaCxKvwEsKhWJm9Cpq8/1ryvaeAOwkHfDVCVMQsQjXIambvK9tn/yJwLL3zmG/CSK+MiwVnTOEwP2E4UynnsUQ4LE0opbkLoWvujBIr+DwB0cx8jddhcYKHheRrZJ49725VvcLGYDRc/0Ko0FPNTHY1sVEhlH6dYwvb5oS8kecz1zB6FLYEXp4InJfTSlIfrVEfiTCYyGIZhUJRT8rjKdMmhA7sfX+PiVdhMeDTDFlliZITvVNbqer6U+mdcpzub+/SVNVP2N5S1gOMaOhXCfmXZ5hdcgPwqIg8kqzFC5tYWIKQl7er2Sw1WondRbdRos2wqaruKCJndTl3Ib7OrgxhCJKLhe6Kh0aOcHicUEnhRxb/+BpCqNK2jOzpUEbXH8mEqbQ50SCjwGtm9EPI+Xhx5vfe3MHffAR41q7frElOfs2IHJnknIjjoAb8juBhelEBRUN8P1vbKcxUvLfoVdiH0PfBvQrlM0YWJpy+fsHmj4sFp7QkpTGXJ1S7i3mHZRUKjwA/Bo7I9lWyzxsjI14glJIHuA44RFU3AD4D7GPfL0Pfm/gePwGc1eVxEYtwLDes88NP8nogHKySTkNVRVVrdup2p4j8RkReS0ia/SBwCqFbdjwBiHXwGyXfeCX5TLXkEQ3VKCbqyeetJ597tMdywOomFMZ6bvr6DUY2FUzfWzcS0WOIVg04APgzsBqtxmxFZEqasiVehWmEBEJfi8q7d7zF1rd6UhjCccpIFAZ7E0JSi7x2jyUUTgI2EZHvicgDqlq1RyXOU+s5pWanVOxRsxP560RkX0J58MdLchgQPZ67qOqqZoN1Y1+JY2BjQl7jUHrBfYPuvXCom1uzkgiH20047ElocvRR4F+EE/NoZFcSgzdNNi79ZaF1kl/LiIr4uUd7ZMu+jvZIX79K76o+1JO59EER+RKh+V214PN+TzstafTZ0KuYN24HQid179Zczr2jacJ9G99PnAEgevjflzESyyYUDhKRN4rI/WZzSDzAjAIhx06JDWvr0ci2JOHjgVcDj9rTiywY4mHrQsA7urgmxdfYyGyKoWxE6Yt7/4RDM0c4VEXkLhH5pYjsQKjA8xGCx+GexOCtMDheh24sCEUJ14oejBpwG7CLiPxGVVcixDYWfY4tB0ybwqZa7yOnaaJTGqLI27OkxpXjAPMbQ6qqbkXI5SpbYnPd3u83ReSz0YtgNse41/dor6jqNBG52ozvtCFr0W3at/agw/ySwzxHXCxMrXBoZDwOd4nIIeZxWA/YC/g2oTRpXLyqyaRNQ3e8i2p/jaS0W/NhwCtE5Ew7of+gnW7UC25ANfo9bmycN1R1OUL/CsH7KpR9/9jTjC0PRXJKuy1HI9P+XaYDjJjv9UsR+YZ5i5vdKDggIvNMMPwD+CmtMqVFXpOU4AVYywTgZO3cuEdu5Iu9UwThED0OVdt4nxGRv4jI10Vkc0Kew9sICam300rGjeJBEvHgwqF3IiFWEqoB5wHbicgHRORRW6Rn0qruU+QwJCUkFm/c57Ug/p09CDXMyxgX7IwcR6sBa2aMLscpBRamU7ccqr1KZhvFghr/Bj4Ww0q77C2um8H9v8BDFN/DEMOxXt+Ne5nkPmw5zHZzJW/i5D18SembcEiTo6s2+RGRm0TkzyLyVoLXYVvgU4Ryo7fZS6TJutHzMGg5D1MlEqInoUpoPPdhYAcROSfeJ2sCcyChBF2z4IZTFDNLTcHfhVaYlo/LchNjhPcY5o3UGQg7aBtgVcqTQxWr2j0DvM8EQrPbYaX2ehXrJ/VbWiHRhTWl7Ot2ZrtO+Hoktm8NmD7Mk6TWZmDkXbS0Ysz8qjJTGO886MIhrfkfy5zFKgYvAOfa46d2IrKZLXa7A+sS+gnUcjb2tKka+EngaAtxdONG780twEHAkSLyfDIvICQJb07oq1GmeNe+LfpJacJlCGWEYTBDkDQRmekGJgM859b2JcMp63ZrX3dMDOEyiIW4z3xbRO7ocSf1phnORxJKJVcpbh+heO+2BZYWkcdi+dNJvOZ0Qv+oobWZajkb+mI5z3uuXXMLM2IryeB1AdEb8dDMqN0oHlRE5gEX2+OHqroUoUPxqwilvnYjVC2ptjEW00k/7CIiTVqO1+uORCQ8Y/cgunsbtkirqn6T8nV3fK6Pf6ti421jWt6XyoCNm/RQpZ0QqlOsRP1ubMy7qOqiIvJsFzZmx+nrgYmt5ztmxnTR15sKcBfwc7PDGjn2WbXLc/1O4BrC4WRRvecx52QxYFNCz4Xc69PhaykhvHjxYZ4ktWjwW8z8YWZYZjfxJ6zbbpNwmn0voYnHdWbENkcZoO6B6L5wyHod0nKkDRF5gpbnAVX9DKFE5ZqEcpVrELoZL0GIG29n0MTJ0quSo0UgLcWalm593haZ3wH/EJGnMyKhHv9v8a5vs7nToByn5XGObwOc36d7G//Gbpn3UHaRQDJusLHzhK2Rj9omszLB27do5pCmLONlrHu6ArAMofyz45Rj8W813JppBjAl2edi6fAfi8hz7bwKXexgnF6zYxKxUNT1O763XWwfn+g9jSWiNyaEW5Z9vZ6cWKB1Ero5+V1xZ9FyM7/Tvs4DbjcRcTVwP3AJMFtEHs0ZYGmdfOhBbN2Qi4f5YTM5noe5hM6M1wEn23OWMLGwPbAKwQsxnZDEkzVosoZRM1lUy+aJSK9VHJPp5L+OkAdyhIjclozfESIhGdOx4+fBJTV+V50Cw3rDko2ZdqQbx83AaTZ27gAejwLTxspChNOppYCdbd7tZvOsWWIxHsM2YijkvUz8FM9x+k0cq1vaGC7DGh4Pth4F/hibXObYXAsBryB0Wu/GPI+G88wSrd+rZmzcibJKl16n9GIh8qxdjKx60oyBiE2ste3x9uR5D6nqNcC1hJPtm4H7bOPMeiDSsokewtRd8ZDneZBEQDwFPAX8MXNPVgGWBt5o4mEbwonharS8EO0W03pmcUkX5KlYWNJxmzZxS0XOc8A5wEV2AnFh4jWIz21mT20SQdYE/mDXqCyxrikv9OVGtLyXKwJbjzGOyiI4q8D1wPeAE0XkuTZjJAr2++1xA/ATVd0Q+CKtBkJl9bTENXsb4K94HpRTLrELIb69LHMwVkD6S6zClznEiv/fAzi+h++jyCfs8b1tp6pLisiTkwyPHPry3rWcC5IXciI5E0gzj2j4r2CPnYHPAHOBx1X1AsKJ24XAY8CNIvJAxsD0HIjeiQfNMWTS+xrDxe4lnA5em3nuiwmhFFVCLeolgRWBrexpC5HvjcgzLBptTngmY7ilY7Wa8+/IXOBWEwcnA9eIyJ2Za9NJneqa1aD+ko31eoefv2j0a2OM68nywAyKmxw3Fs1EcH4LOCCKBBs32eIPjWQOpWupisi1wDtV9VjgULs2ZXZzL+arrVNSobtyCdfsY9pU+4n/fxetSn7d3JvK5AWdZevqk7TyDybCckMwF5qJGF2gWWqtywMmrQISjYGF7IbtlXnuU6p6I3A2ofTnpcDdFm+flwMhySbsHV+7JyCaOWItXZBizebbaJVo/Vfy/NXtnzMJYWwA6xDKuzZNVGzJyHClfhnVDwNXEuLHzyX0p7gReMAqSmUFaiw9N2pFCWtSM09V3wl8lxCSV/NR1ZFYeFWyIJXtmkWh8CjwbhE5LREJjdHGTXLgkYYLVgglCU+2tfAUQm5R2TwM8d5uYMaLr89O8VVCqzrbYgSvGCUQ6tFD/gxwpeVbNHM+06KEg7zYE2jYShqnwmCpzDo1EQZtf9eMnV5Nxkj8umR6zWo9uEHZCZcnIIQQL/8Ke0TuV9WbzMC7zQy8W1LDLk4IPHypVyIim5eQDWNKJ2JTRO6y790FXN5mUX6picYoFHY3tR+NxkVtsV6IzissxEXzdoIXJA726wkJu5gomN3mPdUy4rMjA8ca5s1T1bWBX9CqnOShF52xRYlPXSqEpkSvFZGrOxEJHcy1ponP/6rqTjZ2y1TrPd1c1geWFJEnvCKSUyKDcvlkPyrDOlQF/mklQauZJOaYg7ED4ZB2aBNyaR1IbUU4jJ7IHh3XsFUH5JpoMoay4+JuQtTPC/acq614i4iI1vo0IfMUe56yWckeOyQT4w5VvZIQ53uOiYe7WTB8qZoxYn2j6p6AaFsONNNKvZInEkXkv5lfuzLvlIdW7eZxvLUxvQDVzMYQBcK4Dby4MKvqWsCZdmJR9OZrRVqk4mkFJbtm8b0/DbzOhMI0K1ncjfk1z+KM71HVvQidwadRvlCtGXZ/n2ByLn/H6SfTKU+hjjinbmnzfuP/X5p5/jCz4STFGbQK/JTZQxMPoKqEsKwrCKHYtxFy6W7M5t0l9t+UulZkDAER39+a9og8rarX2Yb6AHAG8N+cBNRsaIlPmt4IiWbOxBpNUOROOLt/EzHgKzmvNz+puVul45ISqauYUFh1yE9txr1QmSBcpYRiIZ7E7CsiV3ZTKKTj3173clX9BnBACcdXDQ/Hc8pDLFCxLq2qXkWfb3HdvHYM43bHEq6zvRSDE9nzY1ndaYSiL2Umju3HgB8AR4nIPe0+d2tbatl3tQJOhAV6NDCylvniBLfSVslzblLVS4B/A/cRYvlmMzKUJhUPnvcwdYIiV1QkA3Qir93Te2kehbqqrkYoj7mGC4UJLborEXJZyrSJxft8mIic0AuhkFA3T9iPgPcScn/KEI4UvQiVZFN1I8UpC5sltkShl1Jbi5qEQjFkbByxinPVEq6zvRRWy7azO8YhNmaU+HrGPewC4F0ickeeTWx2sWby6yiqWMi72dlKTHneh3Xt8V773uMWunSRCYhLROTJUcSDex6mXlAU8vonycxrAf8AXuRCYcLG5Exa5XfL1PjoSeAr7eqZd3MO2IY/T1X/DziK8iQLx/jgjYHLXCw4JWKZkr3fZwkhke0EzoySrbO9ZrJ7dc8PJHtI9IpfCuwsInPMU1If70FrGV3GnXgflibkPewAfBl4QFVvJoQunQ9cby6YPPHgCdNOHBOxPOpLgH8Sek24UBgeogH8WxF5qF2X1G7/TRMlJxFKTb+IciU7r+LDxikZ00r2fuuECnztmM4EQ28GjPnd5WOfnwm+zkIlHCOpkJwDvNWEQm2invHagAyI0bwPFUI/gBUJXVMhlG29khBScjEh6/vxjHiIBqGHLA2fSBAghh7tCBxhRpALhckt2sskpx1l6ZI6Fzi0XyVBzbtQE5HnVPV44HMlEwuL+HB3SmZMlW3MziU/vy9WQlqFEK5d1l423d53VrTrMd7GbNEjXlbxFQ+7fiYid0z2sKs2wIOkOop4WALYzh4Aj6jq5YQ4wL8BV6WJsZlKPR6yNNhCITbMqqvqvsDhiYHrQmFyLFQyQ6IC/BerPNLHQwO1NecvhMaWZRp3FR/mTskoy6lxNP6fIZwWj2Yc+57VYoY9JtqYbTrl8yzEw66ngV9247BrWBb2aOzH5iSxs2rd/r0csAvwTUKvgGtV9Teq+lpVXcWSPuoi0ognf6panWhSrlNYoVAzg7Cmqt8zoRDj+twImjzNEr7X0+xwoJ+bbjyQuNYW+zKVIV3Ih7lTMgZtbXe7pLvXcX2zHRuUqzCHEPpx3Eto/jmp/bc2xIOgneehRqgksB7wAeAZVb2WkLR3LHBh6spJwpXc41BekVCB+eUrXwr8ltAkLvZQ8MW3O5RxvXm474tTOJCIXVovJ+ReleWU0MOQnLKxUMmM7HZ9j+L3HhpQETRVYmGdzPUt03s/Nmmq64q6i+IhGjNNgtehCSxGKNP6cUJH6ctV9Veq+mZVnWXehtTj4Ne0PCJBojfBSs7tRwhF28buf8WFQlcXruWT+VUWHp2iv1uxw4fLSrZRLezD3SmR0Q0hnr1MLEy+By+uq/cSKiZ5Y8RAY5J7zuIl/MxV+9xX2j4y6T23ljPYdBTlWib1PVkRVUkWlHhdqoTSgBsD/wM8oaqnACcAZ4vI04khWsMrKxVZKFQtL6VuZVF/RauRTQNvLtUL5pZQ4MyZ4vfxREmFoeOUZaw+VbL3uzghBv/5Ns972h6LuhhEbA0frdTsWGLypSVb22LY9DXALbH/RjeM4pTpdkFqtMIvso96m0cj8xhLdJRpQakm16SZfN6lgHcTEhGvU9X/VdXNIYS02Im1Wn6D5zgURCRYGbWGqi6qqp8gnN7umIzbYUoK0z7+jdlt1p0iX5epHgteic1xesu8kr3f5hjr9rP26Nf6XnRmA8+ZXdbR9TADu6GqiwOvLtG+ld7ze0wkdOV91xKDWIErgNXJLxEZT1uXnMDfqecIlLLGgud5HYRQg/8bwDesstJxhNr814rI3NRYjaLDS7L2VyQQvDwN+//ewLeTU4NhLYvaTw9KGef70lP89x/22es4fTGuyhTqt0C4XzyYNCP3MkKPFvX7yv0WZjyeJN9oE684QZu3CJ/7xm7uuzUbZPECvh/4bJsL17ABuishjr9hRvPz9v8dCa4xJZSZ2oQQV1cbxSBJw56yHowykCZKayKoNrcHwO2qeqmJh7Otn8N89ZoID0+Q7r5AiNc3FQk7EMpR7pqIhArDW2Lu0T7Pl7Kx2BT//Xk+kx2np+vR8yUzBBcFZgEP0OqtkP1M5wFvwT0LZK5Pp8QGvbuaPVunPKHJcQyc3U0RXMsqU+CxMX7nd22+/5OMobaCiYXpwO6EOLuKXfxFgZmEkqXtbm7ZBIQwMkG6af9/sT3eCjysqqcD/wYuEJGb04GceB28n8PkRULVqlZFkbAN8Hkbi/EeMcQiodKLBWUM5pTwOq1akIXfcZzeUJZcKkmM1h2Aq3LWh7iOX08rsbc+pPc1lsZ/OCMAOhVlADuXcB2Oe/sT3XzRWhtDazSqo1xcTYTHg8nPbk7+/XX7O8sT6tfGBmmrA68geC9mtnn9WDu26FVq0lClNL5weeA99njBukhfAvwLOEdEHsvcCxcP4xMJVRt7MXF5YZvsH8yIhGHLSxiNfjSbieP2ycxiVoYF93Xm2q/7UHE6NOhc4LlY6DUrt/l+NIbPMWNx2SG+r9G+HVc5Z6to2VTVNQgRM0o5K4fO7cXFJDHyxzJI6x1e8HTRrCSvX7evDyeK72T7nUUJXoctgLVMPb+IEFc+Pef9NjILdBEX6UrGaIrG6sLAlvb4BPCAqp4LXAqcD1wjInNyrmk1NXqHXUDYxK4AjSTUaFXgdcDHgA0z195FQmfif9iJzRtXA9ZV1evDsuV5RsO0vIxTJKgZJmWqpDbRfXOQ9p1HS3a/ADaJRm3WfrPk3Hmq+nnCQeywNhWNER5HZ4TUmGu/9Vz6CCE6pkwhSGkFqAfH+bnHJxa6NqKDEat5bzbxXqTJzioiMYv/NPv+z21CrASsS6h/vzWwEcH7UM0RMkX2PGRzHJrJzV0R2NseEHIdrrQTgjuAS81bU29jLM+vPjXIAsI+b9zgGma8Ne1n2wNvJFSoWiojKKtuGOcaN8/20eh6kOBdWDIZ90WmQfC87CsinzHPlYuF4WEi3agXpeWtk4LP//h+p49jHYhzecYA3ecrS3C/yNhMWwPLisgj2cTduP+LyOHA4T6N51+XMddusy8aqroa8CHKF4UQ99WbgIdMOHY/Z6GPN00zhlyeiIgCokFoMnIvcKY9byYhpOc1wLbAywgngLUcVVlU8ZDXRTo1bGOuw5vse0+p6g2EMp8XEkK7bhCR5/IMmEwIUylFROKdkjBsQjnazHM2AXazx1YZQ09cILQ9cakQEuSu6ObpQ7v5bhvabFW9zja6Mnh5qjZ39lXVA4HZ46yo4ZSb5YdEEI1HFGUbmZU55CrO45tKZBTGYjMLAduo6knt7kFiAwz9ftehUBBaXoVf2RgvW5XE+QdzsToWE0vwLoZYGI+IyBqMduNnE2rn3gD81MKXomG9NfBKO/lIXW9l8DpkxU409CuE3I4YtvQxe869qnotcLsJqTuA/4rI8zEkJ2fxIBERQqZm81QIikQkptWholDUzHPXILRf3w3YzASCZASXexHGv2H2mugyfzCzqJVhY14aOFBE9lXVabh3YVhYbgLje6NkDyvLGjSe/XAQPQvPJocXZfB4xvf4JhE5sV2eaZ4N4LS1QSrYgaSqfosQxlzGcupxfs7ptpgvfBxWJpwpKyBiWcxngevsgbmQ1gHeAGxqj4VLJBxgwRhDzRj2NWAVewB81L7erqrPABcA95ugugp4RkQe6mDS1HL+7mgL6HyvRUbY5f1OWuEq3t96IlBGtCW3BOVVCXkHrwZeZfd1euZ14/2s4p2Xx8PThESufs6BJ0t2jeLJzD6qeoaI/ElVp4mIlzQdfBadwNzYvERiGNsXF0kMCx3NoLJ69avbQU3ePlVGw+ph4CFCuHMZxEI0YHexKItHuxluMkQCYb4dGXNpVfWbwNcof9+lJ7r9gqU0rBIB0cwRD00RuRu4G/iH/fzFwB4Ez8MrGOl2TSssFf30p5pjxKfehwrBwwKtE674GZ9U1Vgm8zITEUsSwlDusZOix0XkhW4Kuw4n7fJ2urMeIZxsdUKS+wYmDrKTNhti5gJhfMQwpL+IyFxVrfWx2s8FwPsoXym6JvA7Vb1LRC7spmBIGgYOuseiLMZMHJvL2SFIcxyfbcUSfcZ4mr4BwTstHV6XFU1klDpxNmliNkdVzyf0JSjDZ4oez2WAt4jIIXbI5xXb2ouC9NpV7P7H0qpNVV0H+CEhYqHMQiF+1n+4WOhMPGSTYG8HfkoIWXoJsCehlOaWyalKM1koKiUZFNLGEEy/xoZjywBvtu+9OXl+nVANYgahItNpiTCp2KC708ZKs80mebMtuBXgJYRYP80xuOqEylbb2ffmEJLW1wOeGWWjTe+NdOkeDWuFCDIisp8CBeAiypc0lla6+buqvkVE/pm4rid0HSf7+05PxSHA5qo6S0RGTRQ0Y6SpqksDu9i3yzC+4xq4DfDXcYiFnQdoDY2f6Z4Svm8FPqmqhxFKhYtXRxwRGaE5hzCpnbgQsDGwH6EoyiKU36MQ5+Nt3T6gGcgT2Zwk2LS85i3AQcBBJhw+RPA6vCS50DH2vSzCIW+wZEu2Zo3DuNjUCN0gsWvwkszrfaiDv3mPqj5tr7XWBK/Z4pn3qF0WBy4UFuS5fq7j9nW2icTFKIfLP51XTUKVrdNU9ZMi8svM+jJqOeOMBzRW8kJVdzTR8M8BT6AuiyiS5F5voKqP0DrNzaNqsc6vIeS3lMXgiHNvMxubo4UgSfiiVeDtOXtMae1L+/ofYP8SfabYuXltYD8RObjX3oV4Ql9kQZLnIbf3vQQhomQmoXfCuoTQ5nUz61O15GM5zuOnXSxMXDw0sxu7CYfPqOqXCfHwOxG8Dusl16bMwiG7KdRGWSxHqO7MojSWQbfqKK+ZZ6hr5r2lJXR7PVnnEUobXkjIfdhkCMVDLAF6crcXlFHmYKyI9JC5/F9L+fpexBLFVeBgVd0L+LaInMPIXJtsPpSKSCPHA7oZ8GHgA8BhwD8ZX5dRF6e9I64J7xORs1R1IVVdoDGm7ScxlOwrlKv/QEzo3QHYQESuHSW8bpqFLO5DCA0tu2GV3meAiwlNrBYq0SFGXCu+parHAY/06rCh6IcYyUHMZwi9uRYhNKRbhlCoYFnb95fIubd1BqMoShy31wJ3m6epa/ds6GK9c4SDWJz+WcBZqvpVEw5vMgXaTjgMSqdOaWO4T2TBpYPrUp3CiRTr5l9ii8pplOt0u9v3fF6/xEJmc7vOxIKW9NrFsbQTsJPlAh0HnAHcY6dbedXIFiKcBO5AKL6wbSJAnh6CcVempPAYdrm3qh4lIn9XVcmUo4wlGZuq+gNCnljZjOgoin6kqjtbM690f4uhHHNV9aUEr3wZD1dklEMMAR4j9Ft4RYkOMaIHbBngMBHZQ1Wr1pWta2ur5XU0VHWWXafYWLcQ63cMv7KCKF81QTAa9WQ/GqScxzgvr7R53FVP01AnhiZhAPNPAm2j/w/wH1s0X27CYU9CvH0tM+iKXlWpX0Zg0SdRLE17GKFj9ucJCd71IZsHcUG5Dri126cPHQg2gFNNrJXZU1dNDMMd7PEccL+qPkbogzLbnrsqITxvCUICf/q5XyAkiw5Dqd85JbzPNeA4Vf048EcRmZsxVFYA/pcQrlnG0/boZdwJOFlVvygiN+QYZLsDvzTDtFmi/S6+z2dGORipmnF1lomFsnmH6sDuqvoFETnQyjt3q/jCNLs2WwCnA38WkY908290eX95jNBoMBV82QPMQd/ve5J/41VkWgq50UY4XARcpKpfIfRv2NMMg3VZsKpSGmfvzVCKsXg0aJ0S/p+IfN1OeD9aEqHTK4P9weQUsV+bYxQl19rmXba8hbyNOp3704E17bHFKL+XHjJUh2nMlWzOxZP1Re2Q4Uuq+l9CBblpdo83JoQ4NEt8L6PHbw/gNap6DaFa3p2EHLYNaVXXK5tXIb7XRzsYn2cDXyrhnhAFwwGq+qCIHGnGfH2ip/9mB0URtRNwPOFw7cOqem2swNTHKnrjuRY1hjMvMYYVnpzZb10s9FE4YCdK/7YHVmrr9YTu0duxYAOf1NXl4qH/NJKF4zrgoyJyjt3T7WmdkA2rWDglYyj0ZW6ZS3u2qp4J7JWIubIv0vHapo/U6EwbDw7buhvH140lFImS3M+17LFrm7WmzMSE2UUI3vSXt1k3yrRexjH2AnBv5nPkjc9zCL2JVi7ZIUb0dDaBI1R1URE5xOyUGqGYQkeiIREJdUKFpY8QKknWaIVWHmwlpP8eQ5Tc3CjMWH+G0Jy3Z6rbaWPcWGJiI8arxi7IInKTiBwoIm8heBneARxoJzLzbHLVErHQMAHRpJyx2mUSCTEJ9Sng68ArTSgsbIvmt2jFig/dsLbPfe8U/n0I8f2DeG0riUiNj1iGeNjDFZ+g1ZRPS3hfm8k6Xs+sNYNAPJlMP2Pcs8p44JVWYGvbOd4OMWqW2P2XZB8p29oTcxh+qaq/UdUlY9NTVa2Z/VJJ+w6YXVOxn9XM5qmr6oqq+gfg4ESIpPk6f1LVdc02quIU5UDmbOAxE3FdPQR0sTAB4WCTrBInoIg8KiLHiMgXCW7p9YCPAb8FbrGTjWpGPGQ3HGfyIiHd8I4FthaRb4vI06q6kIi8oKr7EuJSB6Wax3g3zyqh6sflmUWm34vaKTYvaj7+h2qOlrlxVFYIVgdQ/EmO2C27nfB8B8Z/XIOOoRVOXMZ7Fw8mPwBcrqrvV9XFTDQ0RKQZk7pjYrB9r2EiYRlV/TQh1O5dyXVLS7I3CaXOT1DVxQkJ/m5LFkMYX2EHol1flzwMaeLiIa2qlM1zuNUeWOzgKsBWhJyHXQgdims5RlR6guOhS51NkGj0R5FwHPB9Ebncrn+MX6xb06QfMJwVkEg+92xa7eC13/PGTqIeIDT8253BCEVyRjloMcNkrvUsWN0FotNHno3lYNuF48ToARE5X1WvI+RplLXqUyy+sCbhwPJL1mz1eEKY1UMi8pTtj4sAKxFCr95GyMlcJRH3eQdq8fXXBf5sv6PeFG5Kid6fU3u1r/sG3aXNkJF5DlE8qC1Sd9jjaCvv9SJC2cQtCdVRtiR0UK60ERBR0buAGNkLopqM4T8DPxKRS+w+VO3612MilqruT0hGrA/p2E9PH56awnjTWOruSEJSpYvi4djMYqW5l7lYcPpANPavjXvCGOtdHKOHAT+h3Dlt0XhUEw0fs0cTmK2q99pnnWViYVryu7E8fLWDa/U64Dcism+vm8I5Y47z+wj5mdCDiAEXC70RDmnjpRGeAuvpcJM9DrXnrEQIjdkc2JRQi/1F5DeCSz0QMLKh2aALhNhxOi5ij5pI+L2IXJwRCfPDxYCGdev+DOWuWtItsfCvKR4zDZsXpwJ3m2D2rtrDwa1+CZw+c36H610UEn8CvkkodVxmL3QlYzNEe2J5e2T3hk5EQtZ+nAfso6o3isj3R2nq5/ReLPxNRJ7vVZUqFwv9Ew9kxMP8iSwi9wMn2SOGzqxtE3p3gltwa0JpxmXaGFWaLHZp5ZUyGmCpOIhu1WoyMS4Efg2cKSIPJqKA9OQoXmsLfTncrl9jiI3Sii3u52XEQ9/nhC1oz6vqr4HvuFgYGqH60BAcbjgF2X7t66PjWJeq1mX+GELvjEHwQqeHjpp8jftrfEzkc0ZvwoGqequInFjQkqqDvq8D/L2X+/qogyMtHWpGrbuOuycemjnXWew614Hr7fEve85ihL4OGwNrEHIflgY2AWaOMtmjFyKtwpTNiZjKjbuZ+VrJOd2YDVxtRu6JInJNcu2iJyHP7Va18KPYlXsYk5qzpw93M3XJzSnRu3Ao8DlCDe9hzSUZlvEHoTzlY3bo4ffb6aU4rRJys/4T15xOfs/WpZ8A76NVgGFQxmm39/y0bOsfVfVVInKFl1Tt6zivEKp9/bOX+3qtA8M2e1Kb1hR3AdE9AbHAiXjyUBGJHShjCMnv7LkzCXH4KxOSsmrAawmNhFYgxCsyhpGc5kbIGOp1MoYCycIbF/NKzuvPAy4luI8vAC4QkYdzxFWz3YJki1VdVbcFvs1wexRSsXBBTDKeysU88S7MVtXfmGAY1lySYVnjEJFHVfVBFwtOH4woAe6N3udObJVkbbxZVY8G9mG4D5k6FQxNguf+BFXdwtb1SrfLdzoLEIuDnCgiz/XSq1NrY2jFBMQlCYm4jwBXWrx9PftcWpVomp1OSmfMjVVzrnM0quc3ChKR2YST95sJNXYBDrLfWRTYhlDbfBVgN/u95Qm5ERASm5brsSE92kJ7H6GE5qXA7SaGHhCR6zKfv5IIhOZop0TREFbVdQnVkZp4jfu4gV7c5ZOlSQkYG9c/BPaj/DHCzmiDryVQzyFUUvHQM6eXhyMCnJFpNNbhUFUB/g94u+2Rvi6Nvcc3CFEPJ1jX54ZXSOo5cf38fbLH94TaKDe+DnwK+Ia9gXtU9Q7gEkInzhuBW81YzQqIamLQuvehewKCrJGc44UgEW3PMrL51fHJ7y1KK3TpVSYg1ITFm4FVCSf8cUPfitDdc7wnDg8B19CqXPRfEwSLECpEXUxoSz8353OlIXCp92O0VV5ssa8CR9rnGnavQpzTQisESQswpuMp3sOq+nPga7h3YaCXMft6FiEe3I0vp5djTYCz7OBzIuvSbar6M9zrOZ49pk44YD5CRN5pvagabgP2hOjxugy4xIRZz6IFaqOocoC/AV+xN7SaPbZLnveIqt5gBulthJjyx0Tk+YwBN/9UOE5Gv89dFRE6iuFcydmsmyYkIqdmfvWknNdajRDaNJ5JL4Sazo93YOSnAlPH8h6M8nljQvOfgC18kZ8/nyuErs1XZ+b4lL83Wx9+CLwfWBE/cR7kcQhwkR1KuCfJ6dU4qwL3ML58hbx1KXoXVvZ1qWObch7wDlW9RUS+Yb2mvEJS7/h5DOulh6Vra6Mo64qIXK6qlxKaidUTYy4aocuZeIgCYg7woKpeBpwO3AVcZcZiNqG3mhiuLh56JyQaoxjWkTRERzNf42vdPdH3kenuKJm/FQXkpBRxRigcBbzVhcICYuFYEXmmSNUqbJGrWN+HrxFqnLsnaDDXo7iv3KuqVxNOID0e3OnVeneaiDw7kfyszLr0GUKJbrdTOrcr68D/qurNInKMV0jq2Ri/GzjO7J9Gr29qO6In4ChCCAo5i3q2xOUMQkLtmmasQWgAcgVwLnAKwfNwDwuGLsWqA/Fk2d1WvRcSdHrqMol27tprMZgRCr8H3mEnGdP8Ts+fyw3gTzFMq2BjsWEb+uGqug8hz8aNyAEdixYT8icTC77OO71Y7wCO6NK6dKyqvpPQqdjXpQ4uHa0KSYdbSdVLvUJS18VCDTio14nN2UmVa4PZ16tpX68/DorYKCuKh7pNqiahrOfOhIo0VwE3qer5qnqQqr5TVVe3iVkXkYaINKNLRVWrkzBSne4adM0JPnpqDNj4iELhSODdLhQWmMcV4CngZrsfzYK+TwiJzi9kvucM0CZnY/A04Nlk33CcbtAwu+Qy4GLzDkzGQFXbYz5EKMMqPl47FgwQchP/qqqrmvhye647QqFKCCs+rB9ehbHEQjQoriFUrKl0MEmiqIjiIf5Og5YnYVFCWNP+wB+Bm1X1ElX9parupapr2gSfLx5UVRLx4PGtznyhEEWJqv4BeI8Lhdx5rIRGdk/b6U7hNru0ZCGhqEK1HwugM2X3+U7g35m9xnG6Zaj+wjzalcmO1/BFHgA+TstL63RmXzYIJdxPUtVFbN92G26Spo+N8f8TkTlApR97emWUSRLroD9NKwG2McGJG70PZMRDA1iYkIj6YeBEQiOyq1X1t6q6qylSTcSDmmiouUodaqFQNcNjKUtmfpcLhVHn4J9sQSnsQm0nTzUROYBQNKHmG/NgjkczGH6DJzc73T0YqRCq7B3frRPXZF36I3A4rZh8Z2xihaTNgaNMfPmh78SJ+Xw3EEK85hcOmjKxkBj2EJIO59KdpMO80KWseNiAUBnlVELY0gWq+gNV3VtVZ5poqMdYeBMONR+AQyMUaraAr0XozxCTmV0oLLh5VglJUH/rl7tysu/Z3ue+BI9mFT95HsQND0IRjNtIKuU5zmS2BrMvvmcnrt30ojasYt/HCeHUfpDRObFC0htV9ccWW+95H5OzoT8tIvOClu1PpEClA0VdEZFLCJ10e+GCGy3voUkIW9oK+CyhIsGNqnqsqn5CVdew91m3h6pqJXodXDwMnEioxBA168z8T2AtvOrRaGIB4EirSFYteuGAGDpgbv+30cp98jjhQdnpwhisWontQ2h1gHWcyax1FROff7AT10aXx6xayfHXAw+7yB0X02yf/pSqvs/2cN+zxylYzUY+UUT+0e+E8U48BdHoPjNR771WTTHvIZvz0CAkTL8F+Clwg6perao/VdV3q+qKFsNezyRKe7hS+YVCLclP+AIh3nl1WlUBnPbz+6wiVkEa45CiJiLnERoiudt/ADc+G5OHmeHlHiRnsmJBgK+aCO16HHeSb3O32SDxEMMPMjoj5qH9SlW3M8HgHoYOTSAb30+Y4Or7ft6JER2rV5yS3PC+2g7khy01gOnARsAnCO2ub1TVE1T1Y6q6sXW0qydJ0h4rVz6RkHoTNlDVfwAHJBuEC8H2m2cFuB+4uMBVkNptzHUTDD8GfkY4mfLGPgNC4l14Avg+7l1wJiE8zT74N/BnM+jrPRq38SDjHEKoZDSAXTB0ZsuJreUnqurasTytX5qOxngF+IS1Hqj0uz9ZpYPJEWOIrwcuTt74VA64KvmlWpcE3gj8HLiCkCj9TVXdzJKkG0mokguHYosEiUnMNgY/Z+PvNbQaBLpQGF0sAJwgIs8XtQrSWAukve9PAse6YBi8DdC8vgcDt+PeBWcCW4V9fQH4SAwX6tNBxh8IVR1rLhjGZXM2gGWAk1V1KVrdsp18Ypj10SLyh5izORU3rhOqpmJ+SrGqV2RLtaYhSxVgQ+DrwKWqeqGqvktVVzYDtJHNcfAxWRiRUIviTlXXV9WzCaePi9I6RXLGmLM2H36W2VRLQ/SG2Nx8F6FCkguGASFW57KwkY/jNeydCQhOW+u+KiI3xgOmPozd1PP5vy4Yxr031YG1zQBWWhXSnAXHdw24Dtiv27k4vRALMb70dFoVSoo4KdKQpdTrUAG2BP4AXK+qf7GeDsumOQ5mrHo/h6kTCdVYJldVV1XVwwjNdV6dLMTusuxsgQH4B3Bb7EdRYoMynq7sBZztgmGgBEP0Hv3d1udoSDhOp4bU30Xkh/0+cU0Ew7cSweDFGDoj5qG9TlV/YffN9/aRxFDip4G9LbmeqYoQqHQ4KWJ86eO0cheKXjYs9TpE4RBDlV5P6Olwg6qeqqrfVtVN4gKQ18/BxUPPREIlEQkNVV1aVT8NXAK8j9ABMpYA9XswvvF/hM3dUnvNksZIzwF7EIotuGAYoE3RTsw+DtyTGF1OslT6JVjAkKoCDwL72v7c9zGTEQyfZmR4tDO2YJgHfFRVP2XX0suft+Z7TGp+az+9ZpMSC5nFKvZcoEQTIgqHbIL08sCuwFeBK1X1Cstx2FZVl0z7OSSVlaoestRVkdA0kbCEqu5PqGH9I0LXx+hN8Os9/tOIu4HTS9JboSPBYB6SZ4HdgBNoleNzyn1vYzjSk8A7knnvBnJrTnuI1oKG1DzgLSLyMFOQ8JkjGH4CfMTWX+/03LlgqAM/UtXXisg8t6/m26hV4H9E5LSpylOYkFhIei5cRqspSZwQdVp9EYq+oGUTpBuJwbEpIcfhP8B1qnqEqn7S4uZridchVldy8TA+gTC/IlUiEtZU1c/bmDoIWI2RIUfuTZiYYXG8VZopY2LzqIIBqIvImwkdgGOssJ/klfvepuVy98fDkSKxCsoztCpGqV8TqsB+InJeEQypRDAcArwBeNLHcMf2WCyRf4yqbh1MhaG1qaJNWgM+LyKHRttzqt/YeG9ITEL5X0J1pFgfu5aIh3gCUqf4CT9pjkM0tKLoWQV4L/AT4FrgclX9rqruqqqrxNj6KB7MGK552FJbgVDLVKTaWFV/R0jcORB4kYuEriw0FWAOcMhUueZ7LRhsXFVE5IPAV2y8+Ele+e9tNLh+RqiQNOyhZrHT7fWEEuFfSsb5sAqGebZff1tEjiyKIZUZvycD2wI30Do5d6/Q6PuWAEsDWw5C6OwkroPamPmiiPygSOO7Ns7JEDfj0wkhDrMIp/HrAusDmwBrAktlXluTE5FKgQdC+t6atE5pq7ZYb2Q/m6OqVxDi6v8CPCIiN2dvqqljSU+EBuWUdzRxkJ4W2Jhp2M+WBXYBPgy8MhEEjeQ6OxMnnkgcISK3Fmmh6fKmrKqKhbF9V1VvIHgZZuLdvEs/hu2+fkxVlwHebgbiMMUyx8O2aYTeAW8SkceAA1QV4Hu0PA7DdKgSx8GPReTrRVzfEsFwjaq+CvgVsHdiA3kUwshxHvesp4BPi8jhsa/SkF2LZjKf/6dIHoUJiYXUCLYwkoeicEh+NpNQsvTlwM7AZiYeqjmnJlLgBS8raprJDZ0BbGOPzwB1Vb0GuBK4iNAP4AERmd3GmE49MPNjc8soJDLiABvc8xO8VHW6XaddgLcCK2WM24qLhK4tvFXgeUL850A3ubK5EkNX/qKq1wPHAJsnn9s35nIKwRhu9k67h28dIsEQx+404CjgfSIyNzauEpEDVPVJ4JcZI2MYjMppwC9FZH+7Ho2CjuG62UiPA29V1UsI3vMYluSe81YoWQ04nxBSdmOZK/dNgnjA9QLwThE5oYhCuDbBydDMMXxjJaHZwL/scaCqrkyIQ9/IjMZNCF6IWhtDXEogHlJPSRzwm9nj/fach1T1WuBG4GrgGuBOEXmk3SKnqrWcTaMw3ohEGMz3lthYSMWBEEKKXmH3+zXAWplFQlwk9GTxrQG/FZHb7XR24MNykpO8W+wk77uEqiT4xlxqwWD/lLfZv6NgqA3w/YwGlAJfEZHv2ppaiXM5xsWbYDgcWDj5vUEVCk277weKyBdNKDSLfLiWNLOtiMhBqno+cIjZPwz4PRtLDEe76Tng/4AD7HrVhsyjkHpW7gPeLiLnFvU61CY5ITQ1fJM4/UpiTN5nF+JC4Nf2nJcDbzKDcl1guczpSNG9DtmQGU0WtfizWfbYKXneU6p6MfAYcBOhy/T9hLj9pojMHcVIh/yuxWMmvKWLage5FNm/MV8I5HXHtFJnLwJeBuwAbAGsAyyUIwarLhB6KmYBjhy2fJnkJO95YH9VPZPQQPIlQ74xl14wmIfh7YQwhf0YGc46iEbDbGBfEflbYhQ3c8Tx0ap6J3A0sDqDGX7XSPaMz1sMd+GFQtY+svt1kSXvfhn4nO2Pw+QBTcc4hPLXnxGRay2vcdhCj1LPyunAB0TkviILploPJgcZAZF6C2IM+8X2QFWXJngd3mbiYZPM+6pTbI8DyXvLM7I1udZLEE7as9wDvKCqx9vr3EJwzQnwoLkzRxju45qlwXiMbux6B5O62eZ1FgdWJJQ13RF4qd2zleyEKzsZ0hwVDwnp7cJTsTFzZbjNMlTJvpmTvNNU9QLgC4QwwYUyJ1pOiQSDjecPmnH8nWRfqA3I3I1Gw1lmNNw5mtGQCIYLVDU2G90pObQahLU23t+nTDydaJ73RtnCde1+Va3s81dtn/8OoWx7HAMyoHtkKhJqZtt8W0T+YDZF9IAPSwJ4ej3mAt8Ske8k16KwgmlKjG87HZC8ia+qGwKvJTRf2jqzuddLbnhmBUQnSb0PA3facx8HTibEpasZ6BcAt5FfhzvWL5+TXN9pZjxp5v7H318O2N0G8jxCAvuW9rOVTRhIm01PSyDsBvmU4nUicvqwhCCNtr4kYRubEqq3vd5+XDTREI2in4vIJ6KRmHx9N/D7EhjH8f0dISL7dvOELBGBDVXdFTjC1qkyh5mNZTQ0Oh3ndiD3DUK/ICn5dUnn57XAu0Xk6kEIUUnHsf3/DYRS7ZsOoGiI0QRxzbqP4O39lYg8HUujdiM/wUqxq6oubGJkVYqXy5P1rFwIfFJELu3mtRg4sZA3gexiNTI/W5+QGPtmQuhStlLRoMQjNzNfx1MZqAE8MsrrVgj5ErebuNgWWHSU+79E8vOxBn42h6GX18c9E6MLhT+IyHuGXSiMsjG/lhACsG1GuE91qKOLhc7vabwmawC/IDTng/J5GdL3e4EZDZfFnLDxGA1maKgZS9sDPwc2yKwNZRNPEOL7PycicwYtlj01Ds1b8i6CB3SDgq1NE7mHcezGcfcgcKitb7PHI4YHRCxkx/XjhLy6H5UtT0MKOpEqZLwOqroZoe/BHoQY+ayCHbRQl3jynw0LynoPerFJ1tuMk34IAxcK4xsjSjiZfKmI3DOk1SQ62pjt/3sQEqBfnRnvU5Uj5WJhfPcz9Rp9EvgmsGSyThbZOE7LnT5l7/0n3TAakvEyg9B7pEzhd6mouYtQQvOkOH8HdT3LjOVphCT+jwBbZa4NBRYOabREuj7dAfyaUHDj0fh56UG+SQHFQp5omkPwiP5ARO4q49gunBFmJVnrdvMrsUKQiFwhIp809b2HnTzcZ58hNoRLm6qVndRAryaPWuahHTzyumyP9sj+jfi3+7lgxVrjFeA44Ik2YmmYicbHH00oVF0o5K4nzaRz+CkisgMhGf9I4OlkjMcQjiLF0Mb5W5ZHs8f3s2H7QkVEfkrwOB+drJNa0PuXGg5HApuJyI+wbrWTFVZJXPwcEfkyIYT3FFpV55oFvC715LrMBX4EbC4iJyXzdZDLPzdi01IRmScifxSRVwLbAb8DHk32XsnYNzqF900TeyJtbPsCcBoh/3QDETlQRB5N7mVjgPtMpXZWarPNJjT23UREPiYidyU2banGdmlcXNHjkC6qqroEobnXzsAbCVUhsjfPY+jLR1ol4gBCfN9JeIJq3qI9B1ib4O4VFwtjriMjTrdUdRXCid6etpbklXTupddhLM/C+4HflugSHysib+2Hez39G6q6DfB5Qr5Vem2nyuOcjdlW4ATgIBG5KPv+u3hNBKgm12VXgidtp4JelyahP8r3ReSaOEeHLZQyGzZp31uOEGq3K6GgyDJtrmUvw4HzCrWkvABcBpwKHC8it6Tzkz4kpE+RZ2G0RsMvEBr2/hk4TkQeztt7SiduyzqpojJPvr8osD3wOkKC9EtyNuUil2N1RhpPCnxcRA5W1bMJYSNeAnPB63SAiHzJcxUmJBqya8jaBK/lNrY5z8j51Xg6O9nQvLjRxN4BvxKRjycioWIekQ0IlVMWLvihRzyY+b2IHNWv8ZgTZvZK4EOEPLfpfV7/83LpngOOB34hIpckY097KexzrstrCaVn35CsoemBWq8Mq2xPonhd5phIOERErhgEY6rHa9NM2wO3AV5FiLCY1oFxPx5bL/2ddmNCCaflp5tI+JuI3J5jn/XtPvZBLKTRGJCfK/s8cB6hv9hxOaKpWfaDPCn5pJq/+Gc8DgvbhHoLoZLPBhkjc1DzHMpMuqHcCXzESmBubZPQcxdGXisBbiWUGn6eAjXvK+EaUmXBHKmVCSWddyX0DdmqjXjIbrRK+xCB0YTFT0XkU0PYmKhXxvGLgXcQPA2vaGPUT0bwZXPJsiLkeuBEE0+35r3HPhqeqSdtA0Lu3+tZ8EAtFcITvSbpI29/vcrE01Eicme/xFPJ1ybNCIcKsIbZNTsCqxD6G63cgz3yBUI57puA/xJC2+4Xkcdy3ueUGMQZsXDTJMSC5qwH7cb/POByQsWus4CLYi7CaPuKi4UCCwf72frAXmZY7QAsnfn1+hhq2unhrWNktYDfEapgPGr39FDgAwxm06GJEj0sbxWRY92r0FWDs5K36Vm40nK2QW8DLAvMJHQnX3ECa+l9hO7uD9tm/EfgITMmNWddSwseFHk/mVKjL/b1yRhXmxDCVF9uh0gzRhHhjHGNRzMibgDOBY4CLhGRF4piDGffg3niX0ZoeLcVsHGPrkmTUPHpYoIn4eokRMpFQhfsG/v5DBMLSxCawW5JCMuuEbySS4+xRj1B8II9Tzidv9TWo6ejqMsZT0IBTswTsbAIocnt0l3+E/eYCJlthwD/IvS/ur2NuGsO4piWAZ9YeeVYVwA2I+Q57GabPW1OWDzfobciIa1ecjnwXRE5MVmMZtnCNX2Qx+sEhcLfRWQ3Fwq9NTrH2hBVdTHbpBe3b80AFmszVucQquDMBe4QkWf8SvdW+OUcHK1h92tbM6iWBF5MOI0cD7MTsXe6Cb5rRGRe8rcKF37QJvevYiJ4bYInZkUzNNdifIdnz5tR9SDB63kqcLeI3JB5DwMRljHF9k360F7uAWlTV9uzC+XFtveHjdUjbBw3Rhm78YByXvKIgulh4Aobw4+bgLoj7VWVc110GESvDMnkiieGWXfeIjawNrcTp01oNUjJGmgkA9KN1u6JhPuAXxFKir0QTywsbvsYQmUFz1UYee3qhFPSa8kkxTk9XUNINqBJbxAZQdLwMLKeGlaVdgaqnbKvQfAWTQMWIZQdzc69F+wxB7gtloTMMYSVgsfed3BSXTWxsBzhZHoRuzaS2Rfn2uNZQnjK3aMYVYUzNAdwnMOCB5yjhUYy1u+4qFtgrR4KcTCUYmGci+TGJh5ebcJh3RyFmo3t9NClscnr6Hgw8Ju0WUsiFHYlnEy5UGgRQ7G+IiLf9fj2Qm3S447tdqOp3Jt+1vtU1nuaM4YnK4Krw2xUOVM+vzudg5JjB0uyRvtaPcxioc0iuYDXIfn5+gQX7V4E9/XmdsrSzhjuV1fjUlxiFuxE+RDwM0L1l8fsOs8vsRbDalT1P4TY8KI3WuoXUTRdbWMQvHKI40yV4BvouTdREezCwHFcLAyTMs0VD/bz1Qn12FcjNE+JVVPaGXhphn1lCK57KppSI/9iQifaE0XkwaxIiP83r8J+hMRm9yq0iF6F3UXkVM9VcBzHcRzHxcLUC4fs6UruaZKVo1uNcBK+HiGBejohBnY0g5qMgCjj/WhXRxtCwtAphLbvFySiYIF62kld+VWA6wgJo+6dGSkUDhGRj3j4keM4juM4LhaKKyDS8qrtEuamA4sSkqZXJnggFiXUQl6EUIGjneEtLOiRkAIIijRJarSutjcQvAj/BP4lIg8k1yW3o2OSAFchVBbxBmwjhWUFuIvgwZqDhx85juM4juNioTTiIZujMFqZxSUJVTa2JTRSWZzQHEfs/7M6+JOpkGh3TyeacJ1tNBRfT2nf4+BBQrOW04ALgXPTz59X9zznukwTkXmq+n3gc3hPhez9mAu8SkSuiB4YvzSO4ziO47hYKLeAgNbJeyxBNprBvAyh3ned0DF2XTMUX0FIsFZC/fZlpuhjzTNhEOuK30XojXC7iDyR+SwxHGnMcpA5eQouFFrEa/FFETnQw48cx3Ecx3GxMFwiAqyHw2hGtfWDUEJ3xlcRQpqUkBexPSOrMy1P6BfRSW1laDWfW5jQZOi25D3eBFxDqK99JXBr7Eqa87lic5KOQ2QSobAOcBWtOt4+LlthWBcScmHAw48cx3Ecx3GxMNRCItYIziZVN8f5WrMYO1wpFQtVYBERuadTIz++NyZYgzgpkboGcDbwIlrx+cNOzAl5ClhXRB7w8CPHcRzHcaYCD/coimoLBndjFCERySYVZw31pog8NAnRUm0jJucLg8mGwiRCYXVCIrQLhZH3M3p73mNCwcukOo7jOI7jYsEZVUhExjQaM+Ki4z9Dm94SXbWER3oU/gmsiVc+InN/a8ABIvJXz1NwHMdxHGdK7VC/BE6/SHIUXgSc6UIhVyhUCRWltm1XatZxHMdxHMfFgjPIQuGfhMpPLhRaxHyEewlJ63cBeJ6C4ziO4zhTiceIO70WCZIIha2Bs1woLHiZkvn4ThG5I+gEFwqO4ziO47hYcAZXKMSGbHVV/ShwHq1kZhcKLaHQsLm4n4icZ+LKE5odx3Ecx3Gx4AysUKiJSFNEmqr6ReAXJhK86tFIYuO1j4jIbz2h2XEcx3GcIuE5C063RYIAFat4tCpwCLAbrdNzH3Mt5hEa0Z0oIm9yoeA4juM4TtEo7AmvqlYnWALUmcJ7Zn0YGqq6D3CpCYU6IezI72eLhgmF04F3Wn8LDz1yHMdxHKdQFM54yzagSpqENb2EZHFFAqFHQ9O8CT8E9k6MYs9PWFAoVAlVoXYXkRdUVXx8O47jOI5TNArjWbBkWID1VPU6Vd1XVZcSkYY9VFUrqlpLnutM8T2L4s6EwnuAy00oNAjJuy4U8oXC48DbTShUXSg4juM4juNiYRTM2KwANwKnAocD16jq71X1raq6nCXM1u25YsLBw5WmTiQ0LeRoF1U9BzgSWA4PO2pHrAI1B9hLRGZnPWmO4ziO4zhFoohhSGJehP8BfpX86BHgGuCvwGkickvm92qEk2wlhMT4SW0PRELQdcG4VdX1gM8B+9hTPIl5dKFQAZ4AXi8i57hQcBzHcRzHxcLEjNJpIjJPVfcDDgXmAgslT5kHXGzC4XLgYhGZ00Y8eK7DJMUbVt0o+d5GwKeAdwALx+uMhxx1IhR2FZELvfKR4ziO4zguFrojGD4A/IYQ2hLfc9YovZuQLHo+cG6O16Fixpp7Hjq//lkvggAbA58A3k3oDQCewDwW8fo8BbxGRC5xoeA4juM4jouF7hisNev++3HgZ2Z4iT2aZvhHIZAaZ1cCZxK8DueKyMM5r11NX8fFw3xBUCV4Y5r2vcWB1xHCjTZPxoyHHI1NbLj2NLCbiJzrQsFxHMdxHBcLvREMHwN+bt/OdgGOnYHzvA5PEur9nw9cBdwBXJeNFY/hNvYaQxG+lPnM8wWC/WxDYC/gg8DKGTHmImFsokfhSUJ51PNcKDiO4ziO42Kht4JhB+AwYA3ah7/EUKMoKCo5P78FOAc4j+B9uEdEnhzDmI6ipLReiNHEgf18RWAXQiO1vZJrF5/nJWs7I3oUzgY+JCK3eDKz4ziO4zguFvojGF4MnGWCYR6hC+6ov0orZEnaCIz7gPuBS4BbCcnTd4rIA6O9n8zfgAJ5I2LOQbzHeSfaqroMsC6wFfAqYHtgyeQp7kUYP3FMnkGoevSCCwXHcRzHcVws9McAjknPawKnAS+hdYrb8cskAqKdeAB4BriaEG9+BnAvwSNx/WihJEnp1zyvRnOs95aKDfMEyBj3L/35At6CzHtbBNgSeBnwWkLC8nKZp0Wj1kXCOIcnrYpQpwJvcqHgOI7jOI6Lhf4Lhqo1AlsW+CGhxv88EwwT/TzNRERA+4ZidULlpScJXogK8C9CD4gGoYTrs5P8fKk3oDmJ19kAWAF4KbCBCYRZwGo5Rm5MHHeBMPHxEwXWl4EDomCczD10HMdxHMdxsTAxQ7iSVOv5KaGcp3b5M2liBI4WwpRyF/CYGY23AqcTQlKaJmguJHgsasn7TXkhDX1S1VnA9Db3Tc3wXy8ROLsAq9r/N6B9ToeLg+6R5s68X0QON6+SV9hyHMdxHMfFwlQKBqwPgKp+Afg/M8J7Wfc/9T40k2sYr+NYCcANEw3t3t9cQujTXBMZG5pY0Db3aqx8jdRjUunwPTqdE0PgHgA+LiInWC5Lw4WC4ziO4zguFoohGmJY0h7AHwgJulPVKKzZRlhEat3++LRyDLLCRXCvQc+GHa38hJuAN4jIzV4a1XEcx3EcFwvFFAyxUtKawO+BVzIy1KZIRuZ4BEdlGO5fyUiF6OHAp0TkaRcKjuM4juO4WCi2YIgehmnAl4Bv5hh3jjMZYtjRM4T8hGNt7Hkis+M4juM4LhZKIBjSxOfXAkcSKgCNt7yq44wYWrTyPi4G9hGRmzyR2XEcx3GcQWegkl1FpKmqYl6GMwg9BU4zodBk7D4HjpOlTiuc7afADiYUaiLSdKHgOI7jOM4gM7Ax72kzLFX9NPCjxPir4vH+zhhDiFYS82PAu0Xk7zaePOzIcRzHcZyhYGDLaFr+QsUMux8DOwNX0Wre5l11nXZEb0IV+BvwShH5u6rWrEO3CwXHcRzHcYaCoThdT6olLUzox/BRQv+CBt6YzGnRpFVy9gHgGyJyqI2h+Z4qx3Ecx3EcFwuDJxjSsKR1gQOBPezHngA93KQhRxByE74tIo9aEjPuTXAcx3Ecx8XC4AsGASqJaPgY8HlgVXtKE+9wPGykpXWvBL4sIqdnBabjOI7jOI6LheERDfNPi1V1GeD7wL4mFIrYzM3pjUiI9/kJgqfp+zYmqoBXOnIcx3Ecx8XCMH/4TGjSy4FfAFvkGJPOYImENE/lz8DnReTu7JhwHMdxHMdxsTDkpKFJ1v15b2B/YDN7ipdaHQyahNyEGHJ0BsGTcLaLBMdxHMdxHBcLY4mGtPtzFXiniYaNE9FQwT0NZaNhIiEmsJ8K/ERE/hnvO96F2XEcx3Ecx8VCB4Ihhh01RURVdQbwTeD9wFKJ8enhSeUQCel9uhM4SER+kYgEcW+C4ziO4ziOi4WJCIeaiNTt36sD7wHeAmyYGKPQCmtxCnDbaOUkRJFwFnAi8EcRecpFguM4juM4jouFbgmGbKnVhYF3AZ8F1kme6nkNU0vTHmmvjHOA74rIGcn99LwEx3Ecx3EcFws9EQ3VxNOwMMHL8EZgr+SpHqLUx9tiAgFa3p2ngaOBE0XkH+m9Axqel+A4juM4juNiodeioZKeTqvq1sDbTTwsnxiy2XAYp3sCIU1YBrgROI4QanRLu3vlOI7jOI7juFjom2ggVNGJFZRmAXsAHwE2zTFwK369J0xemFGTUP70N8DpIvKc3YcqgIsEx3Ecx3EcFwtFEA4Vwgl2PTFWX27CYTdgoxyj1z0OY1xWRvZFiOO0DlwA/NUEwvXJfagRqlg1/fI5juM4juO4WCiaaBiR15B8b2fgfcAOwMyMQRxzHIY9z0EZmYNQy/z8DoIX4VcicnXm+s4vdeuj0HEcx3Ecx8VCGURDLM+ZCoeZhPCkrYHdgc1zDOY0QXrQ7030ssQE5JR5hGpGfwUuA64SkWdTUYZ7ERzHcRzHcVwsDIB4yI2hV9UtCF6HzQm9G9ZqY0xTcgGhyefRNuIA4CrgWuBS4AwR+W/menmYkeM4juM4jouFgRUNuR4H+9kiwPrALsAWwJbArDYvVU/uXbx/RQhh0owwiNTaPP9O4HzgPODcNP/ArknM61A8zMhxHMdxHMfFwpAJh7SiUtbrsATB47AGsB2wEvBKYMYoL9vMMdR7cY+zRnvVvlcZ5fmPmjC4G7gIuAW4VkSez3zumMzsHgTHcRzHcRwXC06OeMg1lFV1ZWAFQs5DFXgVIXRpIUZ2k54q5gI3mTi4ALgZeB74D/CIiDya85lcHDiO4ziO47hYcCYgHtIchbbGtD13M2BRYBqwI7AkIUm4QSjjOp1WMvGE3pIJlNmE3ILp9v7uIXgMpgH3Z/MM2ggD7L2ohxY5juM4juO4WHC6IyBimE9lLAFRgPfqwsBxHMdxHMfFglMAwzyGMEmbe9ro8njJ5iZEEaAeSuQ4juM4juM4juM4juM4jjME/D+2/g2rXqcdKwAAAABJRU5ErkJggg==';
 
-  async function buildPdf(data){
+  // A report can reach buildPdf from three directions: straight off the form
+  // (gatherDataForOutput), out of local storage, or out of the cloud via
+  // rowToReport. Older cloud rows are missing fields entirely, and History used
+  // to crash here on `data.recs.length` with no visible error at all because the
+  // click handler had no catch. Normalise once, up front, so every downstream
+  // .length / .join / .forEach is safe.
+  function normalizeReportForPdf(data){
+    const d = Object.assign({}, data || {});
+    d.findings     = Array.isArray(d.findings) ? d.findings : [];
+    d.recs         = Array.isArray(d.recs) ? d.recs : [];
+    d.servicesDone = Array.isArray(d.servicesDone) ? d.servicesDone : [];
+    d.materials    = Array.isArray(d.materials) ? d.materials : [];
+    d.before  = normalizeOperatingData(d.before);
+    d.after   = normalizeOperatingData(d.after);
+    d.install = normalizeInstallData(d.install);
+    d.sigCustomer = asSignature(d.sigCustomer);
+    d.sigTech     = asSignature(d.sigTech);
+    return d;
+  }
+
+  async function buildPdf(rawData){
+    const data = normalizeReportForPdf(rawData);
     await loadAwesScript('jspdf', awesLibs.jspdf);
     await loadAwesScript('autotable', awesLibs.autotable);
     const { jsPDF } = window.jspdf;
@@ -2143,7 +2625,7 @@
     // 4. Materials & Spare Parts
     checkPageBreak(60);
     sectionHeader('4. Materials & Spare Parts');
-    const rows = (data.materials.length? data.materials : []).map((m,i)=>[
+    const rows = data.materials.map((m,i)=>[
       String.fromCharCode(97+i)+'.', m.details||'—', m.qty||'—'
     ]);
     doc.autoTable({
@@ -2339,7 +2821,13 @@
       if(!currentSrNo){ currentSrNo = await nextSrNo(); $('metaSrNo').textContent = currentSrNo; }
       const data = await gatherDataForOutput();
       Object.assign(data, {completed:true});
-      await saveReport(currentSrNo, data);
+      const saveResult = await saveReport(currentSrNo, data);
+      if(saveResult===SAVE_FAILED){
+        // Don't hand over a PDF for a report that was not stored anywhere.
+        toast('Could not save this report — fix the connection or free up space, then try again');
+        return;
+      }
+      if(saveResult===SAVE_QUEUED) toast('Saved on this device — it will upload when you are online');
       $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
       const doc = await buildPdf(data);
       const filename = (currentSrNo||'service-report')+'.pdf';
@@ -2398,15 +2886,29 @@
     reports.forEach(d=>{
       const row = document.createElement('div');
       row.className = 'hist-item';
+      // Customer names are free text typed by technicians, so they must be
+      // escaped before being injected as HTML.
       row.innerHTML =
-        '<div class="hist-info"><b>'+(d.custName||'Untitled')+'</b>'+
-        '<span>'+(d.srNo||'')+' · '+(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
+        '<div class="hist-info"><b>'+escapeHtml(d.custName||'Untitled')+'</b>'+
+        '<span>'+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
         '<div class="hist-actions"><button data-act="open">Open</button><button data-act="pdf">PDF</button></div>';
-      row.querySelector('[data-act="open"]').addEventListener('click', (e)=>{ e.stopPropagation(); openReport(d); });
+      row.querySelector('[data-act="open"]').addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        try{ await openReport(d); }
+        catch(err){ console.error('openReport failed', err); toast('Could not open this report'); }
+      });
+      // This handler used to be un-caught: any error inside buildPdf (and there
+      // was one for every cloud-loaded report) rejected silently and the button
+      // simply appeared to do nothing.
       row.querySelector('[data-act="pdf"]').addEventListener('click', async (e)=>{
         e.stopPropagation();
-        const doc = await buildPdf(d);
-        shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
+        try{
+          const doc = await buildPdf(d);
+          await shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
+        }catch(err){
+          console.error('PDF generation failed', err);
+          toast('Could not generate PDF for this report');
+        }
       });
       list.appendChild(row);
     });
@@ -2443,33 +2945,37 @@
     (svcArr.length?svcArr:['']).forEach(s=>addListRow('servicesDoneList',s));
     $('materialsBody').innerHTML=''; materialRowCount=0;
     (d.materials&&d.materials.length?d.materials:[{},{},{}]).forEach(m=>addMaterialRow(m));
-    if(d.before){
-      $('b_amp_l1').value=d.before.amp[0]||''; $('b_amp_l2').value=d.before.amp[1]||''; $('b_amp_l3').value=d.before.amp[2]||'';
-      $('b_volt_l12').value=d.before.volt[0]||''; $('b_volt_l23').value=d.before.volt[1]||''; $('b_volt_l31').value=d.before.volt[2]||'';
-      $('b_press_suction').value=d.before.pressure[0]||''; $('b_press_discharge').value=d.before.pressure[1]||'';
-      $('b_temp').value=d.before.temp||''; $('b_airflow').value=d.before.airflow||'';
-    }
-    if(d.after){
-      $('a_amp_l1').value=d.after.amp[0]||''; $('a_amp_l2').value=d.after.amp[1]||''; $('a_amp_l3').value=d.after.amp[2]||'';
-      $('a_volt_l12').value=d.after.volt[0]||''; $('a_volt_l23').value=d.after.volt[1]||''; $('a_volt_l31').value=d.after.volt[2]||'';
-      $('a_press_suction').value=d.after.pressure[0]||''; $('a_press_discharge').value=d.after.pressure[1]||'';
-      $('a_temp').value=d.after.temp||''; $('a_airflow').value=d.after.airflow||'';
+    // Legacy/cloud rows can carry partial objects (e.g. {} or a missing `amp`
+    // array), which used to throw on `d.before.amp[0]`. Normalise first.
+    {
+      const before = normalizeOperatingData(d.before);
+      $('b_amp_l1').value=before.amp[0]||''; $('b_amp_l2').value=before.amp[1]||''; $('b_amp_l3').value=before.amp[2]||'';
+      $('b_volt_l12').value=before.volt[0]||''; $('b_volt_l23').value=before.volt[1]||''; $('b_volt_l31').value=before.volt[2]||'';
+      $('b_press_suction').value=before.pressure[0]||''; $('b_press_discharge').value=before.pressure[1]||'';
+      $('b_temp').value=before.temp||''; $('b_airflow').value=before.airflow||'';
+      const after = normalizeOperatingData(d.after);
+      $('a_amp_l1').value=after.amp[0]||''; $('a_amp_l2').value=after.amp[1]||''; $('a_amp_l3').value=after.amp[2]||'';
+      $('a_volt_l12').value=after.volt[0]||''; $('a_volt_l23').value=after.volt[1]||''; $('a_volt_l31').value=after.volt[2]||'';
+      $('a_press_suction').value=after.pressure[0]||''; $('a_press_discharge').value=after.pressure[1]||'';
+      $('a_temp').value=after.temp||''; $('a_airflow').value=after.airflow||'';
     }
     $('isInstallToggle').checked = !!d.isInstall;
     $('installSection').classList.toggle('open', !!d.isInstall);
-    if(d.install){
-      $('pd_suction').value=d.install.pd[0]||''; $('pd_discharge').value=d.install.pd[1]||''; $('pd_drain').value=d.install.pd[2]||'';
-      $('pl_refline').value=d.install.pl[0]||''; $('pl_drain').value=d.install.pl[1]||'';
-      $('ws_feeder').value=d.install.ws[0]||''; $('ws_control').value=d.install.ws[1]||'';
-      $('circuit_breaker').value=d.install.breaker||'';
-      $('pi_refline').value=d.install.pi[0]||''; $('pi_drain').value=d.install.pi[1]||'';
-      $('riser_height').value=d.install.riser||''; $('ptrap').value=d.install.ptrap||'';
-      $('bracketType').value=d.install.bracketType||'';
+    {
+      const inst = normalizeInstallData(d.install);
+      $('pd_suction').value=inst.pd[0]||''; $('pd_discharge').value=inst.pd[1]||''; $('pd_drain').value=inst.pd[2]||'';
+      $('pl_refline').value=inst.pl[0]||''; $('pl_drain').value=inst.pl[1]||'';
+      $('ws_feeder').value=inst.ws[0]||''; $('ws_control').value=inst.ws[1]||'';
+      $('circuit_breaker').value=inst.breaker||'';
+      $('pi_refline').value=inst.pi[0]||''; $('pi_drain').value=inst.pi[1]||'';
+      $('riser_height').value=inst.riser||''; $('ptrap').value=inst.ptrap||'';
+      $('bracketType').value=inst.bracketType||'';
     }
     $('timeIn').value=d.timeIn||''; $('timeOut').value=d.timeOut||''; $('remarks').value=d.remarks||'';
     $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName || (currentUser ? currentUser.name : '') || '';
-    if(d.sigCustomer){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(d.sigCustomer); $('sigCustomerPh').style.display='none'; }
-    if(d.sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(d.sigTech); $('sigTechPh').style.display='none'; }
+    const sigCust = asSignature(d.sigCustomer), sigTech = asSignature(d.sigTech);
+    if(sigCust){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(sigCust); $('sigCustomerPh').style.display='none'; }
+    if(sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(sigTech); $('sigTechPh').style.display='none'; }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
@@ -2484,7 +2990,7 @@
   function openMainMenu(){ $('menuDropdown').classList.add('open'); }
   async function ensureAdminAuthenticated(){
     if(adminMode) return true;
-    const pin = prompt('Enter Admin Password:');
+    const pin = await askPassword({ label: 'Enter the Admin Password to continue' });
     if(pin===null) return false;
     if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return false; }
     enterAdminMode();
@@ -2621,17 +3127,75 @@
   }
 
   // ---- Geolocation ---------------------------------------------------
+  // Nominatim is a free, donation-funded service with a strict usage policy:
+  // one request per second, and it blocks clients that don't identify
+  // themselves. Every time-in, time-out, OT-in and OT-out was firing an
+  // un-identified request, which is exactly the pattern that gets an app's
+  // traffic blocked outright — at which point every punch would silently record
+  // bare coordinates instead of an address.
+  //
+  // Two mitigations: identify the app via the Referer the browser already sends
+  // plus an explicit contact e-mail parameter (the policy's documented method,
+  // since browsers forbid setting User-Agent from JS), and cache results so
+  // repeated punches from the same spot cost zero requests.
+  const GEO_CONTACT = 'awes.manila@gmail.com';
+  const GEO_CACHE_KEY = 'geocode-cache';
+  const GEO_CACHE_MAX = 200;
+  const GEO_TTL_MS = 30 * 24 * 60 * 60 * 1000; // addresses don't move
+  let geoCache = null;
+
+  async function geoCacheLoad(){
+    if(geoCache) return geoCache;
+    try{
+      const rec = await storage.get(GEO_CACHE_KEY);
+      geoCache = rec && rec.value ? JSON.parse(rec.value) : {};
+    }catch(e){ geoCache = {}; }
+    return geoCache;
+  }
+  async function geoCacheSave(){
+    try{
+      const keys = Object.keys(geoCache);
+      if(keys.length > GEO_CACHE_MAX){
+        // Drop the oldest entries so this can never grow without bound.
+        keys.sort((a,b)=> (geoCache[a].t||0) - (geoCache[b].t||0))
+            .slice(0, keys.length - GEO_CACHE_MAX)
+            .forEach(k=> delete geoCache[k]);
+      }
+      await storage.set(GEO_CACHE_KEY, JSON.stringify(geoCache));
+    }catch(e){ /* cache is an optimisation only */ }
+  }
+
   async function dtrReverseGeocode(lat, lng){
+    // ~5 decimal places is roughly a metre, which is finer than phone GPS
+    // accuracy, so rounding to 4 (~11m) makes repeat punches at the same site
+    // land on the same cache key.
+    const key = Number(lat).toFixed(4)+','+Number(lng).toFixed(4);
+    const cache = await geoCacheLoad();
+    const hit = cache[key];
+    if(hit && (Date.now() - (hit.t||0)) < GEO_TTL_MS) return hit.a || null;
+
     try{
       const ctrl = new AbortController();
       const timer = setTimeout(()=> ctrl.abort(), 8000);
-      const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat='+lat+'&lon='+lng+'&zoom=18&addressdetails=1';
+      const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2'
+        + '&lat='+encodeURIComponent(lat)
+        + '&lon='+encodeURIComponent(lng)
+        + '&zoom=18&addressdetails=1'
+        + '&email='+encodeURIComponent(GEO_CONTACT);
       const res = await fetch(url, {signal: ctrl.signal, headers:{'Accept-Language':'en'}});
       clearTimeout(timer);
-      if(!res.ok) return null;
+      if(!res.ok){
+        console.warn('reverse geocode rejected', res.status);
+        return hit ? (hit.a || null) : null;   // stale beats nothing
+      }
       const data = await res.json();
-      return (data && data.display_name) ? data.display_name : null;
-    }catch(e){ return null; }
+      const addr = (data && data.display_name) ? data.display_name : null;
+      cache[key] = {a: addr, t: Date.now()};
+      await geoCacheSave();
+      return addr;
+    }catch(e){
+      return hit ? (hit.a || null) : null;
+    }
   }
   function dtrGetLocation(){
     return new Promise((resolve)=>{
@@ -2692,12 +3256,25 @@
           { onConflict: 'technician_id,date' }
         );
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('dtr save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{
+      await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false);
+      // Queued so a time-in recorded in a basement or a client site with no
+      // signal still reaches the shared record instead of staying on the phone.
+      return (await outboxQueue('dtr', userId+'|'+dateISO, data)) ? SAVE_QUEUED : SAVE_FAILED;
+    }catch(e){ return SAVE_FAILED; }
   }
+  registerOutboxHandler('dtr', async (key, payload)=>{
+    const sep = key.lastIndexOf('|');
+    const userId = key.slice(0, sep), dateISO = key.slice(sep+1);
+    const { error } = await db.from('dtr_records').upsert(
+      { technician_id: userId, date: dateISO, data: payload },
+      { onConflict: 'technician_id,date' }
+    );
+    if(error) throw error;
+  });
   // History is always scoped to one user (per-user DTR) and capped to the last 30 days.
   async function dtrListForUser(userId, sinceISO){
     if(await ensureCloud()){
@@ -2732,11 +3309,17 @@
   // themself, or — for admin — whichever technician they picked.
   let dtrViewingUser = null;
 
-  async function dtrRenderTodayStatus(){
+  // Accepts an optional preloadedRec (the record we JUST saved) to avoid
+  // re-querying the server immediately after a write — a fresh read right
+  // after a save was intermittently returning the pre-save state (likely a
+  // browser HTTP cache serving the identical GET request URL), leaving the
+  // screen showing blank/old times until the technician navigated away and
+  // back, even though the save itself had already succeeded.
+  async function dtrRenderTodayStatus(preloadedRec){
     if(!currentUser || currentUser.role==='admin') return;
     const dateISO = todayISO();
     $('dtrTodayDate').textContent = dtrFmtDateLabel(dateISO);
-    const rec = await dtrGetDay(currentUser.id, dateISO);
+    const rec = preloadedRec !== undefined ? preloadedRec : await dtrGetDay(currentUser.id, dateISO);
     $('dtrTodayIn').textContent = rec && rec.timeIn ? dtrFmtTime(rec.timeIn) : '—';
     $('dtrTodayOut').textContent = rec && rec.timeOut ? dtrFmtTime(rec.timeOut) : '—';
     $('dtrTimeInBtn').disabled = !!(rec && rec.timeIn);
@@ -2782,9 +3365,9 @@
       const otInTxt = d.otTimeIn ? dtrFmtTime(d.otTimeIn) : null;
       const otOutTxt = d.otTimeOut ? dtrFmtTime(d.otTimeOut) : null;
       row.innerHTML =
-        '<div class="hist-info"><b>'+dtrFmtDateLabel(d.date)+'</b>'+
-        '<span>In: '+inTxt+' &nbsp;·&nbsp; Out: '+outTxt+'</span>'+
-        ((otInTxt || otOutTxt) ? '<span>OT In: '+(otInTxt||'—')+' &nbsp;·&nbsp; OT Out: '+(otOutTxt||'—')+'</span>' : '')+
+        '<div class="hist-info"><b>'+escapeHtml(dtrFmtDateLabel(d.date))+'</b>'+
+        '<span>In: '+escapeHtml(inTxt)+' &nbsp;·&nbsp; Out: '+escapeHtml(outTxt)+'</span>'+
+        ((otInTxt || otOutTxt) ? '<span>OT In: '+escapeHtml(otInTxt||'—')+' &nbsp;·&nbsp; OT Out: '+escapeHtml(otOutTxt||'—')+'</span>' : '')+
         (d.timeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="in">📍 In: '+escapeHtml(dtrLocLabel(d.timeInLoc))+'</button>' : '')+
         (d.timeOutLoc ? '<button type="button" class="dtr-loc-tag" data-kind="out">📍 Out: '+escapeHtml(dtrLocLabel(d.timeOutLoc))+'</button>' : '')+
         (d.otTimeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="otin">📍 OT In: '+escapeHtml(dtrLocLabel(d.otTimeInLoc))+'</button>' : '')+
@@ -2802,6 +3385,14 @@
     });
   }
 
+  // Turns a tri-state save result into an honest message. The old code treated
+  // any truthy return as success, so a device-only save was reported exactly
+  // like a cloud save and a total failure was reported as success too.
+  function dtrSaveToast(res, label){
+    if(res===SAVE_CLOUD) return label;
+    if(res===SAVE_QUEUED) return label+' (saved on this device \u2014 it will sync when you are online)';
+    return 'Could not save \u2014 please try again';
+  }
   async function dtrDoTimeIn(){
     if(!currentUser || currentUser.role==='admin') return;
     const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
@@ -2818,9 +3409,9 @@
       userId: currentUser.id, userName: currentUser.name, date: dateISO,
       timeIn: now, timeInLoc: loc
     });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Timed in at '+dtrFmtTime(now) : 'Could not save time in');
-    await dtrRenderTodayStatus();
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Timed in at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   async function dtrDoTimeOut(){
@@ -2837,9 +3428,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { timeOut: now, timeOutLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Timed out at '+dtrFmtTime(now) : 'Could not save time out');
-    await dtrRenderTodayStatus();
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Timed out at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   $('dtrTimeInBtn').addEventListener('click', dtrDoTimeIn);
@@ -2859,9 +3450,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeIn: now, otTimeInLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Overtime timed in at '+dtrFmtTime(now) : 'Could not save overtime time in');
-    await dtrRenderTodayStatus();
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Overtime timed in at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   async function dtrDoOtTimeOut(){
@@ -2878,9 +3469,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeOut: now, otTimeOutLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Overtime timed out at '+dtrFmtTime(now) : 'Could not save overtime time out');
-    await dtrRenderTodayStatus();
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Overtime timed out at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   $('dtrOtTimeInBtn').addEventListener('click', dtrDoOtTimeIn);
@@ -2914,43 +3505,92 @@
 
 
 // ---------- Leave Form (table: leave_requests; id/status/technician_id are real columns, rest in data) ----------
-  function leaveGenId(userId){ return userId+'_'+Date.now(); }
+  function leaveGenId(userId){
+    // Date.now() collides when two requests are created in the same millisecond
+    // (and it made ids guessable). Use a real UUID where available.
+    const rand = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
+    return userId+'_'+rand;
+  }
 
+  // A technician submitting or editing their OWN request. Note this deliberately
+  // never writes the decision fields — see leaveDecide.
   async function leaveSaveRequest(id, data){
+    const payload = {
+      id,
+      technician_id: data.userId,
+      status: data.status || 'pending',
+      submitted_at: data.submittedAt || new Date().toISOString(),
+      data
+    };
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('leave_requests').upsert({
-          id, technician_id: data.userId, status: data.status || 'pending',
-          submitted_at: data.submittedAt || new Date().toISOString(), data
-        });
+        const { error } = await db.from('leave_requests').upsert(payload);
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('leave save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    // Offline (or the write was rejected): keep a local copy AND queue it, so it
+    // actually reaches the cloud once there is a connection instead of being
+    // silently stranded on the phone.
+    try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); }
+    catch(e){ return SAVE_FAILED; }
+    return (await outboxQueue('leave', id, payload)) ? SAVE_QUEUED : SAVE_FAILED;
   }
-  async function leaveListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('leave list failed', describeCloudError(e)); }
+  registerOutboxHandler('leave', async (id, payload)=>{
+    const { error } = await db.from('leave_requests').upsert(payload);
+    if(error) throw error;
+  });
+
+  // Cloud reads are paginated. The old `.limit(200)` silently truncated the list
+  // with no indication, so once the company passed 200 requests the oldest ones
+  // just vanished from every screen.
+  const LEAVE_PAGE = 200;
+  async function leaveFetchPaged(applyFilter){
+    const out = [];
+    for(let from = 0; ; from += LEAVE_PAGE){
+      let q = db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).range(from, from+LEAVE_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const batch = data || [];
+      batch.forEach(r=> out.push(r.data));
+      if(batch.length < LEAVE_PAGE) break;
+      if(out.length >= 5000) break; // hard stop; nothing sane reaches this
     }
+    return out;
+  }
+  async function leaveLocalList(userId){
     try{
       const res = await window.storage.list('leave:', false);
       const items = [];
       for(const key of (res.keys||[])){
         try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
       }
-      items.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
-      return items;
+      const filtered = userId ? items.filter(r=> r && r.userId===userId) : items;
+      filtered.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+      return filtered;
     }catch(e){ return []; }
   }
+  async function leaveListAll(){
+    if(await ensureCloud()){
+      try{ return await leaveFetchPaged(null); }
+      catch(e){ console.error('leave list failed', describeCloudError(e)); }
+    }
+    return await leaveLocalList(null);
+  }
+  // Filters on the SERVER. Previously this downloaded every technician's leave
+  // requests to the phone and filtered in JavaScript, which both leaked
+  // co-workers' personal leave reasons to anyone who opened devtools and wasted
+  // mobile data.
   async function leaveListForUser(userId){
-    const all = await leaveListAll();
-    return all.filter(r=> r.userId===userId);
+    if(!userId) return [];
+    if(await ensureCloud()){
+      try{ return await leaveFetchPaged(q=> q.eq('technician_id', userId)); }
+      catch(e){ console.error('leave list (user) failed', describeCloudError(e)); }
+    }
+    return await leaveLocalList(userId);
   }
 
   function leaveFmtDate(iso){
@@ -3006,13 +3646,16 @@
       decidedAt: null, decidedBy: null
     };
     $('leaveSubmitBtn').disabled = true;
-    const ok = await leaveSaveRequest(id, data);
+    const res = await leaveSaveRequest(id, data);
     $('leaveSubmitBtn').disabled = false;
-    if(ok){
-      toast('Leave request submitted for approval');
-      leaveResetForm();
-      leaveShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    // Be honest about which of the two happened: "submitted" used to be shown
+    // even when the request never left the phone.
+    toast(res===SAVE_CLOUD
+      ? 'Leave request submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    leaveResetForm();
+    leaveShowTab('history');
   }
   $('leaveSubmitBtn').addEventListener('click', leaveSubmit);
 
@@ -3096,16 +3739,38 @@
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await leaveListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      status, comment,
+    if(!currentUser || currentUser.role!=='admin'){ toast('Admin only'); return; }
+    if(!(await ensureCloud())){ toast('Decisions need a connection — try again when online'); return; }
+    // Targeted update rather than re-uploading the whole record. The old
+    // read-modify-write raced with the technician editing their request (either
+    // side could silently clobber the other) and it also meant the decision
+    // travelled inside the same blob the technician is allowed to write.
+    const decision = {
+      status, comment: comment || '',
       decidedAt: new Date().toISOString(),
-      decidedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await leaveSaveRequest(id, updated);
-    toast(ok ? ('Request '+status) : 'Could not save decision');
+      decidedBy: currentUser.name || 'Admin'
+    };
+    try{
+      const { data: rows, error: readErr } = await db.from('leave_requests')
+        .select('data').eq('id', id).maybeSingle();
+      if(readErr) throw readErr;
+      if(!rows){ toast('Request not found'); return; }
+      const merged = Object.assign({}, rows.data || {}, decision);
+      const { data: updated, error } = await db.from('leave_requests')
+        .update({ status, data: merged })
+        .eq('id', id)
+        .eq('status', 'pending')   // optimistic guard: don't overwrite a decision
+        .select('id');
+      if(error) throw error;
+      if(!updated || !updated.length){
+        toast('This request was already decided — refreshing');
+      }else{
+        toast('Request '+status);
+      }
+    }catch(e){
+      console.error('leave decide failed', describeCloudError(e));
+      toast('Could not save decision');
+    }
     leaveRenderAdminList();
   }
   document.querySelectorAll('#leaveAdminFilterRow button').forEach(btn=>{
@@ -3124,6 +3789,8 @@
   // direction from Leave/Cash Advance (which are technician-filed, admin-
   // reviewed) — here admin files, technician actions it.
   function dtGenLocalId(){ return 'JO-'+todayISO().replace(/-/g,'')+'-'+Date.now(); }
+  const DT_PAGE = 200;
+  const DT_MAX_ROWS = 5000;
   async function dtNextJobOrderNo(){
     const dateStr = todayISO().replace(/-/g,'');
     if(await ensureCloud()){
@@ -3140,6 +3807,8 @@
     try{ await window.storage.set('jo-counter:'+dateStr, JSON.stringify({seq}), false); }catch(e){}
     return 'JO-'+dateStr+'-'+String(seq).padStart(3,'0');
   }
+  // Returns a tri-state result so callers can tell "saved to the server" from
+  // "only saved on this phone" instead of showing a success message either way.
   async function dtSaveTicket(id, data){
     if(await ensureCloud()){
       try{
@@ -3148,20 +3817,23 @@
           created_at: data.createdAt || new Date().toISOString(), data
         });
         if(error) throw error;
-        return true;
-      }catch(e){ console.error('dispatch save failed', e); }
+        return SAVE_CLOUD;
+      }catch(e){ console.error('dispatch save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('dispatch:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{
+      await window.storage.set('dispatch:'+id, JSON.stringify(data), false);
+      return (await outboxQueue('dispatch', id, data)) ? SAVE_QUEUED : SAVE_FAILED;
+    }catch(e){ return SAVE_FAILED; }
   }
-  async function dtListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('dispatch_tickets').select('data').order('created_at',{ascending:false}).limit(300);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('dispatch list failed', e); }
-    }
+  registerOutboxHandler('dispatch', async (id, payload)=>{
+    const { error } = await db.from('dispatch_tickets').upsert({
+      id, status: payload.status||'open',
+      created_at: payload.createdAt || new Date().toISOString(), data: payload
+    });
+    if(error) throw error;
+  });
+
+  async function dtLocalList(){
     try{
       const res = await window.storage.list('dispatch:', false);
       const items = [];
@@ -3172,9 +3844,39 @@
       return items;
     }catch(e){ return []; }
   }
+  // Pages through results instead of silently stopping at 300 rows, which used
+  // to make older tickets vanish from the admin list with no warning.
+  async function dtFetchPaged(applyFilter){
+    const out = [];
+    for(let from=0; from<DT_MAX_ROWS; from+=DT_PAGE){
+      let q = db.from('dispatch_tickets').select('data')
+        .order('created_at',{ascending:false}).range(from, from+DT_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const rows = data || [];
+      rows.forEach(r=> out.push(r.data));
+      if(rows.length < DT_PAGE) break;
+    }
+    return out;
+  }
+  async function dtListAll(){
+    if(await ensureCloud()){
+      try{ return await dtFetchPaged(null); }
+      catch(e){ console.error('dispatch list failed', describeCloudError(e)); }
+    }
+    return dtLocalList();
+  }
+  // Filters on the server (`assigned_worker_ids @> [workerId]`) rather than
+  // downloading every technician's tickets and filtering in JavaScript.
   async function dtListForWorker(workerId){
-    const all = await dtListAll();
-    return all.filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
+    if(!workerId) return [];
+    if(await ensureCloud()){
+      try{
+        return await dtFetchPaged(q=> q.contains('data->assignedWorkerIds', JSON.stringify([workerId])));
+      }catch(e){ console.error('dispatch worker list failed', describeCloudError(e)); }
+    }
+    return (await dtLocalList()).filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
   }
 
   // ---------- Service Report: "From Job Order" picker ----------
@@ -3355,12 +4057,14 @@
       },
       createdAt: new Date().toISOString(),
       createdBy: currentUser ? currentUser.name : 'Admin',
-      acknowledgedBy: [], completedAt: null
+      acknowledgedBy: [], completedBy: [], completedAt: null
     };
-    const ok = await dtSaveTicket(id, data);
+    const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
-    if(!ok){ toast('Could not create ticket — check your connection'); return; }
-    toast('Dispatch ticket '+id+' created');
+    if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? ('Dispatch ticket '+id+' created')
+      : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));
     dtResetForm();
     $('dtJobOrderNo').value = '—';
   }
@@ -3443,11 +4147,17 @@
     items.forEach(r=>{
       const card = document.createElement('div');
       card.className = 'user-card';
+      // Buttons now follow THIS technician's own progress, not the whole
+      // ticket's status. Previously a shared ticket could sit at "open" so a
+      // colleague who had already acknowledged never got a Complete button,
+      // and one person's Complete closed it for everyone.
       const alreadyAck = (r.acknowledgedBy||[]).includes(currentUser.id);
+      const alreadyDone = r.status==='completed' || (r.completedBy||[]).includes(currentUser.id);
       card.innerHTML = dtCardHtml(r, false) +
         '<div class="user-card-actions">'+
-          (r.status==='open' && !alreadyAck ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
-          (r.status==='acknowledged' ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
+          (!alreadyAck && !alreadyDone ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
+          (alreadyAck && !alreadyDone ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
+          (alreadyDone && r.status!=='completed' ? '<span class="u-status">Waiting for the other assigned technician(s)</span>' : '')+
         '</div>';
       const ackBtn = card.querySelector('[data-act="ack"]');
       if(ackBtn) ackBtn.addEventListener('click', ()=> dtAcknowledge(r.id));
@@ -3464,23 +4174,80 @@
       dtRenderTechList();
     });
   });
+  // Fetches only the ticket being changed, checks the current user is actually
+  // assigned to it, and writes a targeted update instead of upserting the whole
+  // record — so two technicians acting at once no longer overwrite each other.
+  async function dtGetTicket(id){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('dispatch_tickets').select('data').eq('id', id).maybeSingle();
+        if(error) throw error;
+        return data ? data.data : null;
+      }catch(e){ console.error('dispatch fetch failed', describeCloudError(e)); return null; }
+    }
+    try{
+      const item = await window.storage.get('dispatch:'+id, false);
+      return item ? JSON.parse(item.value) : null;
+    }catch(e){ return null; }
+  }
+  async function dtApplyWorkerChange(id, mutate){
+    if(!currentUser){ toast('Please sign in again'); return false; }
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return false; }
+    try{
+      const rec = await dtGetTicket(id);
+      if(!rec){ toast('Ticket not found'); return false; }
+      const assigned = rec.assignedWorkerIds || [];
+      if(currentUser.role!=='admin' && !assigned.includes(currentUser.id)){
+        toast('This ticket is not assigned to you');
+        return false;
+      }
+      const change = mutate(rec, assigned);
+      if(!change) return false;
+      const merged = Object.assign({}, rec, change);
+      const { data: rows, error } = await db.from('dispatch_tickets')
+        .update({ status: merged.status, data: merged }).eq('id', id).select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){ toast('This ticket changed elsewhere — refreshing'); return false; }
+      return true;
+    }catch(e){
+      console.error('dispatch update failed', describeCloudError(e));
+      toast('Could not save — please try again');
+      return false;
+    }
+  }
   async function dtAcknowledge(id){
-    const all = await dtListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Ticket not found'); return; }
-    const ackBy = new Set(rec.acknowledgedBy||[]); ackBy.add(currentUser.id);
-    const updated = Object.assign({}, rec, { status: 'acknowledged', acknowledgedBy: Array.from(ackBy) });
-    const ok = await dtSaveTicket(id, updated);
-    toast(ok ? 'Acknowledged' : 'Could not save');
+    const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
+      const ackBy = new Set(rec.acknowledgedBy||[]);
+      if(ackBy.has(currentUser.id)){ toast('You already acknowledged this'); return null; }
+      ackBy.add(currentUser.id);
+      const list = Array.from(ackBy);
+      // A multi-worker ticket is only fully "acknowledged" once everyone
+      // assigned has confirmed; before that it stays open so the remaining
+      // technicians still see the Acknowledge button.
+      const everyone = assigned.length>0 && assigned.every(w=> list.includes(w));
+      return { acknowledgedBy: list, status: everyone ? 'acknowledged' : (rec.status||'open') };
+    });
+    if(ok) toast('Acknowledged');
     dtRenderTechList();
   }
   async function dtComplete(id){
-    const all = await dtListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Ticket not found'); return; }
-    const updated = Object.assign({}, rec, { status: 'completed', completedAt: new Date().toISOString() });
-    const ok = await dtSaveTicket(id, updated);
-    toast(ok ? 'Marked completed' : 'Could not save');
+    const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
+      if(rec.status==='completed'){ toast('Already completed'); return null; }
+      const ackBy = rec.acknowledgedBy || [];
+      if(currentUser.role!=='admin' && !ackBy.includes(currentUser.id)){
+        toast('Acknowledge this ticket first'); return null;
+      }
+      const done = new Set(rec.completedBy||[]);
+      done.add(currentUser.id);
+      const list = Array.from(done);
+      const everyone = assigned.length>0 && assigned.every(w=> list.includes(w));
+      if(!everyone){
+        toast('Recorded — waiting for the other assigned technician(s)');
+        return { completedBy: list, status: rec.status||'acknowledged' };
+      }
+      return { completedBy: list, status: 'completed', completedAt: new Date().toISOString() };
+    });
+    if(ok) toast('Marked completed');
     dtRenderTechList();
   }
 
@@ -3536,43 +4303,126 @@
 
 
 // ---------- Cash Advance Form (table: cash_advance_requests) ----------
-  function caGenId(userId){ return userId+'_'+Date.now(); }
+  function caGenId(userId){
+    const rand = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
+    return userId+'_'+rand;
+  }
+
+  // Receipt images live inside the JSONB row as base64 data URLs. That keeps the
+  // app dependency-free but means a row can be megabytes, so cap it: an
+  // oversized row is rejected outright by Postgres/PostgREST and the old code
+  // just showed "could not submit" with no explanation.
+  const CA_ATTACHMENT_MAX_BYTES = 1_500_000; // ~1.5 MB per receipt, post-compression
+  const CA_RECORD_MAX_BYTES = 6_000_000;     // ~6 MB for the whole liquidation
+  function caAttachmentSize(dataUrl){
+    if(!dataUrl) return 0;
+    const comma = dataUrl.indexOf(',');
+    const b64 = comma>=0 ? dataUrl.slice(comma+1) : dataUrl;
+    return Math.floor(b64.length * 3 / 4);
+  }
 
   async function caSaveRequest(id, data){
+    const payload = {
+      id, technician_id: data.userId, status: data.status || 'pending',
+      submitted_at: data.submittedAt || new Date().toISOString(), data
+    };
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('cash_advance_requests').upsert({
-          id, technician_id: data.userId, status: data.status || 'pending',
-          submitted_at: data.submittedAt || new Date().toISOString(), data
-        });
+        const { error } = await db.from('cash_advance_requests').upsert(payload);
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('cash advance save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{ await window.storage.set('cash:'+id, JSON.stringify(data), false); }
+    catch(e){ return SAVE_FAILED; }
+    return (await outboxQueue('cash-advance', id, payload)) ? SAVE_QUEUED : SAVE_FAILED;
   }
-  async function caListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('cash advance list failed', describeCloudError(e)); }
+  registerOutboxHandler('cash-advance', async (id, payload)=>{
+    const { error } = await db.from('cash_advance_requests').upsert(payload);
+    if(error) throw error;
+  });
+
+  const CA_PAGE = 200;
+  async function caFetchPaged(applyFilter){
+    const out = [];
+    for(let from = 0; ; from += CA_PAGE){
+      let q = db.from('cash_advance_requests').select('data').order('submitted_at',{ascending:false}).range(from, from+CA_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const batch = data || [];
+      batch.forEach(r=> out.push(r.data));
+      if(batch.length < CA_PAGE) break;
+      if(out.length >= 5000) break;
     }
+    return out;
+  }
+  async function caLocalList(userId){
     try{
       const res = await window.storage.list('cash:', false);
       const items = [];
       for(const key of (res.keys||[])){
         try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
       }
-      items.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
-      return items;
+      const filtered = userId ? items.filter(r=> r && r.userId===userId) : items;
+      filtered.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+      return filtered;
     }catch(e){ return []; }
   }
-  async function caListForUser(userId){
-    const all = await caListAll();
-    return all.filter(r=> r.userId===userId);
+  // Strips receipt payloads for list views. Rendering a summary list does not
+  // need every technician's base64 receipt images — downloading all of them was
+  // the single most expensive thing the admin screens did, on a mobile
+  // connection, every time the tab was opened.
+  function caStripAttachments(rec){
+    if(!rec || !rec.liquidation || !Array.isArray(rec.liquidation.items)) return rec;
+    return Object.assign({}, rec, {
+      liquidation: Object.assign({}, rec.liquidation, {
+        items: rec.liquidation.items.map(i=> i && i.attachmentData
+          ? Object.assign({}, i, {attachmentData: null, attachmentTruncated: true})
+          : i)
+      })
+    });
+  }
+  async function caListAll(opts){
+    const summary = !(opts && opts.full);
+    if(await ensureCloud()){
+      try{
+        const rows = await caFetchPaged(null);
+        return summary ? rows.map(caStripAttachments) : rows;
+      }catch(e){ console.error('cash advance list failed', describeCloudError(e)); }
+    }
+    return await caLocalList(null);
+  }
+  // Server-side filter: a technician's client no longer downloads every
+  // colleague's cash advances (amounts, purposes and receipts) just to hide them
+  // in JavaScript.
+  async function caListForUser(userId, opts){
+    if(!userId) return [];
+    const summary = !(opts && opts.full);
+    if(await ensureCloud()){
+      try{
+        const rows = await caFetchPaged(q=> q.eq('technician_id', userId));
+        return summary ? rows.map(caStripAttachments) : rows;
+      }catch(e){ console.error('cash advance list (user) failed', describeCloudError(e)); }
+    }
+    return await caLocalList(userId);
+  }
+  // Fetches ONE record complete with attachment data, for the detail/attachment
+  // views that actually need it.
+  async function caGetRequest(id){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('cash_advance_requests').select('data').eq('id', id).maybeSingle();
+        if(error) throw error;
+        return data ? data.data : null;
+      }catch(e){ console.error('cash advance get failed', describeCloudError(e)); }
+    }
+    try{
+      const item = await window.storage.get('cash:'+id, false);
+      return item ? JSON.parse(item.value) : null;
+    }catch(e){ return null; }
   }
   function caFmtPeso(n){
     const v = Number(n)||0;
@@ -3595,7 +4445,9 @@
     return !!(r.disbursed && (!r.liquidation || r.liquidation.status !== 'approved'));
   }
   async function caFindActiveLiquidationRecord(userId){
-    const all = await caListForUser(userId);
+    // Needs the full record: a disapproved liquidation is reloaded into the form
+    // so the technician can fix it, receipts included.
+    const all = await caListForUser(userId, {full:true});
     const outstanding = all.filter(caNeedsLiquidation);
     outstanding.sort((a,b)=> (b.disbursedAt||'').localeCompare(a.disbursedAt||''));
     return outstanding[0] || null;
@@ -3657,13 +4509,14 @@
       liquidation: null
     };
     $('caSubmitBtn').disabled = true;
-    const ok = await caSaveRequest(id, data);
+    const res = await caSaveRequest(id, data);
     $('caSubmitBtn').disabled = false;
-    if(ok){
-      toast('Cash advance request submitted for approval');
-      caResetForm();
-      caShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? 'Cash advance request submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    caResetForm();
+    caShowTab('history');
   }
   $('caSubmitBtn').addEventListener('click', caSubmit);
 
@@ -3842,6 +4695,12 @@
               item.attachmentData = dataUrl;
               item.attachmentMime = file.type || 'application/octet-stream';
             }
+            if(caAttachmentSize(item.attachmentData) > CA_ATTACHMENT_MAX_BYTES){
+              item.attachmentData = null; item.attachmentMime = null;
+              toast('That file is too large — take a photo instead of attaching a full-size file');
+              caLiqRenderItems();
+              return;
+            }
             item.attachmentName = file.name;
             toast('File attached');
             caLiqRenderItems();
@@ -3965,16 +4824,62 @@
     }else{
       $('liqAttachmentTitle').textContent = item.description || 'Attachment';
       $('liqAttachmentTransportWrap').style.display = 'none';
+      if(!item.attachmentData){
+        // List views deliberately fetch records without receipt payloads.
+        $('liqAttachmentImageWrap').style.display = 'none';
+        toast('Opening receipt…');
+        caLoadAttachmentThenOpen(item);
+        return;
+      }
       if(item.attachmentMime && item.attachmentMime.startsWith('image/')){
         $('liqAttachmentImageWrap').style.display = '';
         $('liqAttachmentImg').src = item.attachmentData;
       }else{
-        // Non-image (e.g. PDF) — open it directly rather than trying to
-        // render it inline.
-        window.open(item.attachmentData, '_blank');
+        // Non-image (e.g. PDF): window.open() on a data: URL is blocked outright
+        // by Chrome and Safari (top-frame navigation to data: URLs), so this
+        // silently did nothing. Convert to a Blob and open an object URL, which
+        // is allowed — and revoke it afterwards so it doesn't leak.
+        try{
+          const blob = caDataUrlToBlob(item.attachmentData, item.attachmentMime);
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if(!win){
+            // Pop-up blocked: fall back to a same-gesture download.
+            const a = document.createElement('a');
+            a.href = url; a.download = item.attachmentName || 'receipt';
+            document.body.appendChild(a); a.click(); a.remove();
+          }
+          setTimeout(()=> URL.revokeObjectURL(url), 60000);
+        }catch(e){
+          console.error('could not open attachment', e);
+          toast('Could not open that file');
+        }
       }
     }
     $('liqAttachmentOverlay').classList.add('open');
+  }
+  function caDataUrlToBlob(dataUrl, fallbackMime){
+    const match = /^data:([^;,]+)?(;base64)?,(.*)$/.exec(dataUrl || '');
+    if(!match) throw new Error('not a data URL');
+    const mime = match[1] || fallbackMime || 'application/octet-stream';
+    const body = match[3];
+    if(match[2]){
+      const bin = atob(body);
+      const bytes = new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], {type: mime});
+    }
+    return new Blob([decodeURIComponent(body)], {type: mime});
+  }
+  // Re-fetches the owning record so a summary-loaded item can still show its
+  // receipt on demand.
+  async function caLoadAttachmentThenOpen(item){
+    const recordId = item.__recordId;
+    if(!recordId){ toast('Receipt not available'); return; }
+    const full = await caGetRequest(recordId);
+    const match = full && full.liquidation && (full.liquidation.items||[]).find(i=> i.id===item.id);
+    if(!match || !match.attachmentData){ toast('Receipt not available'); return; }
+    openLiquidationAttachment(Object.assign({}, match, {__recordId: recordId}));
   }
   $('closeLiqAttachment').addEventListener('click', ()=> $('liqAttachmentOverlay').classList.remove('open'));
   $('liqAttachmentOverlay').addEventListener('click', (e)=>{ if(e.target.id==='liqAttachmentOverlay') $('liqAttachmentOverlay').classList.remove('open'); });
@@ -3986,15 +4891,15 @@
       '<div style="margin-top:6px;">Total liquidated: <b>'+caFmtPeso(liq.totalAmount)+'</b> of '+caFmtPeso(record.amountGiven)+' given</div>'+
       (liq.comment ? '<div style="margin-top:6px;"><b>Notes</b> '+escapeHtml(liq.comment)+'</div>' : '')+
       '</div>';
-    liq.items.forEach(item=>{
-      html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+item.id+'">'+
+    (liq.items||[]).forEach(item=>{
+      html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+escapeHtml(item.id)+'">'+
         '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(item.description)+'</b>'+
         '<span>'+caFmtPeso(item.amount)+'</span></div></div>';
     });
     wrap.innerHTML = html;
-    liq.items.forEach(item=>{
-      const el = wrap.querySelector('[data-view-item="'+item.id+'"]');
-      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(item));
+    (liq.items||[]).forEach(item=>{
+      const el = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: record.id})));
     });
   }
 
@@ -4023,8 +4928,12 @@
         // rather than starting from scratch.
         caLiqItems = (active.liquidation.items||[]).map(i=> Object.assign({}, i));
         $('caLiqNotes').value = active.liquidation.comment && active.liquidation.userNotes ? active.liquidation.userNotes : '';
+        // Remove any banner from a previous visit to this tab: the old code
+        // prepend()ed a new one every single time, so the disapproval message
+        // stacked up copy after copy.
+        $('caLiqEditView').querySelectorAll('.ca-liq-disapproval-banner').forEach(el=> el.remove());
         const banner = document.createElement('div');
-        banner.className = 'dtr-banner dtr-banner-warn';
+        banner.className = 'dtr-banner dtr-banner-warn ca-liq-disapproval-banner';
         banner.style.display = 'block';
         banner.style.marginBottom = '12px';
         banner.textContent = 'Disapproved — '+(active.liquidation.comment || 'please review and resubmit.');
@@ -4051,10 +4960,25 @@
       if(!item.amount || item.amount<=0){ toast('Every item needs a valid amount'); return; }
       if(!item.attachmentData){ toast('Attach a file for every item — "'+item.description+'" is missing one'); return; }
     }
+    // Reject oversized receipts up front, with a message that says what to do,
+    // instead of letting the whole submission fail opaquely at the database.
+    let totalBytes = 0;
+    for(const item of caLiqItems){
+      const size = caAttachmentSize(item.attachmentData);
+      if(size > CA_ATTACHMENT_MAX_BYTES){
+        toast('"'+(item.description||'An item')+'" attachment is too large — retake the photo or use a smaller file');
+        return;
+      }
+      totalBytes += size;
+    }
+    if(totalBytes > CA_RECORD_MAX_BYTES){
+      toast('These receipts total too much data — remove or retake a few and submit again');
+      return;
+    }
     const totalAmount = caLiqUpdateTotals();
     const notes = $('caLiqNotes').value.trim();
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===caLiqActiveRecord.id);
+    // Fetch just this one record rather than pulling the entire table down.
+    const rec = await caGetRequest(caLiqActiveRecord.id);
     if(!rec){ toast('Cash advance record not found'); return; }
     const updated = Object.assign({}, rec, {
       liquidation: {
@@ -4067,12 +4991,13 @@
       }
     });
     $('caLiqSubmitBtn').disabled = true;
-    const ok = await caSaveRequest(rec.id, updated);
+    const res = await caSaveRequest(rec.id, updated);
     $('caLiqSubmitBtn').disabled = false;
-    if(ok){
-      toast('Liquidation submitted for approval');
-      caShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    toast(res===SAVE_CLOUD
+      ? 'Liquidation submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    caShowTab('history');
   }
   $('caLiqSubmitBtn').addEventListener('click', caSubmitLiquidation);
 
@@ -4205,9 +5130,11 @@
         (liq.comment ? '<div style="margin-top:4px;">'+escapeHtml(liq.comment)+'</div>' : '')+'</div>';
     }
     panel.innerHTML = html;
-    liq.items.forEach(item=>{
-      const el = panel.querySelector('[data-view-item="'+item.id+'"]');
-      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(item));
+    (liq.items||[]).forEach(item=>{
+      const el = panel.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      // Pass the owning record id so the viewer can fetch the receipt on demand
+      // (admin lists are loaded without attachment payloads).
+      if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: r.id})));
     });
     const approveBtn = panel.querySelector('[data-act="liq-approve"]');
     const disapproveBtn = panel.querySelector('[data-act="liq-disapprove"]');
@@ -4215,56 +5142,92 @@
     if(disapproveBtn) disapproveBtn.addEventListener('click', ()=> caDecideLiquidation(r.id, 'disapproved', panel.querySelector('[data-f="liqComment"]').value.trim()));
   }
 
+  // All three admin actions below now:
+  //   * require a live connection (a decision queued on one phone and replayed
+  //     later would silently clobber whatever happened in between),
+  //   * fetch only the one record they are changing,
+  //   * write a targeted .update() rather than upserting the technician's whole
+  //     record back, and
+  //   * guard against acting twice on the same record.
+  function caAdminGuard(){
+    if(!currentUser || currentUser.role!=='admin'){ toast('Admin only'); return false; }
+    return true;
+  }
+  async function caApplyAdminChange(id, mutate, okMsg){
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return false; }
+    try{
+      const rec = await caGetRequest(id);
+      if(!rec){ toast('Request not found'); return false; }
+      const change = mutate(rec);
+      if(!change) return false;
+      const merged = Object.assign({}, rec, change.data);
+      let q = db.from('cash_advance_requests').update(
+        change.status ? { status: change.status, data: merged } : { data: merged }
+      ).eq('id', id);
+      if(change.expectStatus) q = q.eq('status', change.expectStatus);
+      const { data: rows, error } = await q.select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){
+        toast('This request changed on another device — refreshing');
+        return false;
+      }
+      if(okMsg) toast(okMsg);
+      return true;
+    }catch(e){
+      console.error('cash advance admin update failed', describeCloudError(e));
+      toast('Could not save — please try again');
+      return false;
+    }
+  }
+
   async function caDecideLiquidation(id, status, comment){
+    if(!caAdminGuard()) return;
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec || !rec.liquidation){ toast('Liquidation not found'); return; }
-    const updated = Object.assign({}, rec, {
-      liquidation: Object.assign({}, rec.liquidation, {
-        status, comment,
+    await caApplyAdminChange(id, (rec)=>{
+      if(!rec.liquidation){ toast('Liquidation not found'); return null; }
+      if(rec.liquidation.status===status){ toast('Already '+status); return null; }
+      return { data: { liquidation: Object.assign({}, rec.liquidation, {
+        status, comment: comment || '',
         decidedAt: new Date().toISOString(),
-        decidedBy: currentUser ? currentUser.name : 'Admin'
-      })
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? ('Liquidation '+status) : 'Could not save decision');
+        decidedBy: currentUser.name || 'Admin'
+      }) } };
+    }, 'Liquidation '+status);
     caRenderAdminList();
   }
 
   async function caDecide(id, status, comment){
+    if(!caAdminGuard()) return;
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      status, comment,
-      decidedAt: new Date().toISOString(),
-      decidedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? ('Request '+status) : 'Could not save decision');
+    await caApplyAdminChange(id, ()=>({
+      status,
+      expectStatus: 'pending',
+      data: {
+        status, comment: comment || '',
+        decidedAt: new Date().toISOString(),
+        decidedBy: currentUser.name || 'Admin'
+      }
+    }), 'Request '+status);
     caRenderAdminList();
   }
   // Monitoring: records that the requested cash was actually handed over, with
   // the date and amount actually given (which can differ from what was requested).
   async function caRecordDisbursement(id, dateGiven, amountGiven){
+    if(!caAdminGuard()) return;
     if(!dateGiven){ toast('Set the date the cash was given'); return; }
     if(!amountGiven || amountGiven<=0){ toast('Enter a valid amount given'); return; }
-    const all = await caListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      disbursed: true, dateGiven, amountGiven,
-      disbursedAt: new Date().toISOString(),
-      disbursedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await caSaveRequest(id, updated);
-    toast(ok ? 'Disbursement recorded' : 'Could not save disbursement');
+    await caApplyAdminChange(id, (rec)=>{
+      if(rec.status!=='approved'){ toast('Approve the request before recording disbursement'); return null; }
+      if(rec.disbursed){ toast('Already recorded as disbursed'); return null; }
+      return { data: {
+        disbursed: true, dateGiven, amountGiven,
+        disbursedAt: new Date().toISOString(),
+        disbursedBy: currentUser.name || 'Admin'
+      } };
+    }, 'Disbursement recorded');
     caRenderAdminList();
   }
   document.querySelectorAll('#caAdminFilterRow button').forEach(btn=>{

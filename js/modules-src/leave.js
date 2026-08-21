@@ -1,41 +1,90 @@
 // ---------- Leave Form (table: leave_requests; id/status/technician_id are real columns, rest in data) ----------
-  function leaveGenId(userId){ return userId+'_'+Date.now(); }
+  function leaveGenId(userId){
+    // Date.now() collides when two requests are created in the same millisecond
+    // (and it made ids guessable). Use a real UUID where available.
+    const rand = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
+    return userId+'_'+rand;
+  }
 
+  // A technician submitting or editing their OWN request. Note this deliberately
+  // never writes the decision fields — see leaveDecide.
   async function leaveSaveRequest(id, data){
+    const payload = {
+      id,
+      technician_id: data.userId,
+      status: data.status || 'pending',
+      submitted_at: data.submittedAt || new Date().toISOString(),
+      data
+    };
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('leave_requests').upsert({
-          id, technician_id: data.userId, status: data.status || 'pending',
-          submitted_at: data.submittedAt || new Date().toISOString(), data
-        });
+        const { error } = await db.from('leave_requests').upsert(payload);
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('leave save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    // Offline (or the write was rejected): keep a local copy AND queue it, so it
+    // actually reaches the cloud once there is a connection instead of being
+    // silently stranded on the phone.
+    try{ await window.storage.set('leave:'+id, JSON.stringify(data), false); }
+    catch(e){ return SAVE_FAILED; }
+    return (await outboxQueue('leave', id, payload)) ? SAVE_QUEUED : SAVE_FAILED;
   }
-  async function leaveListAll(){
-    if(await ensureCloud()){
-      try{
-        const { data, error } = await db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).limit(200);
-        if(error) throw error;
-        return (data||[]).map(r=>r.data);
-      }catch(e){ console.error('leave list failed', describeCloudError(e)); }
+  registerOutboxHandler('leave', async (id, payload)=>{
+    const { error } = await db.from('leave_requests').upsert(payload);
+    if(error) throw error;
+  });
+
+  // Cloud reads are paginated. The old `.limit(200)` silently truncated the list
+  // with no indication, so once the company passed 200 requests the oldest ones
+  // just vanished from every screen.
+  const LEAVE_PAGE = 200;
+  async function leaveFetchPaged(applyFilter){
+    const out = [];
+    for(let from = 0; ; from += LEAVE_PAGE){
+      let q = db.from('leave_requests').select('data').order('submitted_at',{ascending:false}).range(from, from+LEAVE_PAGE-1);
+      if(applyFilter) q = applyFilter(q);
+      const { data, error } = await q;
+      if(error) throw error;
+      const batch = data || [];
+      batch.forEach(r=> out.push(r.data));
+      if(batch.length < LEAVE_PAGE) break;
+      if(out.length >= 5000) break; // hard stop; nothing sane reaches this
     }
+    return out;
+  }
+  async function leaveLocalList(userId){
     try{
       const res = await window.storage.list('leave:', false);
       const items = [];
       for(const key of (res.keys||[])){
         try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
       }
-      items.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
-      return items;
+      const filtered = userId ? items.filter(r=> r && r.userId===userId) : items;
+      filtered.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+      return filtered;
     }catch(e){ return []; }
   }
+  async function leaveListAll(){
+    if(await ensureCloud()){
+      try{ return await leaveFetchPaged(null); }
+      catch(e){ console.error('leave list failed', describeCloudError(e)); }
+    }
+    return await leaveLocalList(null);
+  }
+  // Filters on the SERVER. Previously this downloaded every technician's leave
+  // requests to the phone and filtered in JavaScript, which both leaked
+  // co-workers' personal leave reasons to anyone who opened devtools and wasted
+  // mobile data.
   async function leaveListForUser(userId){
-    const all = await leaveListAll();
-    return all.filter(r=> r.userId===userId);
+    if(!userId) return [];
+    if(await ensureCloud()){
+      try{ return await leaveFetchPaged(q=> q.eq('technician_id', userId)); }
+      catch(e){ console.error('leave list (user) failed', describeCloudError(e)); }
+    }
+    return await leaveLocalList(userId);
   }
 
   function leaveFmtDate(iso){
@@ -91,13 +140,16 @@
       decidedAt: null, decidedBy: null
     };
     $('leaveSubmitBtn').disabled = true;
-    const ok = await leaveSaveRequest(id, data);
+    const res = await leaveSaveRequest(id, data);
     $('leaveSubmitBtn').disabled = false;
-    if(ok){
-      toast('Leave request submitted for approval');
-      leaveResetForm();
-      leaveShowTab('history');
-    }else toast('Could not submit — check your connection');
+    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+    // Be honest about which of the two happened: "submitted" used to be shown
+    // even when the request never left the phone.
+    toast(res===SAVE_CLOUD
+      ? 'Leave request submitted for approval'
+      : 'Saved on this device — it will be submitted once you have a connection');
+    leaveResetForm();
+    leaveShowTab('history');
   }
   $('leaveSubmitBtn').addEventListener('click', leaveSubmit);
 
@@ -181,16 +233,38 @@
     if(status==='disapproved' && !comment){
       if(!confirm('Disapprove without a comment? The technician won\'t know why.')) return;
     }
-    const all = await leaveListAll();
-    const rec = all.find(r=> r.id===id);
-    if(!rec){ toast('Request not found'); return; }
-    const updated = Object.assign({}, rec, {
-      status, comment,
+    if(!currentUser || currentUser.role!=='admin'){ toast('Admin only'); return; }
+    if(!(await ensureCloud())){ toast('Decisions need a connection — try again when online'); return; }
+    // Targeted update rather than re-uploading the whole record. The old
+    // read-modify-write raced with the technician editing their request (either
+    // side could silently clobber the other) and it also meant the decision
+    // travelled inside the same blob the technician is allowed to write.
+    const decision = {
+      status, comment: comment || '',
       decidedAt: new Date().toISOString(),
-      decidedBy: currentUser ? currentUser.name : 'Admin'
-    });
-    const ok = await leaveSaveRequest(id, updated);
-    toast(ok ? ('Request '+status) : 'Could not save decision');
+      decidedBy: currentUser.name || 'Admin'
+    };
+    try{
+      const { data: rows, error: readErr } = await db.from('leave_requests')
+        .select('data').eq('id', id).maybeSingle();
+      if(readErr) throw readErr;
+      if(!rows){ toast('Request not found'); return; }
+      const merged = Object.assign({}, rows.data || {}, decision);
+      const { data: updated, error } = await db.from('leave_requests')
+        .update({ status, data: merged })
+        .eq('id', id)
+        .eq('status', 'pending')   // optimistic guard: don't overwrite a decision
+        .select('id');
+      if(error) throw error;
+      if(!updated || !updated.length){
+        toast('This request was already decided — refreshing');
+      }else{
+        toast('Request '+status);
+      }
+    }catch(e){
+      console.error('leave decide failed', describeCloudError(e));
+      toast('Could not save decision');
+    }
     leaveRenderAdminList();
   }
   document.querySelectorAll('#leaveAdminFilterRow button').forEach(btn=>{

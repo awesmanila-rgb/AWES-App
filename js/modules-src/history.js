@@ -21,15 +21,29 @@
     reports.forEach(d=>{
       const row = document.createElement('div');
       row.className = 'hist-item';
+      // Customer names are free text typed by technicians, so they must be
+      // escaped before being injected as HTML.
       row.innerHTML =
-        '<div class="hist-info"><b>'+(d.custName||'Untitled')+'</b>'+
-        '<span>'+(d.srNo||'')+' · '+(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
+        '<div class="hist-info"><b>'+escapeHtml(d.custName||'Untitled')+'</b>'+
+        '<span>'+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
         '<div class="hist-actions"><button data-act="open">Open</button><button data-act="pdf">PDF</button></div>';
-      row.querySelector('[data-act="open"]').addEventListener('click', (e)=>{ e.stopPropagation(); openReport(d); });
+      row.querySelector('[data-act="open"]').addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        try{ await openReport(d); }
+        catch(err){ console.error('openReport failed', err); toast('Could not open this report'); }
+      });
+      // This handler used to be un-caught: any error inside buildPdf (and there
+      // was one for every cloud-loaded report) rejected silently and the button
+      // simply appeared to do nothing.
       row.querySelector('[data-act="pdf"]').addEventListener('click', async (e)=>{
         e.stopPropagation();
-        const doc = await buildPdf(d);
-        shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
+        try{
+          const doc = await buildPdf(d);
+          await shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
+        }catch(err){
+          console.error('PDF generation failed', err);
+          toast('Could not generate PDF for this report');
+        }
       });
       list.appendChild(row);
     });
@@ -66,33 +80,37 @@
     (svcArr.length?svcArr:['']).forEach(s=>addListRow('servicesDoneList',s));
     $('materialsBody').innerHTML=''; materialRowCount=0;
     (d.materials&&d.materials.length?d.materials:[{},{},{}]).forEach(m=>addMaterialRow(m));
-    if(d.before){
-      $('b_amp_l1').value=d.before.amp[0]||''; $('b_amp_l2').value=d.before.amp[1]||''; $('b_amp_l3').value=d.before.amp[2]||'';
-      $('b_volt_l12').value=d.before.volt[0]||''; $('b_volt_l23').value=d.before.volt[1]||''; $('b_volt_l31').value=d.before.volt[2]||'';
-      $('b_press_suction').value=d.before.pressure[0]||''; $('b_press_discharge').value=d.before.pressure[1]||'';
-      $('b_temp').value=d.before.temp||''; $('b_airflow').value=d.before.airflow||'';
-    }
-    if(d.after){
-      $('a_amp_l1').value=d.after.amp[0]||''; $('a_amp_l2').value=d.after.amp[1]||''; $('a_amp_l3').value=d.after.amp[2]||'';
-      $('a_volt_l12').value=d.after.volt[0]||''; $('a_volt_l23').value=d.after.volt[1]||''; $('a_volt_l31').value=d.after.volt[2]||'';
-      $('a_press_suction').value=d.after.pressure[0]||''; $('a_press_discharge').value=d.after.pressure[1]||'';
-      $('a_temp').value=d.after.temp||''; $('a_airflow').value=d.after.airflow||'';
+    // Legacy/cloud rows can carry partial objects (e.g. {} or a missing `amp`
+    // array), which used to throw on `d.before.amp[0]`. Normalise first.
+    {
+      const before = normalizeOperatingData(d.before);
+      $('b_amp_l1').value=before.amp[0]||''; $('b_amp_l2').value=before.amp[1]||''; $('b_amp_l3').value=before.amp[2]||'';
+      $('b_volt_l12').value=before.volt[0]||''; $('b_volt_l23').value=before.volt[1]||''; $('b_volt_l31').value=before.volt[2]||'';
+      $('b_press_suction').value=before.pressure[0]||''; $('b_press_discharge').value=before.pressure[1]||'';
+      $('b_temp').value=before.temp||''; $('b_airflow').value=before.airflow||'';
+      const after = normalizeOperatingData(d.after);
+      $('a_amp_l1').value=after.amp[0]||''; $('a_amp_l2').value=after.amp[1]||''; $('a_amp_l3').value=after.amp[2]||'';
+      $('a_volt_l12').value=after.volt[0]||''; $('a_volt_l23').value=after.volt[1]||''; $('a_volt_l31').value=after.volt[2]||'';
+      $('a_press_suction').value=after.pressure[0]||''; $('a_press_discharge').value=after.pressure[1]||'';
+      $('a_temp').value=after.temp||''; $('a_airflow').value=after.airflow||'';
     }
     $('isInstallToggle').checked = !!d.isInstall;
     $('installSection').classList.toggle('open', !!d.isInstall);
-    if(d.install){
-      $('pd_suction').value=d.install.pd[0]||''; $('pd_discharge').value=d.install.pd[1]||''; $('pd_drain').value=d.install.pd[2]||'';
-      $('pl_refline').value=d.install.pl[0]||''; $('pl_drain').value=d.install.pl[1]||'';
-      $('ws_feeder').value=d.install.ws[0]||''; $('ws_control').value=d.install.ws[1]||'';
-      $('circuit_breaker').value=d.install.breaker||'';
-      $('pi_refline').value=d.install.pi[0]||''; $('pi_drain').value=d.install.pi[1]||'';
-      $('riser_height').value=d.install.riser||''; $('ptrap').value=d.install.ptrap||'';
-      $('bracketType').value=d.install.bracketType||'';
+    {
+      const inst = normalizeInstallData(d.install);
+      $('pd_suction').value=inst.pd[0]||''; $('pd_discharge').value=inst.pd[1]||''; $('pd_drain').value=inst.pd[2]||'';
+      $('pl_refline').value=inst.pl[0]||''; $('pl_drain').value=inst.pl[1]||'';
+      $('ws_feeder').value=inst.ws[0]||''; $('ws_control').value=inst.ws[1]||'';
+      $('circuit_breaker').value=inst.breaker||'';
+      $('pi_refline').value=inst.pi[0]||''; $('pi_drain').value=inst.pi[1]||'';
+      $('riser_height').value=inst.riser||''; $('ptrap').value=inst.ptrap||'';
+      $('bracketType').value=inst.bracketType||'';
     }
     $('timeIn').value=d.timeIn||''; $('timeOut').value=d.timeOut||''; $('remarks').value=d.remarks||'';
     $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName || (currentUser ? currentUser.name : '') || '';
-    if(d.sigCustomer){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(d.sigCustomer); $('sigCustomerPh').style.display='none'; }
-    if(d.sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(d.sigTech); $('sigTechPh').style.display='none'; }
+    const sigCust = asSignature(d.sigCustomer), sigTech = asSignature(d.sigTech);
+    if(sigCust){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(sigCust); $('sigCustomerPh').style.display='none'; }
+    if(sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(sigTech); $('sigTechPh').style.display='none'; }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
@@ -107,7 +125,7 @@
   function openMainMenu(){ $('menuDropdown').classList.add('open'); }
   async function ensureAdminAuthenticated(){
     if(adminMode) return true;
-    const pin = prompt('Enter Admin Password:');
+    const pin = await askPassword({ label: 'Enter the Admin Password to continue' });
     if(pin===null) return false;
     if(!(await verifyAdminPassword(pin))){ toast('Incorrect password'); return false; }
     enterAdminMode();
@@ -244,17 +262,75 @@
   }
 
   // ---- Geolocation ---------------------------------------------------
+  // Nominatim is a free, donation-funded service with a strict usage policy:
+  // one request per second, and it blocks clients that don't identify
+  // themselves. Every time-in, time-out, OT-in and OT-out was firing an
+  // un-identified request, which is exactly the pattern that gets an app's
+  // traffic blocked outright — at which point every punch would silently record
+  // bare coordinates instead of an address.
+  //
+  // Two mitigations: identify the app via the Referer the browser already sends
+  // plus an explicit contact e-mail parameter (the policy's documented method,
+  // since browsers forbid setting User-Agent from JS), and cache results so
+  // repeated punches from the same spot cost zero requests.
+  const GEO_CONTACT = 'awes.manila@gmail.com';
+  const GEO_CACHE_KEY = 'geocode-cache';
+  const GEO_CACHE_MAX = 200;
+  const GEO_TTL_MS = 30 * 24 * 60 * 60 * 1000; // addresses don't move
+  let geoCache = null;
+
+  async function geoCacheLoad(){
+    if(geoCache) return geoCache;
+    try{
+      const rec = await storage.get(GEO_CACHE_KEY);
+      geoCache = rec && rec.value ? JSON.parse(rec.value) : {};
+    }catch(e){ geoCache = {}; }
+    return geoCache;
+  }
+  async function geoCacheSave(){
+    try{
+      const keys = Object.keys(geoCache);
+      if(keys.length > GEO_CACHE_MAX){
+        // Drop the oldest entries so this can never grow without bound.
+        keys.sort((a,b)=> (geoCache[a].t||0) - (geoCache[b].t||0))
+            .slice(0, keys.length - GEO_CACHE_MAX)
+            .forEach(k=> delete geoCache[k]);
+      }
+      await storage.set(GEO_CACHE_KEY, JSON.stringify(geoCache));
+    }catch(e){ /* cache is an optimisation only */ }
+  }
+
   async function dtrReverseGeocode(lat, lng){
+    // ~5 decimal places is roughly a metre, which is finer than phone GPS
+    // accuracy, so rounding to 4 (~11m) makes repeat punches at the same site
+    // land on the same cache key.
+    const key = Number(lat).toFixed(4)+','+Number(lng).toFixed(4);
+    const cache = await geoCacheLoad();
+    const hit = cache[key];
+    if(hit && (Date.now() - (hit.t||0)) < GEO_TTL_MS) return hit.a || null;
+
     try{
       const ctrl = new AbortController();
       const timer = setTimeout(()=> ctrl.abort(), 8000);
-      const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat='+lat+'&lon='+lng+'&zoom=18&addressdetails=1';
+      const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2'
+        + '&lat='+encodeURIComponent(lat)
+        + '&lon='+encodeURIComponent(lng)
+        + '&zoom=18&addressdetails=1'
+        + '&email='+encodeURIComponent(GEO_CONTACT);
       const res = await fetch(url, {signal: ctrl.signal, headers:{'Accept-Language':'en'}});
       clearTimeout(timer);
-      if(!res.ok) return null;
+      if(!res.ok){
+        console.warn('reverse geocode rejected', res.status);
+        return hit ? (hit.a || null) : null;   // stale beats nothing
+      }
       const data = await res.json();
-      return (data && data.display_name) ? data.display_name : null;
-    }catch(e){ return null; }
+      const addr = (data && data.display_name) ? data.display_name : null;
+      cache[key] = {a: addr, t: Date.now()};
+      await geoCacheSave();
+      return addr;
+    }catch(e){
+      return hit ? (hit.a || null) : null;
+    }
   }
   function dtrGetLocation(){
     return new Promise((resolve)=>{
@@ -315,12 +391,25 @@
           { onConflict: 'technician_id,date' }
         );
         if(error) throw error;
-        return true;
+        return SAVE_CLOUD;
       }catch(e){ console.error('dtr save failed', describeCloudError(e)); }
     }
-    try{ await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false); return true; }
-    catch(e){ return false; }
+    try{
+      await window.storage.set('dtr:'+userId+':'+dateISO, JSON.stringify(data), false);
+      // Queued so a time-in recorded in a basement or a client site with no
+      // signal still reaches the shared record instead of staying on the phone.
+      return (await outboxQueue('dtr', userId+'|'+dateISO, data)) ? SAVE_QUEUED : SAVE_FAILED;
+    }catch(e){ return SAVE_FAILED; }
   }
+  registerOutboxHandler('dtr', async (key, payload)=>{
+    const sep = key.lastIndexOf('|');
+    const userId = key.slice(0, sep), dateISO = key.slice(sep+1);
+    const { error } = await db.from('dtr_records').upsert(
+      { technician_id: userId, date: dateISO, data: payload },
+      { onConflict: 'technician_id,date' }
+    );
+    if(error) throw error;
+  });
   // History is always scoped to one user (per-user DTR) and capped to the last 30 days.
   async function dtrListForUser(userId, sinceISO){
     if(await ensureCloud()){
@@ -411,9 +500,9 @@
       const otInTxt = d.otTimeIn ? dtrFmtTime(d.otTimeIn) : null;
       const otOutTxt = d.otTimeOut ? dtrFmtTime(d.otTimeOut) : null;
       row.innerHTML =
-        '<div class="hist-info"><b>'+dtrFmtDateLabel(d.date)+'</b>'+
-        '<span>In: '+inTxt+' &nbsp;·&nbsp; Out: '+outTxt+'</span>'+
-        ((otInTxt || otOutTxt) ? '<span>OT In: '+(otInTxt||'—')+' &nbsp;·&nbsp; OT Out: '+(otOutTxt||'—')+'</span>' : '')+
+        '<div class="hist-info"><b>'+escapeHtml(dtrFmtDateLabel(d.date))+'</b>'+
+        '<span>In: '+escapeHtml(inTxt)+' &nbsp;·&nbsp; Out: '+escapeHtml(outTxt)+'</span>'+
+        ((otInTxt || otOutTxt) ? '<span>OT In: '+escapeHtml(otInTxt||'—')+' &nbsp;·&nbsp; OT Out: '+escapeHtml(otOutTxt||'—')+'</span>' : '')+
         (d.timeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="in">📍 In: '+escapeHtml(dtrLocLabel(d.timeInLoc))+'</button>' : '')+
         (d.timeOutLoc ? '<button type="button" class="dtr-loc-tag" data-kind="out">📍 Out: '+escapeHtml(dtrLocLabel(d.timeOutLoc))+'</button>' : '')+
         (d.otTimeInLoc ? '<button type="button" class="dtr-loc-tag" data-kind="otin">📍 OT In: '+escapeHtml(dtrLocLabel(d.otTimeInLoc))+'</button>' : '')+
@@ -431,6 +520,14 @@
     });
   }
 
+  // Turns a tri-state save result into an honest message. The old code treated
+  // any truthy return as success, so a device-only save was reported exactly
+  // like a cloud save and a total failure was reported as success too.
+  function dtrSaveToast(res, label){
+    if(res===SAVE_CLOUD) return label;
+    if(res===SAVE_QUEUED) return label+' (saved on this device \u2014 it will sync when you are online)';
+    return 'Could not save \u2014 please try again';
+  }
   async function dtrDoTimeIn(){
     if(!currentUser || currentUser.role==='admin') return;
     const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
@@ -447,9 +544,9 @@
       userId: currentUser.id, userName: currentUser.name, date: dateISO,
       timeIn: now, timeInLoc: loc
     });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Timed in at '+dtrFmtTime(now) : 'Could not save time in');
-    await dtrRenderTodayStatus(ok ? rec : undefined);
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Timed in at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   async function dtrDoTimeOut(){
@@ -466,9 +563,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { timeOut: now, timeOutLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Timed out at '+dtrFmtTime(now) : 'Could not save time out');
-    await dtrRenderTodayStatus(ok ? rec : undefined);
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Timed out at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   $('dtrTimeInBtn').addEventListener('click', dtrDoTimeIn);
@@ -488,9 +585,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeIn: now, otTimeInLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Overtime timed in at '+dtrFmtTime(now) : 'Could not save overtime time in');
-    await dtrRenderTodayStatus(ok ? rec : undefined);
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Overtime timed in at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   async function dtrDoOtTimeOut(){
@@ -507,9 +604,9 @@
     const loc = await dtrGetLocation();
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeOut: now, otTimeOutLoc: loc });
-    const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
-    toast(ok ? 'Overtime timed out at '+dtrFmtTime(now) : 'Could not save overtime time out');
-    await dtrRenderTodayStatus(ok ? rec : undefined);
+    const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    toast(dtrSaveToast(res, 'Overtime timed out at '+dtrFmtTime(now)));
+    await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
   }
   $('dtrOtTimeInBtn').addEventListener('click', dtrDoOtTimeIn);
