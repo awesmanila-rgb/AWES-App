@@ -391,7 +391,8 @@
     if(!target){ list.innerHTML = '<div class="empty-state">Select a technician to view their DTR.</div>'; return; }
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const since = new Date(); since.setDate(since.getDate()-30);
-    const sinceISO = since.toISOString().slice(0,10);
+    const sinceY = since.getFullYear(), sinceM = String(since.getMonth()+1).padStart(2,'0'), sinceD = String(since.getDate()).padStart(2,'0');
+    const sinceISO = sinceY+'-'+sinceM+'-'+sinceD;
     const items = await dtrListForUser(target.id, sinceISO);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No DTR entries in the last 30 days.</div>'; return; }
     list.innerHTML = '';

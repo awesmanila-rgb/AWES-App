@@ -189,7 +189,8 @@
     if(!row) return null;
     return {
       id: row.id, name: row.name, active: row.active,
-      restrictions: { noHistory: row.no_history, noReport: row.no_report, readOnly: row.read_only }
+      restrictions: { noHistory: row.no_history, noReport: row.no_report, readOnly: row.read_only },
+      mustChangePassword: !!row.must_change_password
     };
   }
   async function localListUsers(){
@@ -261,6 +262,55 @@
     const users = (await localListUsers()).filter(u=>u.id!==id);
     return await localSaveUsers(users);
   }
+  // Clears the caller's OWN must_change_password flag via a narrow RPC
+  // (see clear_my_must_change_password in the schema) — deliberately not a
+  // direct table update, so a technician can't rewrite other columns on
+  // their own profile row (like role) through the same code path.
+  async function cloudClearMustChangePassword(){
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.rpc('clear_my_must_change_password');
+      if(error) throw error;
+      return true;
+    }catch(e){ console.error('clear must_change_password failed', describeCloudError(e)); return false; }
+  }
+  // Shared Change Password screen — used both for the forced first-login
+  // change (forced=true, no Cancel, resolves only once actually saved) and
+  // the voluntary "Change My Password" homepage tile (forced=false, has
+  // Cancel). Returns a Promise resolving true if the password was changed.
+  function showChangePasswordScreen(forced){
+    return new Promise((resolve)=>{
+      $('cpTitle').textContent = forced ? 'Set a New Password' : 'Change Password';
+      $('cpMessage').textContent = forced
+        ? 'For your security, set your own password before continuing.'
+        : '';
+      $('cpCancelBtn').style.display = forced ? 'none' : '';
+      $('cpNew').value = ''; $('cpConfirm').value = '';
+      $('changePasswordOverlay').classList.add('open');
+      setTimeout(()=> $('cpNew').focus(), 50);
+
+      $('cpCancelBtn').onclick = ()=>{
+        $('changePasswordOverlay').classList.remove('open');
+        resolve(false);
+      };
+      $('cpSaveBtn').onclick = async ()=>{
+        const p1 = $('cpNew').value, p2 = $('cpConfirm').value;
+        if(!p1 || p1.length < 4){ toast('Password must be at least 4 characters'); return; }
+        if(p1 !== p2){ toast('Passwords do not match'); return; }
+        if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
+        $('cpSaveBtn').disabled = true;
+        try{
+          const { error } = await db.auth.updateUser({ password: p1 });
+          if(error){ toast('Could not update password: '+error.message); return; }
+          await cloudClearMustChangePassword();
+          if(currentUser) currentUser.mustChangePassword = false;
+          $('changePasswordOverlay').classList.remove('open');
+          toast('Password updated');
+          resolve(true);
+        } finally { $('cpSaveBtn').disabled = false; }
+      };
+    });
+  }
 
   let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
@@ -290,6 +340,7 @@
     setVis('newBtn', !isTech);
     setVis('menuWrap', !isTech);
     setVis('userLogoutBtn', isTech);
+    setVis('tile_changePassword', isTech);
     applyTechNameDefault();
     // History access
     setVis('menuManageReports', !r.noHistory);
@@ -483,11 +534,12 @@
       const { data, error } = await db.auth.signInWithPassword({ email: techEmail(u.id), password: pin });
       submit.disabled = false;
       if(error){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
-      currentUser = {id: data.user.id, name:u.name, role:'tech', restrictions: u.restrictions||{}};
+      currentUser = {id: data.user.id, name:u.name, role:'tech', restrictions: u.restrictions||{}, mustChangePassword: !!u.mustChangePassword};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
+      if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
       enterApp();
       toast('Welcome, '+u.name);
     };
@@ -517,10 +569,11 @@
     if(saved){
       const fresh = await cloudGetUser(saved.id);
       if(fresh && fresh.active!==false){
-        currentUser = {id:fresh.id, name:fresh.name, role:'tech', restrictions: fresh.restrictions||{}};
+        currentUser = {id:fresh.id, name:fresh.name, role:'tech', restrictions: fresh.restrictions||{}, mustChangePassword: !!fresh.mustChangePassword};
         updateUserBadge();
         applyUserRestrictions();
         $('loginOverlay').classList.remove('open');
+        if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
       enterApp();
         return;
       }
@@ -614,6 +667,12 @@
 
 // ---------- SR number counter (persisted, shared when cloud is connected) ----------
   let currentSrNo = null;
+  // Tracks which technician a report belongs to across edits. Set when a
+  // report is freshly created (the logged-in user) or reopened from history
+  // (the report's original technician) — NOT reset to "whoever is currently
+  // editing" on every save, since an admin reviewing/fixing someone else's
+  // report shouldn't reassign it to themselves.
+  let currentTechnicianId = null;
   async function nextSrNo(){
     const dateStr = ($('svcDate').value || todayISO()).replace(/-/g,'');
     if(await ensureCloud()){
@@ -1846,6 +1905,7 @@
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
     currentSrNo = null;
+    currentTechnicianId = null;
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();
@@ -1883,6 +1943,7 @@
 
     return {
       srNo: currentSrNo,
+      technicianId: currentTechnicianId || (currentUser ? currentUser.id : null),
       date: $('svcDate').value,
       custName: $('custName').value.trim(),
       custAddress: $('custAddress').value.trim(),
@@ -2329,6 +2390,7 @@
   async function openReport(d){
     resetForm();
     currentSrNo = d.srNo; $('metaSrNo').textContent = d.srNo||'—';
+    currentTechnicianId = d.technicianId || (currentUser ? currentUser.id : null);
     $('custName').value = d.custName||''; $('svcDate').value = d.date||todayISO();
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('custAddress').value = d.custAddress||''; $('contactNo').value = d.contactNo||''; $('contactPerson').value = d.contactPerson||'';
@@ -4309,6 +4371,7 @@
   $('tile_dispatch').addEventListener('click', showDispatchView);
   $('tile_leave').addEventListener('click', showLeaveView);
   $('tile_materialRequest').addEventListener('click', ()=> flashComingSoonHeader('Material Request Form', 'Material Request Form — coming soon'));
+  $('tile_changePassword').addEventListener('click', ()=> showChangePasswordScreen(false));
   $('homeBtn').addEventListener('click', showHome);
 
 })();
