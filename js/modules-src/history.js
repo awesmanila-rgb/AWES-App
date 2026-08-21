@@ -355,11 +355,17 @@
   // themself, or — for admin — whichever technician they picked.
   let dtrViewingUser = null;
 
-  async function dtrRenderTodayStatus(){
+  // Accepts an optional preloadedRec (the record we JUST saved) to avoid
+  // re-querying the server immediately after a write — a fresh read right
+  // after a save was intermittently returning the pre-save state (likely a
+  // browser HTTP cache serving the identical GET request URL), leaving the
+  // screen showing blank/old times until the technician navigated away and
+  // back, even though the save itself had already succeeded.
+  async function dtrRenderTodayStatus(preloadedRec){
     if(!currentUser || currentUser.role==='admin') return;
     const dateISO = todayISO();
     $('dtrTodayDate').textContent = dtrFmtDateLabel(dateISO);
-    const rec = await dtrGetDay(currentUser.id, dateISO);
+    const rec = preloadedRec !== undefined ? preloadedRec : await dtrGetDay(currentUser.id, dateISO);
     $('dtrTodayIn').textContent = rec && rec.timeIn ? dtrFmtTime(rec.timeIn) : '—';
     $('dtrTodayOut').textContent = rec && rec.timeOut ? dtrFmtTime(rec.timeOut) : '—';
     $('dtrTimeInBtn').disabled = !!(rec && rec.timeIn);
@@ -443,7 +449,7 @@
     });
     const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
     toast(ok ? 'Timed in at '+dtrFmtTime(now) : 'Could not save time in');
-    await dtrRenderTodayStatus();
+    await dtrRenderTodayStatus(ok ? rec : undefined);
     await dtrRenderHistory();
   }
   async function dtrDoTimeOut(){
@@ -462,7 +468,7 @@
     const rec = Object.assign({}, existing, { timeOut: now, timeOutLoc: loc });
     const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
     toast(ok ? 'Timed out at '+dtrFmtTime(now) : 'Could not save time out');
-    await dtrRenderTodayStatus();
+    await dtrRenderTodayStatus(ok ? rec : undefined);
     await dtrRenderHistory();
   }
   $('dtrTimeInBtn').addEventListener('click', dtrDoTimeIn);
@@ -484,7 +490,7 @@
     const rec = Object.assign({}, existing, { otTimeIn: now, otTimeInLoc: loc });
     const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
     toast(ok ? 'Overtime timed in at '+dtrFmtTime(now) : 'Could not save overtime time in');
-    await dtrRenderTodayStatus();
+    await dtrRenderTodayStatus(ok ? rec : undefined);
     await dtrRenderHistory();
   }
   async function dtrDoOtTimeOut(){
@@ -503,7 +509,7 @@
     const rec = Object.assign({}, existing, { otTimeOut: now, otTimeOutLoc: loc });
     const ok = await dtrSaveDay(currentUser.id, dateISO, rec);
     toast(ok ? 'Overtime timed out at '+dtrFmtTime(now) : 'Could not save overtime time out');
-    await dtrRenderTodayStatus();
+    await dtrRenderTodayStatus(ok ? rec : undefined);
     await dtrRenderHistory();
   }
   $('dtrOtTimeInBtn').addEventListener('click', dtrDoOtTimeIn);

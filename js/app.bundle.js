@@ -15,7 +15,20 @@
     const t = $('toast'); t.textContent = msg; t.classList.add('show');
     setTimeout(()=>t.classList.remove('show'), 2200);
   }
-  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  // IMPORTANT: must return the device's LOCAL calendar date, not UTC.
+  // toISOString() always converts to UTC first — for Philippine time (UTC+8),
+  // that meant anyone clocking in before 8:00 AM local time got their DTR
+  // entry filed under YESTERDAY's date, while clocking out later the same
+  // local day (after the UTC rollover) looked up TODAY's date instead and
+  // found no matching record — blocking Time Out or creating a duplicate,
+  // separate entry. Using local getters instead avoids this entirely.
+  function todayISO(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+day;
+  }
   function fmtDate(iso){
     if(!iso) return '—';
     const d = new Date(iso+'T00:00:00');
@@ -66,7 +79,18 @@
     }
   }
   function initCloud(){
-    if(!cloudInitPromise) cloudInitPromise = doCloudInit();
+    if(!cloudInitPromise){
+      // If this attempt fails (e.g. a brief signal drop while the Supabase
+      // library was loading), don't permanently cache the failure — clear
+      // the promise so the NEXT call retries fresh instead of silently
+      // falling back to this device's local-only data for the rest of the
+      // session (which is how technicians ended up seeing an incomplete
+      // list, or just themselves, on flaky field connections).
+      cloudInitPromise = doCloudInit().then(ok=>{
+        if(!ok) cloudInitPromise = null;
+        return ok;
+      });
+    }
     return cloudInitPromise;
   }
   async function ensureCloud(){
@@ -2744,7 +2768,8 @@
     if(!target){ list.innerHTML = '<div class="empty-state">Select a technician to view their DTR.</div>'; return; }
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const since = new Date(); since.setDate(since.getDate()-30);
-    const sinceISO = since.toISOString().slice(0,10);
+    const sinceY = since.getFullYear(), sinceM = String(since.getMonth()+1).padStart(2,'0'), sinceD = String(since.getDate()).padStart(2,'0');
+    const sinceISO = sinceY+'-'+sinceM+'-'+sinceD;
     const items = await dtrListForUser(target.id, sinceISO);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No DTR entries in the last 30 days.</div>'; return; }
     list.innerHTML = '';
