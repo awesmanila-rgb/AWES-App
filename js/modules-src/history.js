@@ -1,5 +1,5 @@
 // ---------- history ----------
-  async function loadHistory(containerId){
+  async function loadHistory(containerId, filter){
     const list = $(containerId || 'historyList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     let reports = null;
@@ -16,7 +16,16 @@
         }
       }catch(e){}
     }
-    if(reports.length===0){ list.innerHTML = '<div class="empty-state">No saved reports yet.</div>'; return; }
+    if(filter==='draft') reports = reports.filter(d=> !d.completed);
+    else if(filter==='completed') reports = reports.filter(d=> d.completed);
+    // filter==='all' (or omitted) keeps everything, unfiltered.
+    if(reports.length===0){
+      const emptyMsg = filter==='draft' ? 'No draft reports yet.'
+        : filter==='completed' ? 'No completed reports yet.'
+        : 'No saved reports yet.';
+      list.innerHTML = '<div class="empty-state">'+emptyMsg+'</div>';
+      return;
+    }
     list.innerHTML = '';
     reports.forEach(d=>{
       const row = document.createElement('div');

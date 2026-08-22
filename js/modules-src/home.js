@@ -49,21 +49,30 @@
     $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
     window.scrollTo({top:0});
   }
-  // ---------- Service Report: Create New / View History tabs ----------
+  // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------
   function srShowTab(which){
     $('srTabNewBtn').classList.toggle('active', which==='new');
-    $('srTabHistoryBtn').classList.toggle('active', which==='history');
+    $('srTabDraftBtn').classList.toggle('active', which==='draft');
+    $('srTabCompletedBtn').classList.toggle('active', which==='completed');
+    $('srTabAllBtn').classList.toggle('active', which==='all');
+    const isHistoryTab = which!=='new';
     $('srNewPanel').style.display = which==='new' ? '' : 'none';
-    $('srHistoryPanel').style.display = which==='history' ? '' : 'none';
+    $('srHistoryPanel').style.display = isHistoryTab ? '' : 'none';
     // The footer (Save Draft / Generate Report) and the SR-No./status meta
     // bar only make sense while actively filling out a report.
     $('footerBar').style.display = which==='new' ? 'flex' : 'none';
     $('metaBar').style.display = which==='new' ? '' : 'none';
     if(which==='new') srRenderJobOrderPicker();
-    if(which==='history') loadHistory('srHistoryList');
+    if(isHistoryTab){
+      $('srHistoryPanelTitle').textContent =
+        which==='draft' ? 'Saved Draft Reports' : which==='completed' ? 'Completed Reports' : 'All Reports';
+      loadHistory('srHistoryList', which);
+    }
   }
   $('srTabNewBtn').addEventListener('click', ()=> srShowTab('new'));
-  $('srTabHistoryBtn').addEventListener('click', ()=> srShowTab('history'));
+  $('srTabDraftBtn').addEventListener('click', ()=> srShowTab('draft'));
+  $('srTabCompletedBtn').addEventListener('click', ()=> srShowTab('completed'));
+  $('srTabAllBtn').addEventListener('click', ()=> srShowTab('all'));
 
   function showServiceReport(){
     $('homeScreen').style.display = 'none';
