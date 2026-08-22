@@ -595,8 +595,28 @@ window.awesLibs = {
 
         <div class="field">
           <label>4. Equipment Information</label>
-          <div id="dtEquipList"></div>
-          <button type="button" class="add-row-btn" data-target="dtEquipList">+ Add equipment</button>
+          <div id="dtEquipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
+            <button type="button" id="dtEquipTabExisting" class="equip-tab">Select Existing</button>
+            <button type="button" id="dtEquipTabAddNew" class="equip-tab">+ Add New</button>
+          </div>
+          <div id="dtEquipPickerPanel" style="display:none; margin-bottom:14px;">
+            <div id="dtEquipPickerList"></div>
+          </div>
+          <div id="dtEquipFieldsWrap">
+            <div class="field"><label>Equipment Type</label><input type="text" id="dtEquipType" placeholder="e.g. Split Type Unit"></div>
+            <div class="grid2">
+              <div class="field"><label>Model No. (CU)</label><input type="text" id="dtModelCU"></div>
+              <div class="field"><label>Serial No. (CU)</label><input type="text" id="dtSerialCU"></div>
+              <div class="field"><label>Model No. (FCU)</label><input type="text" id="dtModelFCU"></div>
+              <div class="field"><label>Serial No. (FCU)</label><input type="text" id="dtSerialFCU"></div>
+              <div class="field"><label>Cooling Capacity (HP, TR, Btu/hr)</label><input type="text" id="dtCoolCap"></div>
+              <div class="field"><label>Mounting Type</label><input type="text" id="dtMountType"></div>
+              <div class="field"><label>Manufacturer / Brand</label><input type="text" id="dtBrand"></div>
+              <div class="field"><label>Refrigerant Type</label><input type="text" id="dtRefrigerantType" placeholder="e.g. R410A"></div>
+              <div class="field"><label>Compressor Type</label><input type="text" id="dtCompressorType" placeholder="e.g. Inverter"></div>
+              <div class="field"><label>Specific Location of Equipment</label><input type="text" id="dtEquipLocation"></div>
+            </div>
+          </div>
         </div>
 
         <div class="field">
