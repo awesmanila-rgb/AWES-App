@@ -71,7 +71,14 @@
       catch(e){ setCloudStatusUI(false); return false; }
     }
     try{
-      db = window.supabase.createClient(cfg.url, cfg.anonKey);
+      // A custom fetch that forces cache:'no-store' on every request the
+      // Supabase client makes. Without this, the browser's own HTTP cache
+      // can serve an identical earlier GET request's response instead of
+      // hitting the network fresh — which was causing screens (Today's DTR
+      // status, History, etc.) to intermittently show stale data right
+      // after a save, until the user navigated away and back.
+      const noCacheFetch = (url, options) => fetch(url, { ...options, cache: 'no-store' });
+      db = window.supabase.createClient(cfg.url, cfg.anonKey, { global: { fetch: noCacheFetch } });
       cloudReady = true;
       setCloudStatusUI(true);
       return true;

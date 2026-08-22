@@ -678,7 +678,9 @@ window.awesLibs = {
 
   <div class="seg-tabs" id="srSegTabs">
     <button type="button" class="seg-tab active" id="srTabNewBtn">Create New</button>
-    <button type="button" class="seg-tab" id="srTabHistoryBtn">View History</button>
+    <button type="button" class="seg-tab" id="srTabDraftBtn">Saved Draft</button>
+    <button type="button" class="seg-tab" id="srTabCompletedBtn">Completed</button>
+    <button type="button" class="seg-tab" id="srTabAllBtn">All</button>
   </div>
 
   <div id="srNewPanel">
@@ -943,7 +945,7 @@ window.awesLibs = {
 
   <!-- View History (inline, mirrors the "Saved Reports" overlay list) -->
   <div class="card" id="srHistoryPanel" style="display:none;">
-    <div class="card-head"><span>Saved Reports</span></div>
+    <div class="card-head"><span id="srHistoryPanelTitle">Saved Reports</span></div>
     <div class="card-body">
       <div id="srHistoryList"><div class="empty-state">Loading…</div></div>
     </div>
