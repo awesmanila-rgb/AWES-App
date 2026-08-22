@@ -138,7 +138,10 @@
     if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
     if(ticket.contactName) $('contactPerson').value = ticket.contactName;
     if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
-    if(ticket.equipment && ticket.equipment.length){
+    if(ticket.equipmentDetails && Object.values(ticket.equipmentDetails).some(v=>v)){
+      EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = ticket.equipmentDetails[k]||''; });
+      setEquipTab('addnew');
+    }else if(ticket.equipment && ticket.equipment.length){
       $('equipType').value = ticket.equipment.join('; ');
       setEquipTab('addnew');
     }
@@ -149,13 +152,13 @@
     $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
   }
 
-  // ---- simple repeatable-textarea list (equipment / scope items) ----
+  // ---- simple repeatable-textarea list (scope items) ----
   function dtAddSimpleRow(containerId, value){
     const wrap = document.createElement('div');
     wrap.className = 'itemrow';
     const ta = document.createElement('textarea');
     ta.rows = 1; ta.value = value || '';
-    ta.placeholder = containerId==='dtEquipList' ? 'e.g. Split Type Unit — Living Room' : 'e.g. Clean coils, check refrigerant, test operation';
+    ta.placeholder = 'e.g. Clean coils, check refrigerant, test operation';
     const rm = document.createElement('button');
     rm.type = 'button'; rm.className = 'rm-btn'; rm.textContent = '\u2212';
     rm.onclick = () => wrap.remove();
@@ -174,21 +177,124 @@
   });
 
   // ---- lightweight customer autocomplete scoped to this form's own fields ----
+  // ---------- Equipment picker for Dispatch Ticket ----------
+  // Deliberately independent state from Service Report's equipment picker
+  // (not sharing currentCustomerId/currentEquipmentCache) — Dispatch and
+  // Service Report can each have their own form mid-edit, and sharing that
+  // global state would let one screen's customer selection silently
+  // overwrite the other's equipment list. Both read/write the same
+  // customer_equipment table underneath, so equipment entered on a dispatch
+  // ticket shows up for technicians on Service Report later, and vice versa.
+  let dtCurrentCustomerId = null;
+  let dtCurrentEquipmentCache = [];
+  let dtCurrentEquipTab = null;
+  async function dtLoadCustomerEquipment(customerId){
+    dtCurrentCustomerId = customerId;
+    if(!customerId){ dtCurrentEquipmentCache = []; return; }
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('customer_equipment').select('*').eq('customer_id', customerId);
+        if(error) throw error;
+        dtCurrentEquipmentCache = (data||[]).map(equipRowToObj);
+        return;
+      }catch(e){ console.error('load dispatch equipment failed', describeCloudError(e)); }
+    }
+    dtCurrentEquipmentCache = [];
+  }
+  function dtEquipSummaryLine(e){
+    return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+  }
+  function dtRenderEquipPicker(){
+    const list = $('dtEquipPickerList');
+    list.innerHTML = '';
+    if(!dtCurrentCustomerId){
+      list.innerHTML = '<div class="combo-empty">Select a customer first.</div>';
+      return;
+    }
+    if(dtCurrentEquipmentCache.length===0){
+      list.innerHTML = '<div class="combo-empty">No equipment on file yet for this customer — tap "+ Add New" to add one.</div>';
+      return;
+    }
+    dtCurrentEquipmentCache.forEach(e=>{
+      const row = document.createElement('div');
+      row.className = 'combo-item';
+      row.style.cssText = 'border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;';
+      row.textContent = dtEquipSummaryLine(e);
+      row.addEventListener('click', ()=>{
+        EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); if(el) el.value = e[k]||''; });
+        dtSetEquipTab('addnew');
+        toast('Loaded equipment: '+dtEquipSummaryLine(e));
+      });
+      list.appendChild(row);
+    });
+  }
+  function dtSetEquipTab(tab){
+    dtCurrentEquipTab = tab;
+    $('dtEquipTabExisting').classList.toggle('active', tab==='existing');
+    $('dtEquipTabAddNew').classList.toggle('active', tab==='addnew');
+    if(tab==='existing'){
+      if(!dtCurrentCustomerId){ toast('Select a customer first'); dtCurrentEquipTab='addnew'; $('dtEquipTabExisting').classList.remove('active'); $('dtEquipTabAddNew').classList.add('active'); }
+      $('dtEquipPickerPanel').style.display = dtCurrentEquipTab==='existing' ? '' : 'none';
+      $('dtEquipFieldsWrap').style.display = dtCurrentEquipTab==='existing' ? 'none' : '';
+      if(dtCurrentEquipTab==='existing') dtRenderEquipPicker();
+    }else if(tab==='addnew'){
+      $('dtEquipPickerPanel').style.display = 'none';
+      $('dtEquipFieldsWrap').style.display = '';
+    }else{
+      $('dtEquipPickerPanel').style.display = 'none';
+      $('dtEquipFieldsWrap').style.display = 'none';
+    }
+  }
+  function dtDefaultEquipTabForCustomer(){
+    dtSetEquipTab(dtCurrentEquipmentCache.length>0 ? 'existing' : 'addnew');
+  }
+  function dtCollectEquipmentFields(){
+    const fields = {};
+    EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); fields[k] = el ? el.value.trim() : ''; });
+    return fields;
+  }
+  function dtResetEquipmentFields(){
+    EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); if(el) el.value=''; });
+  }
+  // Records new equipment against the customer, deduping against THIS
+  // dedicated cache (not the shared one Service Report uses).
+  async function dtAddCustomerEquipmentIfNew(customerId, fields){
+    if(!customerId) return;
+    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
+    if(!hasAnyValue) return;
+    const dupe = dtCurrentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
+    if(dupe) return;
+    if(!(await ensureCloud())) return;
+    try{
+      const rec = { customer_id: customerId };
+      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
+      const { error } = await db.from('customer_equipment').insert(rec);
+      if(error) throw error;
+    }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
+  }
+
   function dtSetupCustomerCombo(){
     const input = $('dtCustName');
     if(input.dataset.comboAttached) return;
     input.dataset.comboAttached = '1';
     const wrap = $('dtCustNameWrap');
     wrap.style.position = 'relative';
+    input.classList.add('combo-input');
+    const caret = document.createElement('button');
+    caret.type = 'button'; caret.className = 'combo-caret'; caret.innerHTML = '&#9662;';
+    wrap.appendChild(caret);
     const panel = document.createElement('div');
     panel.className = 'combo-panel';
     wrap.appendChild(panel);
     function fillFrom(c){
       input.value = c.name;
+      input.dataset.customerId = c.id;
       $('dtSiteAddress').value = c.address||'';
       $('dtContactName').value = c.contactPerson||'';
       $('dtContactNo').value = c.contactNo||'';
       panel.classList.remove('open');
+      dtResetEquipmentFields();
+      dtLoadCustomerEquipment(c.id).then(dtDefaultEquipTabForCustomer);
     }
     function render(filterText){
       const q = (filterText||'').toLowerCase();
@@ -213,8 +319,18 @@
       panel.classList.add('open');
     }
     input.addEventListener('focus', ()=> render(input.value));
-    input.addEventListener('input', ()=> render(input.value));
+    input.addEventListener('input', ()=>{ delete input.dataset.customerId; render(input.value); });
+    caret.addEventListener('click', (e)=>{
+      e.preventDefault();
+      if(panel.classList.contains('open')){ panel.classList.remove('open'); } else { render(input.value); input.focus(); }
+    });
     document.addEventListener('click', (e)=>{ if(!wrap.contains(e.target)) panel.classList.remove('open'); });
+    if(!$('dtEquipTabExisting').dataset.hooked){
+      $('dtEquipTabExisting').dataset.hooked = '1';
+      $('dtEquipTabExisting').addEventListener('click', ()=> dtSetEquipTab('existing'));
+      $('dtEquipTabAddNew').addEventListener('click', ()=> dtSetEquipTab('addnew'));
+      dtSetEquipTab(null);
+    }
   }
 
   async function dtRenderWorkerChecklist(){
@@ -236,9 +352,12 @@
     $('dtJobOrderNo').value = '—';
     $('dtDate').value = todayISO();
     $('dtExpectedTime').value = '';
-    $('dtCustName').value = ''; $('dtSiteAddress').value = '';
+    $('dtCustName').value = ''; delete $('dtCustName').dataset.customerId;
+    $('dtSiteAddress').value = '';
     $('dtContactName').value = ''; $('dtContactNo').value = '';
-    $('dtEquipList').innerHTML=''; dtAddSimpleRow('dtEquipList');
+    dtResetEquipmentFields();
+    dtLoadCustomerEquipment(null);
+    dtSetEquipTab(null);
     $('dtScopeList').innerHTML=''; dtAddSimpleRow('dtScopeList');
     $('dtRemarks').value = '';
     ['dtReqWorkPermit','dtReqGatePass','dtReqSafety','dtReqOthers'].forEach(id=> $(id).checked=false);
@@ -251,19 +370,22 @@
     const workers = Array.from($('dtWorkerChecklist').querySelectorAll('input:checked'))
       .map(el=>({id: el.value, name: el.dataset.name}));
     const custName = $('dtCustName').value.trim();
+    const custId = $('dtCustName').dataset.customerId || null;
     if(workers.length===0){ toast('Assign at least one worker'); return; }
     if(!custName){ toast('Enter the customer\'s name'); return; }
     if(!$('dtDate').value){ toast('Set the date'); return; }
     $('dtCreateBtn').disabled = true; $('dtCreateBtn').textContent = 'Creating…';
     const jobOrderNo = await dtNextJobOrderNo();
     const id = jobOrderNo || dtGenLocalId();
+    const equipmentDetails = dtCollectEquipmentFields();
     const data = {
       id, jobOrderNo: id, status: 'open',
       date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
       assignedWorkerIds: workers.map(w=>w.id), assignedWorkerNames: workers.map(w=>w.name),
       custName, siteAddress: $('dtSiteAddress').value.trim(),
       contactName: $('dtContactName').value.trim(), contactNo: $('dtContactNo').value.trim(),
-      equipment: dtCollectSimpleList('dtEquipList'), scope: dtCollectSimpleList('dtScopeList'),
+      equipment: [dtEquipSummaryLine(equipmentDetails)], equipmentDetails,
+      scope: dtCollectSimpleList('dtScopeList'),
       remarks: $('dtRemarks').value.trim(),
       requirements: {
         workPermit: $('dtReqWorkPermit').checked, gatePass: $('dtReqGatePass').checked,
@@ -277,6 +399,7 @@
     const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
     if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
+    if(custId) await dtAddCustomerEquipmentIfNew(custId, equipmentDetails);
     toast(res===SAVE_CLOUD
       ? ('Dispatch ticket '+id+' created')
       : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));
