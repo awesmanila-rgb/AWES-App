@@ -435,6 +435,20 @@
   }
 
   async function checkLoginGate(){
+    // If admin's session was flagged for forced logout (see the
+    // visibilitychange handler below), honor it before anything else —
+    // even if Supabase's own persisted auth token is still technically
+    // valid. This is checked first and synchronously-set, since an async
+    // signOut() call made right as the page is closing/backgrounding isn't
+    // reliably guaranteed to finish in time.
+    if(localStorage.getItem('admin-force-logout')==='1'){
+      localStorage.removeItem('admin-force-logout');
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      if(await ensureCloud()){ try{ await db.auth.signOut(); }catch(e){} }
+      await showLoginScreen('Please sign in again.');
+      return;
+    }
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
     const verified = await getVerifiedSession();
@@ -486,6 +500,19 @@
     }
     await showLoginScreen();
   }
+
+  // Security: an admin session should NOT survive the window being closed
+  // or minimized — the next time the app loads, admin must sign in again.
+  // (Technician sessions are unaffected and continue to persist normally.)
+  // We clear the persisted session as soon as the page is hidden (this
+  // fires for both minimizing and closing/navigating away), rather than
+  // waiting for an unload event — mobile browsers often don't reliably
+  // fire unload-type events at all, but visibilitychange is dependable.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='hidden' && currentUser && currentUser.role==='admin'){
+      localStorage.setItem('admin-force-logout', '1');
+    }
+  });
 
   // returns false (and re-shows login) if this technician was deactivated mid-session
   async function verifyStillActive(){
