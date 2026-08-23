@@ -114,6 +114,31 @@ window.awesLibs = {
 </head>
 <body>
 
+<!-- TEMPORARY DEBUG PANEL — remove once the unresponsive-tiles bug is found.
+     Shows any JS error directly on screen since DevTools isn't easily
+     available on this device. -->
+<div id="debugErrorPanel" style="display:none; position:fixed; inset:0; z-index:99999; background:#B00020; color:#fff; padding:16px; overflow-y:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;">
+  <div style="font-weight:bold; font-size:15px; margin-bottom:10px;">⚠️ JavaScript Error Caught — screenshot this whole screen</div>
+  <div id="debugErrorText"></div>
+  <button onclick="document.getElementById('debugErrorPanel').style.display='none'" style="margin-top:16px; background:#fff; color:#B00020; border:none; padding:10px 16px; border-radius:6px; font-weight:bold;">Close</button>
+</div>
+<script>
+  function showDebugError(label, detail){
+    const panel = document.getElementById('debugErrorPanel');
+    const text = document.getElementById('debugErrorText');
+    text.textContent += (text.textContent ? '\n\n---\n\n' : '') + label + '\n' + detail;
+    panel.style.display = 'block';
+  }
+  window.addEventListener('error', function(e){
+    showDebugError('Uncaught Error: ' + e.message, 'File: ' + e.filename + '\nLine: ' + e.lineno + ':' + e.colno + '\n\nStack:\n' + (e.error && e.error.stack ? e.error.stack : '(no stack available)'));
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    const reason = e.reason;
+    showDebugError('Unhandled Promise Rejection', (reason && reason.stack) ? reason.stack : String(reason));
+  });
+</script>
+
+
 <!-- Shown when a new version of the app has been fetched in the background
      (see the service worker registration/update logic near the bottom of
      the script). Tapping Refresh applies it immediately. -->
