@@ -93,6 +93,20 @@
     }
     return (await dtLocalList()).filter(t=> (t.assignedWorkerIds||[]).includes(workerId));
   }
+  // Being ASSIGNED to a ticket and being ALLOWED to file its Service Report
+  // are two different things — admin explicitly picks which assigned
+  // worker(s) may create the report, so not everyone on the ticket can.
+  // This powers the "From Job Order" picker specifically; dtListForWorker
+  // above still governs general ticket visibility (the My Job Order tab).
+  async function dtListForReporter(workerId){
+    if(!workerId) return [];
+    if(await ensureCloud()){
+      try{
+        return await dtFetchPaged(q=> q.contains('data->reportAllowedWorkerIds', JSON.stringify([workerId])));
+      }catch(e){ console.error('dispatch reporter list failed', describeCloudError(e)); }
+    }
+    return (await dtLocalList()).filter(t=> (t.reportAllowedWorkerIds||[]).includes(workerId));
+  }
 
   // ---------- Service Report: "From Job Order" picker ----------
   // Shows the technician's own not-yet-completed Job Order tickets at the
@@ -104,7 +118,7 @@
     if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
     card.style.display = '';
     list.innerHTML = '<div class="empty-state">Loading…</div>';
-    const mine = await dtListForWorker(currentUser.id);
+    const mine = await dtListForReporter(currentUser.id);
     const openOnes = mine.filter(r=> r.status!=='completed');
     if(openOnes.length===0){
       list.innerHTML = '<div class="empty-state">No Job Order tickets assigned to you right now.</div>';
@@ -346,6 +360,29 @@
       lbl.innerHTML = '<input type="checkbox" value="'+u.id+'" data-name="'+escapeHtml(u.name)+'"><span>'+escapeHtml(u.name)+'</span>';
       box.appendChild(lbl);
     });
+    if(!box.dataset.hooked){
+      box.dataset.hooked = '1';
+      box.addEventListener('change', dtRenderReporterChecklist);
+    }
+    dtRenderReporterChecklist();
+  }
+  // The "who can create the Service Report" list is always a SUBSET of
+  // whoever is currently checked in Assigned Workers — kept in sync live,
+  // so admin can't accidentally authorize someone who isn't even assigned.
+  function dtRenderReporterChecklist(){
+    const assigned = Array.from($('dtWorkerChecklist').querySelectorAll('input:checked'))
+      .map(el=>({id: el.value, name: el.dataset.name}));
+    const box = $('dtReporterChecklist');
+    const previouslyChecked = new Set(Array.from(box.querySelectorAll('input:checked')).map(el=>el.value));
+    if(assigned.length===0){ box.innerHTML = '<div class="empty-state">Assign workers above first.</div>'; return; }
+    box.innerHTML = '';
+    assigned.forEach(w=>{
+      const lbl = document.createElement('label');
+      lbl.className = 'chk';
+      const checked = previouslyChecked.has(w.id) ? ' checked' : '';
+      lbl.innerHTML = '<input type="checkbox" value="'+w.id+'" data-name="'+escapeHtml(w.name)+'"'+checked+'><span>'+escapeHtml(w.name)+'</span>';
+      box.appendChild(lbl);
+    });
   }
 
   function dtResetForm(){
@@ -369,9 +406,12 @@
   async function dtCreateTicket(){
     const workers = Array.from($('dtWorkerChecklist').querySelectorAll('input:checked'))
       .map(el=>({id: el.value, name: el.dataset.name}));
+    const reporters = Array.from($('dtReporterChecklist').querySelectorAll('input:checked'))
+      .map(el=>({id: el.value, name: el.dataset.name}));
     const custName = $('dtCustName').value.trim();
     const custId = $('dtCustName').dataset.customerId || null;
     if(workers.length===0){ toast('Assign at least one worker'); return; }
+    if(reporters.length===0){ toast('Select at least one technician who can create the Service Report'); return; }
     if(!custName){ toast('Enter the customer\'s name'); return; }
     if(!$('dtDate').value){ toast('Set the date'); return; }
     $('dtCreateBtn').disabled = true; $('dtCreateBtn').textContent = 'Creating…';
@@ -382,6 +422,7 @@
       id, jobOrderNo: id, status: 'open',
       date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
       assignedWorkerIds: workers.map(w=>w.id), assignedWorkerNames: workers.map(w=>w.name),
+      reportAllowedWorkerIds: reporters.map(w=>w.id), reportAllowedWorkerNames: reporters.map(w=>w.name),
       custName, siteAddress: $('dtSiteAddress').value.trim(),
       contactName: $('dtContactName').value.trim(), contactNo: $('dtContactNo').value.trim(),
       equipment: [dtEquipSummaryLine(equipmentDetails)], equipmentDetails,
@@ -432,6 +473,7 @@
         dtStatusPill(r.status)+
       '</div>'+
       (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
+      (forAdmin && r.reportAllowedWorkerNames && r.reportAllowedWorkerNames.length ? '<div class="leave-comment"><b>Can Create Service Report</b>'+escapeHtml(r.reportAllowedWorkerNames.join(', '))+'</div>' : '')+
       (r.contactName ? '<div class="leave-comment"><b>Contact at Site</b>'+escapeHtml(r.contactName)+(r.contactNo?(' · '+escapeHtml(r.contactNo)):'')+'</div>' : '')+
       (r.equipment && r.equipment.length ? '<div class="leave-comment"><b>Equipment</b>'+r.equipment.map(escapeHtml).join('; ')+'</div>' : '')+
       (r.scope && r.scope.length ? '<div class="leave-comment"><b>Scope of Works</b>'+r.scope.map(escapeHtml).join('; ')+'</div>' : '')+

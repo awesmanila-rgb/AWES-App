@@ -117,6 +117,7 @@ window.awesLibs = {
 <!-- TEMPORARY DEBUG PANEL — remove once the unresponsive-tiles bug is found.
      Shows any JS error directly on screen since DevTools isn't easily
      available on this device. -->
+<div id="debugBuildMarker" style="position:fixed; top:0; left:0; right:0; z-index:100000; background:#000; color:#0f0; font-family:monospace; font-size:11px; text-align:center; padding:4px;">🐛 DEBUG BUILD ACTIVE — v2</div>
 <div id="debugErrorPanel" style="display:none; position:fixed; inset:0; z-index:99999; background:#B00020; color:#fff; padding:16px; overflow-y:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;">
   <div style="font-weight:bold; font-size:15px; margin-bottom:10px;">⚠️ JavaScript Error Caught — screenshot this whole screen</div>
   <div id="debugErrorText"></div>
@@ -136,6 +137,16 @@ window.awesLibs = {
     const reason = e.reason;
     showDebugError('Unhandled Promise Rejection', (reason && reason.stack) ? reason.stack : String(reason));
   });
+  // Live tap tracker — proves whether a tap is reaching the page's JS at
+  // all, regardless of whether any specific button has a working handler.
+  let debugTapCount = 0;
+  document.addEventListener('click', function(e){
+    debugTapCount++;
+    const marker = document.getElementById('debugBuildMarker');
+    const tgt = e.target;
+    const label = tgt.id ? ('#'+tgt.id) : (tgt.className ? ('.'+String(tgt.className).split(' ')[0]) : tgt.tagName);
+    marker.textContent = '🐛 DEBUG BUILD ACTIVE — v2 — taps detected: ' + debugTapCount + ' — last: ' + label;
+  }, true);
 </script>
 
 
@@ -604,6 +615,15 @@ window.awesLibs = {
         <div class="field">
           <label>Assigned Workers <span class="req">*</span></label>
           <div id="dtWorkerChecklist"><div class="empty-state">Loading technicians…</div></div>
+        </div>
+
+        <div class="field">
+          <label>Who Can Create the Service Report? <span class="req">*</span></label>
+          <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+            Only the technician(s) checked here will be able to pick up this Job Order to create a
+            Service Report — not everyone assigned to the ticket automatically can. Pick one or more.
+          </p>
+          <div id="dtReporterChecklist"><div class="empty-state">Assign workers above first.</div></div>
         </div>
 
         <div class="field" style="margin-top:6px;">
