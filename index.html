@@ -7,7 +7,7 @@
      unreadable for anyone with less-than-perfect eyesight. viewport-fit=cover
      keeps the layout under the notch on modern phones. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>AWES App</title>
+<title>AWES Service Report</title>
 <script>
 // AWES performance loader: heavy third-party libraries are fetched only when needed.
 window.__awesScripts = {};
@@ -176,7 +176,6 @@ window.awesLibs = {
     </div>
   </div>
   <div class="top-actions">
-    <button class="icon-btn" id="logoutBtn" style="display:none;">🚪 Logout</button>
     <button class="icon-btn" id="homeBtn" style="display:none;">🏠 Home</button>
     <!-- Cloud status. core.js setCloudStatusUI() has always written to an element
          with this id, but the element was never in the markup, so the whole
@@ -193,8 +192,11 @@ window.awesLibs = {
         <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
         <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
         <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
+        <button type="button" id="menuLogout" class="menu-danger"><span class="menu-ico">🚪</span>Logout</button>
       </div>
     </div>
+    <!-- Shown directly (not tucked in the Menu) for technician accounts -->
+    <button class="icon-btn" id="userLogoutBtn" style="display:none;">🚪 Logout</button>
     <!-- Legacy controls kept off-screen: existing app logic is wired to these ids -->
     <!-- Permanently hidden. These two are not menu items; they are the click
          targets the Menu entries forward to, so the Admin and Email Setup flows
