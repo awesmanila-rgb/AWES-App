@@ -1474,6 +1474,38 @@
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
   }
+  // Loads every equipment record across every customer, with the owning
+  // customer's name attached — powers the admin "Customer Equipment List"
+  // master view. (loadCustomerEquipment above is scoped to one customer,
+  // for the picker shown while filing a report / editing that customer.)
+  async function loadAllCustomerEquipment(){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('customer_equipment')
+          .select('*, customers(name)')
+          .order('customer_id');
+        if(error) throw error;
+        return (data||[]).map(row=>{
+          const obj = equipRowToObj(row);
+          obj.customerName = row.customers ? row.customers.name : '(unknown customer)';
+          return obj;
+        });
+      }catch(e){ console.error('load all customer equipment failed', describeCloudError(e)); }
+    }
+    // Offline fallback: stitch together each customer's own locally cached list.
+    try{
+      if(customersCache.length===0) await loadCustomers();
+      const list = [];
+      for(const c of customersCache){
+        try{
+          const res = await window.storage.get('cequip:'+c.id, false);
+          const items = res ? JSON.parse(res.value) : [];
+          items.forEach(e=> list.push(Object.assign({}, e, { customerName: c.name })));
+        }catch(e){ /* skip this customer's cache on read error */ }
+      }
+      return list;
+    }catch(e){ return []; }
+  }
   // Detail fields (everything except Equipment Type) dynamically decide their
   // own source each time they're opened:
   // Equipment picker toggle: ON shows a list of this customer's known
@@ -2162,6 +2194,63 @@
       body.appendChild(card);
     });
   }
+
+  // ---------- Customer Equipment List (admin menu — master view across
+  // every customer, not scoped to whichever one is open in Manage Customers) ----------
+  async function renderEquipmentMasterList(filterText){
+    const body = $('equipmentListBody');
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await loadAllCustomerEquipment();
+    const q = (filterText||'').trim().toLowerCase();
+    const items = !q ? all : all.filter(e=>{
+      const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+    items.sort((a,b)=> (a.customerName||'').localeCompare(b.customerName||''));
+    body.innerHTML = '';
+    if(items.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = q ? 'No equipment matches "'+filterText+'".' : 'No equipment on file yet.';
+      body.appendChild(empty);
+      return;
+    }
+    items.forEach(e=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      card.innerHTML =
+        '<div class="user-card-head"><div>'+
+          '<div class="u-name">'+escapeHtml(e.customerName)+'</div>'+
+          '<div class="u-status">'+escapeHtml(summary)+'</div>'+
+          (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
+        '</div></div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>';
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove this equipment record for '+e.customerName+'? This does not affect past reports.')) return;
+        const ok = await cloudDeleteCustomerEquipment(e.id);
+        if(ok){ toast('Removed'); renderEquipmentMasterList($('equipmentListSearch').value); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+  }
+  $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList($('equipmentListSearch').value));
+  $('closeEquipmentList').addEventListener('click', ()=> $('equipmentListOverlay').classList.remove('open'));
+  $('equipmentListOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentListOverlay') $('equipmentListOverlay').classList.remove('open'); });
+  $('menuManageEquipment').addEventListener('click', async ()=>{
+    closeMainMenu();
+    if(!(await ensureAdminAuthenticated())) return;
+    $('equipmentListSearch').value = '';
+    $('equipmentListOverlay').classList.add('open');
+    renderEquipmentMasterList('');
+  });
+
+
   function resetCustomerForm(){
     $('editCustomerId').value = '';
     $('customerFormTitle').textContent = 'Add a customer';

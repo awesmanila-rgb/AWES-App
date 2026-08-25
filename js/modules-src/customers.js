@@ -128,6 +128,38 @@
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
   }
+  // Loads every equipment record across every customer, with the owning
+  // customer's name attached — powers the admin "Customer Equipment List"
+  // master view. (loadCustomerEquipment above is scoped to one customer,
+  // for the picker shown while filing a report / editing that customer.)
+  async function loadAllCustomerEquipment(){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('customer_equipment')
+          .select('*, customers(name)')
+          .order('customer_id');
+        if(error) throw error;
+        return (data||[]).map(row=>{
+          const obj = equipRowToObj(row);
+          obj.customerName = row.customers ? row.customers.name : '(unknown customer)';
+          return obj;
+        });
+      }catch(e){ console.error('load all customer equipment failed', describeCloudError(e)); }
+    }
+    // Offline fallback: stitch together each customer's own locally cached list.
+    try{
+      if(customersCache.length===0) await loadCustomers();
+      const list = [];
+      for(const c of customersCache){
+        try{
+          const res = await window.storage.get('cequip:'+c.id, false);
+          const items = res ? JSON.parse(res.value) : [];
+          items.forEach(e=> list.push(Object.assign({}, e, { customerName: c.name })));
+        }catch(e){ /* skip this customer's cache on read error */ }
+      }
+      return list;
+    }catch(e){ return []; }
+  }
   // Detail fields (everything except Equipment Type) dynamically decide their
   // own source each time they're opened:
   // Equipment picker toggle: ON shows a list of this customer's known

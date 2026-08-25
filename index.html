@@ -153,6 +153,7 @@ window.awesLibs = {
       <div class="menu-dropdown" id="menuDropdown">
         <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
         <button type="button" id="menuManageCustomers"><span class="menu-ico">🏢</span>Manage Customers</button>
+        <button type="button" id="menuManageEquipment"><span class="menu-ico">🧰</span>Customer Equipment List</button>
         <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
         <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
         <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
@@ -1064,6 +1065,26 @@ window.awesLibs = {
       </p>
       <div id="customerEquipmentList"></div>
     </div>
+  </div>
+</div>
+
+<!-- Customer Equipment List sheet (admin-only) — a master view across every
+     customer, for when you want to look up or clean up a unit without first
+     hunting down which customer record it's filed under. Adding/editing a
+     unit still happens per-customer inside Manage Customers (it's tied to
+     the report flow that creates these); this view is read + remove only. -->
+<div class="overlay" id="equipmentListOverlay" style="z-index:55;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Customer Equipment List</h3>
+      <button class="sheet-close" id="closeEquipmentList">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      Every unit on file, across all customers. Search by customer, brand, type, or serial number.
+      To add a new unit by hand or fix a customer's details, use Manage Customers instead.
+    </p>
+    <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
+    <div id="equipmentListBody"></div>
   </div>
 </div>
 

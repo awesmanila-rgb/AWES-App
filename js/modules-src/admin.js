@@ -222,6 +222,63 @@
       body.appendChild(card);
     });
   }
+
+  // ---------- Customer Equipment List (admin menu — master view across
+  // every customer, not scoped to whichever one is open in Manage Customers) ----------
+  async function renderEquipmentMasterList(filterText){
+    const body = $('equipmentListBody');
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await loadAllCustomerEquipment();
+    const q = (filterText||'').trim().toLowerCase();
+    const items = !q ? all : all.filter(e=>{
+      const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+    items.sort((a,b)=> (a.customerName||'').localeCompare(b.customerName||''));
+    body.innerHTML = '';
+    if(items.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = q ? 'No equipment matches "'+filterText+'".' : 'No equipment on file yet.';
+      body.appendChild(empty);
+      return;
+    }
+    items.forEach(e=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      card.innerHTML =
+        '<div class="user-card-head"><div>'+
+          '<div class="u-name">'+escapeHtml(e.customerName)+'</div>'+
+          '<div class="u-status">'+escapeHtml(summary)+'</div>'+
+          (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
+        '</div></div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>';
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove this equipment record for '+e.customerName+'? This does not affect past reports.')) return;
+        const ok = await cloudDeleteCustomerEquipment(e.id);
+        if(ok){ toast('Removed'); renderEquipmentMasterList($('equipmentListSearch').value); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+  }
+  $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList($('equipmentListSearch').value));
+  $('closeEquipmentList').addEventListener('click', ()=> $('equipmentListOverlay').classList.remove('open'));
+  $('equipmentListOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentListOverlay') $('equipmentListOverlay').classList.remove('open'); });
+  $('menuManageEquipment').addEventListener('click', async ()=>{
+    closeMainMenu();
+    if(!(await ensureAdminAuthenticated())) return;
+    $('equipmentListSearch').value = '';
+    $('equipmentListOverlay').classList.add('open');
+    renderEquipmentMasterList('');
+  });
+
+
   function resetCustomerForm(){
     $('editCustomerId').value = '';
     $('customerFormTitle').textContent = 'Add a customer';
