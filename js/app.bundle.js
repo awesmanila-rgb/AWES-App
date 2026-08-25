@@ -658,7 +658,11 @@
     const isTech = !!(currentUser && currentUser.role!=='admin');
     setVis('newBtn', !isTech);
     setVis('menuWrap', !isTech);
-    setVis('userLogoutBtn', isTech);
+    // Logout is now a direct, always-visible top-right button for EVERY
+    // logged-in role, not just technicians — admin's only path used to be
+    // buried inside "☰ Menu", which read as "there's no logout button in
+    // the corner" even though one technically existed one tap deeper.
+    setVis('userLogoutBtn', !!currentUser);
     setVis('tile_changePassword', isTech);
     applyTechNameDefault();
     // History access
