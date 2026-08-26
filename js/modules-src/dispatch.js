@@ -115,7 +115,12 @@
   async function srRenderJobOrderPicker(){
     const card = $('srJobOrderCard');
     const list = $('srJobOrderList');
-    if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
+    if(!currentUser || currentUser.role==='admin'){
+      card.style.display = 'none';
+      // Admin has no Job Order gate — Customer's Info is always visible.
+      $('sec1Card').style.display = '';
+      return;
+    }
     card.style.display = '';
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const mine = await dtListForReporter(currentUser.id);
@@ -143,6 +148,10 @@
   }
   function srApplyJobOrder(ticket){
     resetForm();
+    // A Job Order was actually picked — Customer's Info (and everything
+    // after it) can now be shown, since a technician's report must be tied
+    // to an authorized ticket rather than a freely-typed customer.
+    $('sec1Card').style.display = '';
     // Prefer a saved customer record when the name matches — it may have an
     // email on file (dispatch tickets don't capture one), which the report
     // needs for auto-send. Job-order-specific site/contact details still win.

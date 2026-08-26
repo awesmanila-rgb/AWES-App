@@ -19,6 +19,13 @@
     loadCustomerEquipment(null);
     setEquipTab(null);
     $('custDetailsWrap').style.display = 'none';
+    // Technicians must pick an authorized Job Order before Customer's Info
+    // (and everything after it) appears — admin has no Job Order gate and
+    // always sees it directly. srRenderJobOrderPicker/srApplyJobOrder
+    // re-confirm this on their own paths too; this just sets the sane
+    // default whenever the form is reset from anywhere else.
+    const sec1 = $('sec1Card');
+    if(sec1) sec1.style.display = (currentUser && currentUser.role==='admin') ? '' : 'none';
     ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
       const el = $(id); if(el) el.style.display = 'none';
     });

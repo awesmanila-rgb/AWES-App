@@ -71,6 +71,7 @@
     loadCustomerEquipment(matchedCustomer ? matchedCustomer.id : null);
     setEquipTab('addnew');
     $('custDetailsWrap').style.display = '';
+    $('sec1Card').style.display = '';
     ['sec2Card','sec3Card','sec4Card','sec5Card','sec6Card','sec7Card','sec8Card'].forEach(id=>{
       const el = $(id); if(el) el.style.display = '';
     });
