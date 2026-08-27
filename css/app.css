@@ -305,6 +305,26 @@
   }
   .dtr-banner-warn{background:#FBF0DC; color:var(--amber); border:1px solid #F0DBA8;}
   .dtr-banner-info{background:var(--green-light); color:var(--green-dark); border:1px solid #C7E3D3;}
+
+  /* Home greeting card */
+  .greet-line{font-size:14px; color:var(--text); line-height:1.5; margin:0 0 4px;}
+  .greet-line b{color:var(--green-dark);}
+  .greet-date{font-size:12px; color:var(--text-muted); margin:0 0 14px;}
+  .greet-summary-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin:0 0 8px;}
+  .greet-summary-list{display:flex; flex-direction:column; gap:8px; margin:0 0 14px;}
+  .greet-summary-item{
+    display:flex; align-items:center; gap:10px; background:var(--green-light);
+    border:1px solid #C7E3D3; border-radius:9px; padding:10px 12px;
+  }
+  .greet-summary-icon{font-size:18px; flex-shrink:0; width:24px; text-align:center;}
+  .greet-summary-count{font-weight:700; color:var(--green-dark); font-size:15px;}
+  .greet-summary-text{font-size:13px; color:var(--text); flex:1;}
+  .greet-allclear{font-size:13px; color:var(--text-muted); margin:0 0 14px; font-style:italic;}
+  .greet-reminder{
+    display:flex; align-items:center; gap:10px; background:#FBF0DC; color:#8A6716;
+    border:1px solid #F0DBA8; border-radius:9px; padding:10px 12px; font-size:13px; font-weight:600; margin:0;
+  }
+  .greet-thanks{font-size:12px; color:var(--text-muted); margin:12px 0 0; text-align:right;}
   .dtr-loc-tag{
     font-size:11px; color:var(--green-dark); background:none; border:none; padding:0; margin-top:2px;
     display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit;
