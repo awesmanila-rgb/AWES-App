@@ -128,6 +128,11 @@
   // ---------- save draft ----------
   // Returns SAVE_CLOUD / SAVE_QUEUED / SAVE_FAILED so callers stop telling the
   // user "saved" when the write actually failed and nothing was retained.
+  // Drafts save locally first when there is no signal, then upload on their
+  // own via the outbox (see registerOutboxHandler('report', ...) below) —
+  // triggered automatically on 'online', on the app coming back to the
+  // foreground, and by the periodic safety-net timer in core.js. "Sync now"
+  // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;

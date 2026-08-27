@@ -460,6 +460,15 @@
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible') outboxFlush({quiet:true});
   });
+  // Safety net: the 'online' event is not reliable on mobile — a phone can
+  // reconnect to wifi (especially waking from sleep, or switching between
+  // wifi and cellular) without the browser ever firing it, which is what
+  // made syncing look like it depended on manually tapping "Sync now".
+  // Retry quietly in the background on a timer whenever something is
+  // actually pending, so a restored connection gets picked up on its own.
+  setInterval(()=>{
+    outboxCount().then(n=>{ if(n) outboxFlush({quiet:true}); });
+  }, 30000);
   // Reveal stranded offline work as soon as the bundle runs. This deliberately
   // does NOT wait for the startup data load: that chain can block for up to 12
   // seconds behind the CDN script timeout, and a technician who opens the app to
@@ -2590,6 +2599,11 @@
   // ---------- save draft ----------
   // Returns SAVE_CLOUD / SAVE_QUEUED / SAVE_FAILED so callers stop telling the
   // user "saved" when the write actually failed and nothing was retained.
+  // Drafts save locally first when there is no signal, then upload on their
+  // own via the outbox (see registerOutboxHandler('report', ...) below) —
+  // triggered automatically on 'online', on the app coming back to the
+  // foreground, and by the periodic safety-net timer in core.js. "Sync now"
+  // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;

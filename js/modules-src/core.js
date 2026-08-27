@@ -458,6 +458,15 @@
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible') outboxFlush({quiet:true});
   });
+  // Safety net: the 'online' event is not reliable on mobile — a phone can
+  // reconnect to wifi (especially waking from sleep, or switching between
+  // wifi and cellular) without the browser ever firing it, which is what
+  // made syncing look like it depended on manually tapping "Sync now".
+  // Retry quietly in the background on a timer whenever something is
+  // actually pending, so a restored connection gets picked up on its own.
+  setInterval(()=>{
+    outboxCount().then(n=>{ if(n) outboxFlush({quiet:true}); });
+  }, 30000);
   // Reveal stranded offline work as soon as the bundle runs. This deliberately
   // does NOT wait for the startup data load: that chain can block for up to 12
   // seconds behind the CDN script timeout, and a technician who opens the app to
