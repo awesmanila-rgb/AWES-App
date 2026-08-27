@@ -291,6 +291,8 @@
     try{
       const data = await gatherDataForOutput();
       const doc = await buildPdf(data);
+      $('previewOverlay').querySelector('h3').textContent = 'Report Preview';
+      $('previewOkBtn').textContent = 'Looks Good — Continue to Signatures';
       $('previewOverlay').classList.add('open');
       await renderPdfPreview(doc);
     }catch(e){

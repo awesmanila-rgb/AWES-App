@@ -43,7 +43,7 @@
         '<span>'+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
         (isDraft
           ? '<div class="hist-actions"><button data-act="continue">Continue</button><button data-act="delete" class="danger">Delete</button></div>'
-          : '<div class="hist-actions"><button data-act="open">Open</button><button data-act="pdf">PDF</button></div>');
+          : '<div class="hist-actions"><button data-act="view">View</button><button data-act="share">Share</button></div>');
       if(isDraft){
         // "Continue" reopens the draft in the form so the technician can
         // finish filling it out and submit it — same underlying action as
@@ -65,15 +65,30 @@
           }catch(err){ console.error('delete draft failed', err); toast('Could not delete this draft'); }
         });
       }else{
-        row.querySelector('[data-act="open"]').addEventListener('click', async (e)=>{
+        // "View" opens the completed report as a PDF preview (reusing the same
+        // preview overlay the form uses before signing) rather than dropping
+        // the technician back into the editable form — a completed report is
+        // meant to be looked at, not re-edited.
+        row.querySelector('[data-act="view"]').addEventListener('click', async (e)=>{
           e.stopPropagation();
-          try{ await openReport(d); }
-          catch(err){ console.error('openReport failed', err); toast('Could not open this report'); }
+          try{
+            const doc = await buildPdf(d);
+            // Reuse the pre-signing preview overlay, but relabel it — this is
+            // a completed report being viewed, not a draft on its way to
+            // signatures, so the default "Continue to Signatures" copy doesn't apply.
+            $('previewOverlay').querySelector('h3').textContent = d.custName ? d.custName : 'Report';
+            $('previewOkBtn').textContent = 'Close';
+            $('previewOverlay').classList.add('open');
+            await renderPdfPreview(doc);
+          }catch(err){
+            console.error('view report failed', err);
+            toast('Could not open this report');
+          }
         });
         // This handler used to be un-caught: any error inside buildPdf (and there
         // was one for every cloud-loaded report) rejected silently and the button
         // simply appeared to do nothing.
-        row.querySelector('[data-act="pdf"]').addEventListener('click', async (e)=>{
+        row.querySelector('[data-act="share"]').addEventListener('click', async (e)=>{
           e.stopPropagation();
           try{
             const doc = await buildPdf(d);
