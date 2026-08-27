@@ -5778,7 +5778,14 @@
       // report (blank or partly filled, saved or not) is discarded every time
       // this tab is opened this way, and the flow always starts over from the
       // Job Order picker rather than resuming whatever was on screen before.
-      if(!opts.skipReset) resetForm();
+      if(!opts.skipReset){
+        resetForm();
+        // Without this, a technician who had scrolled down a long form (or a
+        // long Saved Draft / Completed list) still sees whatever part of the
+        // page they were on after the reset — the panel underneath did switch
+        // and clear, but it looks like nothing happened until they scroll up.
+        window.scrollTo({top:0, behavior:'smooth'});
+      }
       srRenderJobOrderPicker();
     }
     if(isHistoryTab){
