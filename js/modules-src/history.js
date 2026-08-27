@@ -179,7 +179,7 @@
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
-    srShowTab('new');
+    srShowTab('new', {skipReset:true});
     window.scrollTo({top:0, behavior:'smooth'});
   }
   $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));

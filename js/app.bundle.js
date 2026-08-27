@@ -3192,7 +3192,7 @@
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
-    srShowTab('new');
+    srShowTab('new', {skipReset:true});
     window.scrollTo({top:0, behavior:'smooth'});
   }
   $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));
@@ -5756,7 +5756,11 @@
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------
-  function srShowTab(which){
+  // `opts.skipReset` lets a caller switch to the New panel without wiping the
+  // form — used by openReport() (Continue), which already populated the form
+  // with a draft's data and just needs the panel switched, not cleared again.
+  function srShowTab(which, opts){
+    opts = opts || {};
     $('srTabNewBtn').classList.toggle('active', which==='new');
     $('srTabDraftBtn').classList.toggle('active', which==='draft');
     $('srTabCompletedBtn').classList.toggle('active', which==='completed');
@@ -5768,7 +5772,15 @@
     // bar only make sense while actively filling out a report.
     $('footerBar').style.display = which==='new' ? 'flex' : 'none';
     $('metaBar').style.display = which==='new' ? '' : 'none';
-    if(which==='new') srRenderJobOrderPicker();
+    if(which==='new'){
+      // "Create New" is a hard reset, not just a tab switch — same convention
+      // as the Dispatch admin's "New" tab (dtShowAdminTab). Any in-progress
+      // report (blank or partly filled, saved or not) is discarded every time
+      // this tab is opened this way, and the flow always starts over from the
+      // Job Order picker rather than resuming whatever was on screen before.
+      if(!opts.skipReset) resetForm();
+      srRenderJobOrderPicker();
+    }
     if(isHistoryTab){
       $('srHistoryPanelTitle').textContent =
         which==='draft' ? 'Saved Draft Reports' : which==='completed' ? 'Completed Reports' : 'All Reports';
@@ -5789,7 +5801,9 @@
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
-    srShowTab('new');
+    // Just entering the section, not the explicit "Create New" tab action —
+    // don't discard whatever the technician was already filling out.
+    srShowTab('new', {skipReset:true});
     window.scrollTo({top:0});
   }
   function enterApp(){
