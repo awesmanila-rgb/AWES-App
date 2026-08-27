@@ -243,6 +243,14 @@
       return true;
     }catch(e){ console.error('cloud save report failed', describeCloudError(e)); return false; }
   }
+  async function cloudDeleteReport(srNo){
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.from('service_reports').delete().eq('sr_no', srNo);
+      if(error) throw error;
+      return true;
+    }catch(e){ console.error('cloud delete report failed', srNo, describeCloudError(e)); return false; }
+  }
   async function cloudGetReport(srNo){
     if(!(await ensureCloud())) return null;
     try{
@@ -3031,28 +3039,58 @@
       row.className = 'hist-item';
       // Customer names are free text typed by technicians, so they must be
       // escaped before being injected as HTML.
+      // Drafts aren't finished yet, so they get actions for finishing/removing
+      // the draft rather than the open/PDF actions that make sense once a
+      // report is completed. This is keyed off the report's own completed
+      // state (not the current tab) so it's also correct on the "All" tab,
+      // which mixes drafts and completed reports in one list.
+      const isDraft = !d.completed;
       row.innerHTML =
         '<div class="hist-info"><b>'+escapeHtml(d.custName||'Untitled')+'</b>'+
         '<span>'+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
-        '<div class="hist-actions"><button data-act="open">Open</button><button data-act="pdf">PDF</button></div>';
-      row.querySelector('[data-act="open"]').addEventListener('click', async (e)=>{
-        e.stopPropagation();
-        try{ await openReport(d); }
-        catch(err){ console.error('openReport failed', err); toast('Could not open this report'); }
-      });
-      // This handler used to be un-caught: any error inside buildPdf (and there
-      // was one for every cloud-loaded report) rejected silently and the button
-      // simply appeared to do nothing.
-      row.querySelector('[data-act="pdf"]').addEventListener('click', async (e)=>{
-        e.stopPropagation();
-        try{
-          const doc = await buildPdf(d);
-          await shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
-        }catch(err){
-          console.error('PDF generation failed', err);
-          toast('Could not generate PDF for this report');
-        }
-      });
+        (isDraft
+          ? '<div class="hist-actions"><button data-act="continue">Continue</button><button data-act="delete" class="danger">Delete</button></div>'
+          : '<div class="hist-actions"><button data-act="open">Open</button><button data-act="pdf">PDF</button></div>');
+      if(isDraft){
+        // "Continue" reopens the draft in the form so the technician can
+        // finish filling it out and submit it — same underlying action as
+        // opening a report, just labeled for what a draft actually needs next.
+        row.querySelector('[data-act="continue"]').addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          try{ await openReport(d); }
+          catch(err){ console.error('openReport failed', err); toast('Could not open this draft'); }
+        });
+        row.querySelector('[data-act="delete"]').addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          if(!confirm('Delete this draft? "'+(d.custName||'Untitled')+'" ('+(d.srNo||'')+') cannot be recovered.')) return;
+          try{
+            let ok = false;
+            if(await ensureCloud()) ok = await cloudDeleteReport(d.srNo);
+            try{ await window.storage.delete('report:'+d.srNo, false); ok = true; }catch(e){}
+            if(ok){ toast('Draft deleted'); row.remove(); }
+            else toast('Could not delete this draft');
+          }catch(err){ console.error('delete draft failed', err); toast('Could not delete this draft'); }
+        });
+      }else{
+        row.querySelector('[data-act="open"]').addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          try{ await openReport(d); }
+          catch(err){ console.error('openReport failed', err); toast('Could not open this report'); }
+        });
+        // This handler used to be un-caught: any error inside buildPdf (and there
+        // was one for every cloud-loaded report) rejected silently and the button
+        // simply appeared to do nothing.
+        row.querySelector('[data-act="pdf"]').addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          try{
+            const doc = await buildPdf(d);
+            await shareOrDownloadPdf(doc, (d.srNo||'service-report')+'.pdf');
+          }catch(err){
+            console.error('PDF generation failed', err);
+            toast('Could not generate PDF for this report');
+          }
+        });
+      }
       list.appendChild(row);
     });
   }

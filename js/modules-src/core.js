@@ -241,6 +241,14 @@
       return true;
     }catch(e){ console.error('cloud save report failed', describeCloudError(e)); return false; }
   }
+  async function cloudDeleteReport(srNo){
+    if(!(await ensureCloud())) return false;
+    try{
+      const { error } = await db.from('service_reports').delete().eq('sr_no', srNo);
+      if(error) throw error;
+      return true;
+    }catch(e){ console.error('cloud delete report failed', srNo, describeCloudError(e)); return false; }
+  }
   async function cloudGetReport(srNo){
     if(!(await ensureCloud())) return null;
     try{
