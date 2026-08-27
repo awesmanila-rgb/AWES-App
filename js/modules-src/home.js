@@ -34,6 +34,51 @@
     }
   }
 
+  // ---------- Home screen greeting (technicians only) ----------
+  async function renderHomeGreeting(){
+    const card = $('homeGreetingCard');
+    if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
+    card.style.display = '';
+    $('homeGreetingText').innerHTML = '<div class="empty-state">Loading…</div>';
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-PH', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    const timeStr = now.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
+
+    const [tickets, reports, cashAdvances, leaves, todayDtr] = await Promise.all([
+      dtListForWorker(currentUser.id).catch(()=>[]),
+      cloudListReports().catch(()=>null),
+      caListForUser(currentUser.id).catch(()=>[]),
+      leaveListForUser(currentUser.id).catch(()=>[]),
+      dtrGetDay(currentUser.id, todayISO()).catch(()=>null)
+    ]);
+
+    const jobOrderCount = (tickets||[]).filter(t=> t.status!=='completed').length;
+    const draftReportCount = reports===null ? 0 : reports.filter(r=> r.technicianId===currentUser.id && !r.completed).length;
+    const cashAdvanceCount = (cashAdvances||[]).filter(caNeedsLiquidation).length;
+    const leaveCount = (leaves||[]).filter(r=> r.status==='pending').length;
+    const alreadyTimedIn = !!(todayDtr && todayDtr.timeIn);
+
+    const items = [];
+    if(jobOrderCount>0) items.push(jobOrderCount+' Job Order'+(jobOrderCount===1?'':'s')+' to accomplish');
+    if(draftReportCount>0) items.push(draftReportCount+' Saved Service Report'+(draftReportCount===1?'':'s')+' to complete');
+    if(cashAdvanceCount>0) items.push(cashAdvanceCount+' Cash Advance'+(cashAdvanceCount===1?'':'s')+' to Liquidate');
+    if(leaveCount>0) items.push(leaveCount+' Leave Form Request'+(leaveCount===1?'':'s')+' pending');
+
+    let html = '<p style="margin:0 0 10px;">Good day, <b>'+escapeHtml(currentUser.name)+'</b>! Today is <b>'+dateStr+'</b>, '+timeStr+'.</p>';
+    if(items.length>0){
+      html += '<p style="margin:0 0 10px;">You have</p><ul style="margin:0 0 14px; padding-left:22px;">'+
+        items.map(i=>'<li>'+i+'</li>').join('')+'</ul>';
+    }else{
+      html += '<p style="margin:0 0 14px;">You have no pending job orders, reports, or requests right now — nice and clear!</p>';
+    }
+    if(!alreadyTimedIn){
+      html += '<p style="margin:0; color:var(--green-dark); font-weight:600;">⏰ Do not forget to tap "Time-In" to officially register your attendance.</p>';
+    }
+    html += '<p style="margin:10px 0 0;">Thank you!</p>';
+    $('homeGreetingText').innerHTML = html;
+  }
+
   // ---------- Home screen (feature tiles) ----------
   function showHome(){
     $('homeScreen').style.display = '';
@@ -47,6 +92,7 @@
     $('homeBtn').style.display = 'none';
     setHeaderTitle("Technician's Homepage", 'Field digital form');
     $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
+    renderHomeGreeting();
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------
