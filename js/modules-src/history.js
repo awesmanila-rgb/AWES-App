@@ -57,11 +57,21 @@
           e.stopPropagation();
           if(!confirm('Delete this draft? "'+(d.custName||'Untitled')+'" ('+(d.srNo||'')+') cannot be recovered.')) return;
           try{
-            let ok = false;
-            if(await ensureCloud()) ok = await cloudDeleteReport(d.srNo);
-            try{ await window.storage.delete('report:'+d.srNo, false); ok = true; }catch(e){}
+            // The local storage shim reports success even for a key that was
+            // never there (e.g. a draft that only exists in the cloud), so it
+            // can't be used to paper over a failed cloud delete. When cloud is
+            // reachable, trust its result; only fall back to local-only deletion
+            // when we're offline.
+            let ok;
+            if(await ensureCloud()){
+              ok = await cloudDeleteReport(d.srNo);
+              try{ await window.storage.delete('report:'+d.srNo, false); }catch(e){}
+            }else{
+              try{ await window.storage.delete('report:'+d.srNo, false); ok = true; }
+              catch(e){ ok = false; }
+            }
             if(ok){ toast('Draft deleted'); row.remove(); }
-            else toast('Could not delete this draft');
+            else toast('Could not delete this draft — check your connection and try again');
           }catch(err){ console.error('delete draft failed', err); toast('Could not delete this draft'); }
         });
       }else{

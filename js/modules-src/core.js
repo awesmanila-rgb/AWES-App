@@ -244,9 +244,13 @@
   async function cloudDeleteReport(srNo){
     if(!(await ensureCloud())) return false;
     try{
-      const { error } = await db.from('service_reports').delete().eq('sr_no', srNo);
+      // .select() makes Postgrest return the rows it actually deleted. Without
+      // it, a delete blocked by RLS (or a srNo that doesn't exist) comes back
+      // with no error and looks identical to a real delete — the row silently
+      // survives and reappears the next time the list reloads from the cloud.
+      const { data, error } = await db.from('service_reports').delete().eq('sr_no', srNo).select('sr_no');
       if(error) throw error;
-      return true;
+      return !!(data && data.length > 0);
     }catch(e){ console.error('cloud delete report failed', srNo, describeCloudError(e)); return false; }
   }
   async function cloudGetReport(srNo){

@@ -246,9 +246,13 @@
   async function cloudDeleteReport(srNo){
     if(!(await ensureCloud())) return false;
     try{
-      const { error } = await db.from('service_reports').delete().eq('sr_no', srNo);
+      // .select() makes Postgrest return the rows it actually deleted. Without
+      // it, a delete blocked by RLS (or a srNo that doesn't exist) comes back
+      // with no error and looks identical to a real delete — the row silently
+      // survives and reappears the next time the list reloads from the cloud.
+      const { data, error } = await db.from('service_reports').delete().eq('sr_no', srNo).select('sr_no');
       if(error) throw error;
-      return true;
+      return !!(data && data.length > 0);
     }catch(e){ console.error('cloud delete report failed', srNo, describeCloudError(e)); return false; }
   }
   async function cloudGetReport(srNo){
@@ -3066,11 +3070,21 @@
           e.stopPropagation();
           if(!confirm('Delete this draft? "'+(d.custName||'Untitled')+'" ('+(d.srNo||'')+') cannot be recovered.')) return;
           try{
-            let ok = false;
-            if(await ensureCloud()) ok = await cloudDeleteReport(d.srNo);
-            try{ await window.storage.delete('report:'+d.srNo, false); ok = true; }catch(e){}
+            // The local storage shim reports success even for a key that was
+            // never there (e.g. a draft that only exists in the cloud), so it
+            // can't be used to paper over a failed cloud delete. When cloud is
+            // reachable, trust its result; only fall back to local-only deletion
+            // when we're offline.
+            let ok;
+            if(await ensureCloud()){
+              ok = await cloudDeleteReport(d.srNo);
+              try{ await window.storage.delete('report:'+d.srNo, false); }catch(e){}
+            }else{
+              try{ await window.storage.delete('report:'+d.srNo, false); ok = true; }
+              catch(e){ ok = false; }
+            }
             if(ok){ toast('Draft deleted'); row.remove(); }
-            else toast('Could not delete this draft');
+            else toast('Could not delete this draft — check your connection and try again');
           }catch(err){ console.error('delete draft failed', err); toast('Could not delete this draft'); }
         });
       }else{
