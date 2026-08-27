@@ -5642,22 +5642,31 @@
     const alreadyTimedIn = !!(todayDtr && todayDtr.timeIn);
 
     const items = [];
-    if(jobOrderCount>0) items.push(jobOrderCount+' Job Order'+(jobOrderCount===1?'':'s')+' to accomplish');
-    if(draftReportCount>0) items.push(draftReportCount+' Saved Service Report'+(draftReportCount===1?'':'s')+' to complete');
-    if(cashAdvanceCount>0) items.push(cashAdvanceCount+' Cash Advance'+(cashAdvanceCount===1?'':'s')+' to Liquidate');
-    if(leaveCount>0) items.push(leaveCount+' Leave Form Request'+(leaveCount===1?'':'s')+' pending');
+    if(jobOrderCount>0) items.push({icon:'📋', count:jobOrderCount, label:'Job Order'+(jobOrderCount===1?'':'s')+' to accomplish'});
+    if(draftReportCount>0) items.push({icon:'🧾', count:draftReportCount, label:'Saved Service Report'+(draftReportCount===1?'':'s')+' to complete'});
+    if(cashAdvanceCount>0) items.push({icon:'💵', count:cashAdvanceCount, label:'Cash Advance'+(cashAdvanceCount===1?'':'s')+' to Liquidate'});
+    if(leaveCount>0) items.push({icon:'📅', count:leaveCount, label:'Leave Form Request'+(leaveCount===1?'':'s')+' pending'});
 
-    let html = '<p style="margin:0 0 10px;">Good day, <b>'+escapeHtml(currentUser.name)+'</b>! Today is <b>'+dateStr+'</b>, '+timeStr+'.</p>';
+    let html =
+      '<p class="greet-line">Good day, <b>'+escapeHtml(currentUser.name)+'</b>!</p>'+
+      '<p class="greet-date">Today is '+dateStr+', '+timeStr+'.</p>';
     if(items.length>0){
-      html += '<p style="margin:0 0 10px;">You have</p><ul style="margin:0 0 14px; padding-left:22px;">'+
-        items.map(i=>'<li>'+i+'</li>').join('')+'</ul>';
+      html += '<div class="greet-summary-label">You have</div><div class="greet-summary-list">'+
+        items.map(i=>
+          '<div class="greet-summary-item">'+
+            '<span class="greet-summary-icon">'+i.icon+'</span>'+
+            '<span class="greet-summary-count">'+i.count+'</span>'+
+            '<span class="greet-summary-text">'+i.label+'</span>'+
+          '</div>'
+        ).join('')+
+      '</div>';
     }else{
-      html += '<p style="margin:0 0 14px;">You have no pending job orders, reports, or requests right now — nice and clear!</p>';
+      html += '<p class="greet-allclear">You have no pending job orders, reports, or requests right now — nice and clear!</p>';
     }
     if(!alreadyTimedIn){
-      html += '<p style="margin:0; color:var(--green-dark); font-weight:600;">⏰ Do not forget to tap "Time-In" to officially register your attendance.</p>';
+      html += '<div class="greet-reminder">⏰ Don\'t forget to tap "Time-In" to officially register your attendance.</div>';
     }
-    html += '<p style="margin:10px 0 0;">Thank you!</p>';
+    html += '<p class="greet-thanks">Thank you!</p>';
     $('homeGreetingText').innerHTML = html;
   }
 
