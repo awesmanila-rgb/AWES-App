@@ -2367,6 +2367,19 @@
     addSel.innerHTML = '<option value="">Select a customer…</option>' + opts;
     addSel.value = keepAdd;
   }
+  // Wires each "Add Equipment" text box to the same admin-managed dropdown
+  // list (fieldLists, via attachCombo) that the matching field on the
+  // Service Report form already uses — e.g. eqAddBrand gets the same
+  // 'brand' suggestions as the report's Manufacturer/Brand field, kept in
+  // sync via Manage Dropdown Lists. attachCombo no-ops on a repeat call
+  // (input.dataset.comboAttached), so this is safe to call every time the
+  // Add tab is opened rather than only once.
+  function attachEquipAddCombos(){
+    EQUIP_FIELD_KEYS.forEach(k=>{
+      const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
+      if(el) attachCombo(el, k);
+    });
+  }
   function setEquipListTab(tab){
     equipListTab = tab;
     $('equipListTabEdit').classList.toggle('active', tab==='edit');
@@ -2374,7 +2387,8 @@
     $('equipListTabDelete').classList.toggle('active', tab==='delete');
     $('equipListViewSection').style.display = tab==='add' ? 'none' : '';
     $('equipAddSection').style.display = tab==='add' ? '' : 'none';
-    if(tab!=='add') renderEquipmentMasterList();
+    if(tab==='add') attachEquipAddCombos();
+    else renderEquipmentMasterList();
   }
   async function renderEquipmentMasterList(){
     const body = $('equipmentListBody');
