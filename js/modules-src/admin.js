@@ -203,7 +203,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"><div>'+
@@ -262,7 +262,7 @@
     let items = custId ? all.filter(e=> String(e.customerId)===String(custId)) : all;
     if(q){
       items = items.filter(e=>{
-        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -279,7 +279,7 @@
     items.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+

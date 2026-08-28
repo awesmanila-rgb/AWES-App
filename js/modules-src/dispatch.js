@@ -332,7 +332,7 @@
     dtCurrentEquipmentCache = [];
   }
   function dtEquipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   // Checkbox multi-select — lets an admin add several (or all) of a
   // customer's known units to this ticket in one pass instead of loading

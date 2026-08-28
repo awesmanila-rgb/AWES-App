@@ -1703,12 +1703,12 @@
   // Detail fields (everything except Equipment Type) dynamically decide their
   // own source each time they're opened:
   // Equipment picker toggle: ON shows a list of this customer's known
-  // equipment (identified by Type + Brand + Capacity + Location) to pick
-  // from as one unit. "Add New" reveals the normal input fields (global
+  // equipment (identified by Type + Brand + Capacity + Mounting + Location) to
+  // pick from as one unit. "Add New" reveals the normal input fields (global
   // dropdown lists, free entry) for equipment not yet on file.
   let currentEquipTab = 'addnew';
   function equipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   function renderEquipPicker(){
     const list = $('equipPickerList');
@@ -2398,7 +2398,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"><div>'+
@@ -2457,7 +2457,7 @@
     let items = custId ? all.filter(e=> String(e.customerId)===String(custId)) : all;
     if(q){
       items = items.filter(e=>{
-        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -2474,7 +2474,7 @@
     items.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
@@ -4820,7 +4820,7 @@
     dtCurrentEquipmentCache = [];
   }
   function dtEquipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   // Checkbox multi-select — lets an admin add several (or all) of a
   // customer's known units to this ticket in one pass instead of loading
