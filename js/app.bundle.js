@@ -2013,7 +2013,21 @@
     document.querySelectorAll('.collapsible-head').forEach(head=>{
       if(head.dataset.hooked) return;
       head.dataset.hooked = '1';
-      head.addEventListener('click', ()=> toggleCollapsibleSection(head));
+      head.addEventListener('click', ()=>{
+        // Accordion behavior: the phone screen is too small to read two open
+        // sections at once, so opening one collapses whichever other section
+        // was open. Only applies to user taps — expandAllSections (read-only
+        // history view) and resetForm's initial state still show multiple.
+        const body = head.nextElementSibling;
+        if(!body) return;
+        const willOpen = body.style.display === 'none';
+        if(willOpen){
+          document.querySelectorAll('.collapsible-head').forEach(h=>{
+            if(h !== head) toggleCollapsibleSection(h, false);
+          });
+        }
+        toggleCollapsibleSection(head, willOpen);
+      });
     });
   }
   // Sections 3–8 (Report Summary through Acknowledgment) show only their
