@@ -454,3 +454,4 @@
   .edit-save-row button{flex:1; padding:10px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer;}
   .edit-save-row .save-btn{background:var(--green-dark); color:#fff; border:1px solid var(--green-dark);}
   .edit-save-row .cancel-btn{background:#fff; color:var(--text); border:1px solid var(--border);}
+  .edit-save-row button:disabled{opacity:.45; cursor:not-allowed;}

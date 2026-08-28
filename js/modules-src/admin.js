@@ -282,15 +282,13 @@
       const summary = [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
-        '<div class="user-card-head"><div>'+
+        '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.customerName)+'</div>'+
           '<div class="u-status">'+escapeHtml(summary)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
         '</div></div>'+
-        '<div class="user-card-actions">'+
-          (equipListTab==='edit' ? '<button data-act="edit" class="primary">Edit</button>' : '')+
-          (equipListTab==='delete' ? '<button data-act="remove" class="danger">Delete</button>' : '')+
-        '</div>'+
+        (equipListTab==='delete' ?
+          '<div class="user-card-actions"><button data-act="remove" class="danger">Delete</button></div>' : '')+
         (equipListTab==='edit' ?
           '<div class="user-edit-panel" data-panel="1">'+
             '<div class="field"><label>Equipment Type</label><input type="text" data-f="equipType" value="'+escapeHtml(e.equipType||'')+'"></div>'+
@@ -305,20 +303,48 @@
             '<div class="field"><label>Refrigerant Type</label><input type="text" data-f="refrigerantType" value="'+escapeHtml(e.refrigerantType||'')+'"></div>'+
             '<div class="field"><label>Compressor Type</label><input type="text" data-f="compressorType" value="'+escapeHtml(e.compressorType||'')+'"></div>'+
             '<div class="edit-save-row">'+
-              '<button class="cancel-btn" data-act="cancel" type="button">Cancel</button>'+
-              '<button class="save-btn" data-act="save" type="button">Save Changes</button>'+
+              '<button class="cancel-btn" data-act="panelClose" type="button">Close</button>'+
+              '<button class="cancel-btn" data-act="panelEdit" type="button">Edit</button>'+
+              '<button class="save-btn" data-act="panelSave" type="button" disabled>Save Changes</button>'+
             '</div>'+
           '</div>' : '');
       if(equipListTab==='edit'){
         const panel = card.querySelector('[data-panel="1"]');
-        card.querySelector('[data-act="edit"]').addEventListener('click', ()=>{
-          body.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+        const inputs = Array.from(panel.querySelectorAll('input[data-f]'));
+        const closeBtn = panel.querySelector('[data-act="panelClose"]');
+        const editBtn = panel.querySelector('[data-act="panelEdit"]');
+        const saveBtn = panel.querySelector('[data-act="panelSave"]');
+        // Tapping the card first opens a read-only view of every field, all
+        // locked. Tapping Edit unlocks the fields and unlocks Save (which
+        // stays disabled until then) — Save only ever writes once Edit has
+        // been tapped.
+        function setPanelMode(mode){
+          panel.dataset.mode = mode;
+          inputs.forEach(inp=> inp.disabled = (mode==='view'));
+          editBtn.disabled = (mode==='edit');
+          saveBtn.disabled = (mode==='view');
+          closeBtn.textContent = mode==='view' ? 'Close' : 'Cancel';
+        }
+        panel._setMode = setPanelMode;
+        setPanelMode('view');
+        card.querySelector('[data-act="toggle"]').addEventListener('click', ()=>{
+          body.querySelectorAll('.user-edit-panel.open').forEach(p=>{
+            if(p!==panel){ p.classList.remove('open'); if(p._setMode) p._setMode('view'); }
+          });
           panel.classList.toggle('open');
         });
-        card.querySelector('[data-act="cancel"]').addEventListener('click', ()=> panel.classList.remove('open'));
-        card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
+        closeBtn.addEventListener('click', ()=>{
+          if(panel.dataset.mode==='edit'){
+            inputs.forEach(inp=>{ inp.value = e[inp.dataset.f]||''; });
+            setPanelMode('view');
+          }else{
+            panel.classList.remove('open');
+          }
+        });
+        editBtn.addEventListener('click', ()=> setPanelMode('edit'));
+        saveBtn.addEventListener('click', async ()=>{
           const fields = {};
-          EQUIP_FIELD_KEYS.forEach(k=>{ const inp = panel.querySelector('[data-f="'+k+'"]'); fields[k] = inp ? inp.value.trim() : ''; });
+          inputs.forEach(inp=> fields[inp.dataset.f] = inp.value.trim());
           const ok = await cloudUpdateCustomerEquipment(e.id, fields);
           if(ok){ toast('Saved'); renderEquipmentMasterList(); }
           else toast('Could not save — check your connection');
