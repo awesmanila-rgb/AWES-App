@@ -482,6 +482,61 @@
     if(!res.sent) toast(res.left ? 'Still no connection — will keep trying' : 'Nothing pending');
   });
 
+  // Human-readable labels for each outbox "kind" — used only in the list below.
+  const OUTBOX_KIND_LABELS = {
+    'report': 'Service Report', 'dtr': 'DTR', 'leave': 'Leave Request',
+    'cash-advance': 'Cash Advance', 'dispatch': 'Dispatch Ticket'
+  };
+  async function renderPendingSyncList(){
+    const listEl = $('pendingSyncList');
+    if(!listEl) return;
+    const items = await outboxList();
+    if(!items.length){
+      listEl.innerHTML = '<div class="empty-state">Nothing pending — everything on this device has synced.</div>';
+      $('pendingSyncClearAllBtn').style.display = 'none';
+      return;
+    }
+    $('pendingSyncClearAllBtn').style.display = '';
+    listEl.innerHTML = items.map(item=>{
+      const label = OUTBOX_KIND_LABELS[item.kind] || item.kind;
+      const when = item.queuedAt ? new Date(item.queuedAt).toLocaleString() : '';
+      return '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">'
+        + '<div><div style="font-weight:700; font-size:13.5px;">'+escapeHtml(label)+'</div>'
+        + '<div style="font-size:12px; color:var(--text-muted);">'+escapeHtml(String(item.id))+(when?' · '+escapeHtml(when):'')+'</div></div>'
+        + '<button type="button" class="btn pendingSyncDeleteBtn" data-key="'+escapeHtml(item.storageKey)+'" style="flex:0 0 auto; padding:6px 10px; font-size:12.5px; background:#fdeceb; color:var(--danger);">Discard</button>'
+        + '</div>';
+    }).join('');
+  }
+  const pendingSyncViewBtn = $('pendingSyncViewBtn');
+  if(pendingSyncViewBtn) pendingSyncViewBtn.addEventListener('click', async ()=>{
+    await renderPendingSyncList();
+    $('pendingSyncOverlay').classList.add('open');
+  });
+  const closePendingSyncBtn = $('closePendingSync');
+  if(closePendingSyncBtn) closePendingSyncBtn.addEventListener('click', ()=> $('pendingSyncOverlay').classList.remove('open'));
+  const pendingSyncOverlayEl = $('pendingSyncOverlay');
+  if(pendingSyncOverlayEl) pendingSyncOverlayEl.addEventListener('click', (e)=>{
+    if(e.target.id==='pendingSyncOverlay') pendingSyncOverlayEl.classList.remove('open');
+  });
+  const pendingSyncListEl = $('pendingSyncList');
+  if(pendingSyncListEl) pendingSyncListEl.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('.pendingSyncDeleteBtn');
+    if(!btn) return;
+    if(!confirm('Discard this item? It will NOT be uploaded and cannot be recovered.')) return;
+    try{ await window.storage.delete(btn.dataset.key); }catch(err){}
+    await renderPendingSyncList();
+    updateOutboxBadge();
+  });
+  const pendingSyncClearAllBtn = $('pendingSyncClearAllBtn');
+  if(pendingSyncClearAllBtn) pendingSyncClearAllBtn.addEventListener('click', async ()=>{
+    const items = await outboxList();
+    if(!items.length) return;
+    if(!confirm('Discard all '+items.length+' pending item'+(items.length===1?'':'s')+'? None of it will be uploaded, and this cannot be undone.')) return;
+    for(const item of items){ try{ await window.storage.delete(item.storageKey); }catch(err){} }
+    await renderPendingSyncList();
+    updateOutboxBadge();
+  });
+
 
 // ---------- technician user accounts (table: profiles, role='technician') ----------
   // Real account creation/password changes go through the admin-create-technician
