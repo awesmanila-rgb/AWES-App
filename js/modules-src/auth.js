@@ -189,11 +189,17 @@
       el.style.opacity = dis ? '0.45' : '';
       el.style.pointerEvents = dis ? 'none' : '';
     };
-    // Technician accounts: hide the New button and the Menu (admin-only tools live
-    // there), and surface Email Setup + Logout directly instead of tucked in the menu.
+    // Technician accounts: hide the Menu (admin-only tools live there), and
+    // surface Email Setup + Logout directly instead of tucked in the menu.
     const isTech = !!(currentUser && currentUser.role!=='admin');
-    setVis('newBtn', !isTech);
+    const isAdmin = !!(currentUser && currentUser.role==='admin');
     setVis('menuWrap', !isTech);
+    // "New" (header shortcut for a blank report) and "Create New" (Service
+    // Report tab) both start a fresh, blank report. Technicians already
+    // never saw the header button; admins can only view/edit existing
+    // reports, not author new ones, so neither role gets either control now.
+    setVis('newBtn', false);
+    setVis('srTabNewBtn', !isAdmin);
     // Logout is now a direct, always-visible top-right button for EVERY
     // logged-in role, not just technicians — admin's only path used to be
     // buried inside "☰ Menu", which read as "there's no logout button in

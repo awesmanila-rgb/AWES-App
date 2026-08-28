@@ -674,11 +674,17 @@
       el.style.opacity = dis ? '0.45' : '';
       el.style.pointerEvents = dis ? 'none' : '';
     };
-    // Technician accounts: hide the New button and the Menu (admin-only tools live
-    // there), and surface Email Setup + Logout directly instead of tucked in the menu.
+    // Technician accounts: hide the Menu (admin-only tools live there), and
+    // surface Email Setup + Logout directly instead of tucked in the menu.
     const isTech = !!(currentUser && currentUser.role!=='admin');
-    setVis('newBtn', !isTech);
+    const isAdmin = !!(currentUser && currentUser.role==='admin');
     setVis('menuWrap', !isTech);
+    // "New" (header shortcut for a blank report) and "Create New" (Service
+    // Report tab) both start a fresh, blank report. Technicians already
+    // never saw the header button; admins can only view/edit existing
+    // reports, not author new ones, so neither role gets either control now.
+    setVis('newBtn', false);
+    setVis('srTabNewBtn', !isAdmin);
     // Logout is now a direct, always-visible top-right button for EVERY
     // logged-in role, not just technicians — admin's only path used to be
     // buried inside "☰ Menu", which read as "there's no logout button in
@@ -5923,6 +5929,15 @@
   }
 
   // ---------- Home screen (feature tiles) ----------
+  // Admin's homepage reads "Field Operations Portal" / "Management &
+  // Administration" instead of the technician's "Technician's Homepage" /
+  // "Field digital form" — shared by showHome() and the coming-soon flash
+  // below so both stay in sync for whichever role is logged in.
+  function homeHeaderTitle(){
+    return (currentUser && currentUser.role==='admin')
+      ? ['Field Operations Portal', 'Management & Administration']
+      : ["Technician's Homepage", 'Field digital form'];
+  }
   function showHome(){
     $('homeScreen').style.display = '';
     $('serviceReportView').style.display = 'none';
@@ -5933,7 +5948,7 @@
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
-    setHeaderTitle("Technician's Homepage", 'Field digital form');
+    setHeaderTitle(...homeHeaderTitle());
     $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
     renderHomeGreeting();
     window.scrollTo({top:0});
@@ -5991,9 +6006,17 @@
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
-    // Just entering the section, not the explicit "Create New" tab action —
-    // don't discard whatever the technician was already filling out.
-    srShowTab('new', {skipReset:true});
+    if(currentUser && currentUser.role==='admin'){
+      // Admin can't author a blank report — the "Create New" tab is hidden
+      // for this role — so land on "All" instead of the now-inaccessible
+      // Create New panel. Admin still reaches the same form panel to edit
+      // an existing report by opening it from a history list.
+      srShowTab('all');
+    }else{
+      // Just entering the section, not the explicit "Create New" tab action —
+      // don't discard whatever the technician was already filling out.
+      srShowTab('new', {skipReset:true});
+    }
     window.scrollTo({top:0});
   }
   function enterApp(){
@@ -6008,7 +6031,7 @@
   function flashComingSoonHeader(title, message){
     setHeaderTitle(title, 'Field digital form');
     toast(message);
-    setTimeout(()=>{ if($('homeScreen').style.display !== 'none') setHeaderTitle("Technician's Homepage", 'Field digital form'); }, 2200);
+    setTimeout(()=>{ if($('homeScreen').style.display !== 'none') setHeaderTitle(...homeHeaderTitle()); }, 2200);
   }
   $('tile_cashAdvance').addEventListener('click', showCashAdvanceView);
   $('tile_dispatch').addEventListener('click', showDispatchView);
