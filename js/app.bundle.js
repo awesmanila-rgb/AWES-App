@@ -4668,9 +4668,19 @@
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'combo-item';
-            btn.style.cssText = 'display:block; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
-            btn.textContent = dtEquipSummaryLine(it);
-            btn.addEventListener('click', (e)=>{ e.stopPropagation(); srApplyJobOrder(r, it); });
+            btn.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
+            // A pending item with a draftSrNo already has a Service Report
+            // started for it (just not completed yet). Flag it clearly so a
+            // technician re-opening this ticket doesn't start a second,
+            // duplicate report for the same unit — tapping it below resumes
+            // the existing draft instead of blanking the form.
+            btn.innerHTML = '<span>'+escapeHtml(dtEquipSummaryLine(it))+'</span>'+
+              (it.draftSrNo ? '<span class="status-pill status-draft" style="flex-shrink:0;">Draft Saved</span>' : '');
+            btn.addEventListener('click', (e)=>{
+              e.stopPropagation();
+              if(it.draftSrNo) srResumeDraft(r, it);
+              else srApplyJobOrder(r, it);
+            });
             pendingWrap.appendChild(btn);
           });
         }
@@ -4678,7 +4688,19 @@
       list.appendChild(row);
     });
   }
-  function srApplyJobOrder(ticket, equipItem){
+  // Was calling applyCustomerToForm(matched), which kicks off
+  // loadCustomerEquipment(...).then(defaultEquipTabForCustomer) without
+  // waiting for it — that promise settled AFTER this function had already
+  // filled in the equipment fields and switched to the "addnew" tab to show
+  // them, and its resolution (defaultEquipTabForCustomer -> setEquipTab(null))
+  // immediately hid that same section again. The fields were technically
+  // populated, but invisible, so a technician tapping a unit from the Job
+  // Order picker had to switch tabs by hand to actually see the autofill —
+  // exactly the redundant re-selecting this picker exists to avoid. Awaiting
+  // the equipment load here, then applying the equipment fields and calling
+  // setEquipTab('addnew') last, guarantees nothing can hide the section
+  // afterward.
+  async function srApplyJobOrder(ticket, equipItem){
     resetForm();
     // A Job Order was actually picked — Customer's Info (and everything
     // after it) can now be shown, since a technician's report must be tied
@@ -4688,20 +4710,56 @@
     // email on file (dispatch tickets don't capture one), which the report
     // needs for auto-send. Job-order-specific site/contact details still win.
     const matched = customersCache.find(c=> c.name.toLowerCase() === (ticket.custName||'').trim().toLowerCase());
-    if(matched){ applyCustomerToForm(matched); }
-    else{ $('custName').value = ticket.custName||''; revealSectionsAfterCustomer(); }
+    if(matched){
+      $('custName').value = matched.name;
+      $('custAddress').value = matched.address||'';
+      $('contactNo').value = matched.contactNo||'';
+      $('contactPerson').value = matched.contactPerson||'';
+      $('custEmail').value = matched.email||'';
+      await loadCustomerEquipment(matched.id);
+      revealSectionsAfterCustomer();
+    }else{
+      $('custName').value = ticket.custName||'';
+      revealSectionsAfterCustomer();
+    }
     if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
     if(ticket.contactName) $('contactPerson').value = ticket.contactName;
     if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
     if(equipItem){
       EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = equipItem[k]||''; });
-      setEquipTab('addnew');
+      setEquipTab('addnew'); // last, so nothing queued above can re-hide these fields
       if(equipItem.scope && equipItem.scope.length) $('troubleCall').value = equipItem.scope.join('; ');
     }
     srCurrentTicketId = ticket.id;
     srCurrentEquipId = equipItem ? equipItem.id : null;
     toast('Job Order '+ticket.jobOrderNo+' applied — check the fields below');
     $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  // Re-opens an equipment item that already has a draft Service Report
+  // (equipItem.draftSrNo) instead of starting a blank one — that avoids
+  // filing a second report for the same unit. Pulls the full previously-
+  // saved report (not just the customer/equipment fields srApplyJobOrder
+  // fills in) via the normal report loader, then re-attaches the Job Order
+  // linkage from this click's context, since the saved report row itself
+  // doesn't carry ticketId/equipId.
+  async function srResumeDraft(ticket, equipItem){
+    const srNo = equipItem.draftSrNo;
+    let data = null;
+    if(await ensureCloud()) data = await cloudGetReport(srNo);
+    if(!data){
+      try{ const item = await window.storage.get('report:'+srNo, false); data = item ? JSON.parse(item.value) : null; }
+      catch(e){ data = null; }
+    }
+    if(!data){
+      toast('Could not load the saved draft for this unit — starting a new report instead');
+      srApplyJobOrder(ticket, equipItem);
+      return;
+    }
+    await openReport(data);
+    srCurrentTicketId = ticket.id;
+    srCurrentEquipId = equipItem.id;
+    toast('Continuing draft '+srNo);
   }
 
   // ---- simple repeatable-textarea list (scope items) ----
@@ -5157,6 +5215,27 @@
       const { error } = await db.from('dispatch_tickets').update({ data: merged }).eq('id', ticketId);
       if(error) throw error;
     }catch(e){ console.error('mark equipment reported failed', describeCloudError(e)); }
+  }
+  // Same idea as dtMarkEquipmentReported, but for a Service Report that was
+  // only saved as a draft. Lets the "From Job Order" picker show "Draft
+  // Saved" on that equipment instead of leaving it looking untouched, which
+  // is what let technicians file a second report for the same unit.
+  async function dtMarkEquipmentDraft(ticketId, equipId, srNo){
+    if(!ticketId || !equipId) return;
+    if(!(await ensureCloud())) return;
+    try{
+      const rec = await dtGetTicket(ticketId);
+      if(!rec || !rec.equipmentList) return;
+      const idx = rec.equipmentList.findIndex(it=> it.id===equipId);
+      // Never downgrade an item that's already fully reported, and skip the
+      // write if it's already flagged with this exact draft.
+      if(idx<0 || rec.equipmentList[idx].reportSrNo || rec.equipmentList[idx].draftSrNo===srNo) return;
+      const equipmentList = rec.equipmentList.slice();
+      equipmentList[idx] = Object.assign({}, equipmentList[idx], { draftSrNo: srNo });
+      const merged = Object.assign({}, rec, { equipmentList });
+      const { error } = await db.from('dispatch_tickets').update({ data: merged }).eq('id', ticketId);
+      if(error) throw error;
+    }catch(e){ console.error('mark equipment draft failed', describeCloudError(e)); }
   }
 
   let dtAdminFilter = 'open';
