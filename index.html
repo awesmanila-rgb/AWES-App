@@ -616,13 +616,27 @@ window.awesLibs = {
         </div>
 
         <div class="field">
-          <label>4. Equipment Information</label>
+          <label>4. Default Scope of Works</label>
+          <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+            Applied automatically to each piece of equipment you add below — edit per unit afterward if a
+            particular one needs something different.
+          </p>
+          <div id="dtDefaultScopeList"></div>
+          <button type="button" class="add-row-btn" data-target="dtDefaultScopeList">+ Add scope item</button>
+        </div>
+
+        <div class="field">
+          <label>5. Equipment for this Job Order <span class="req">*</span></label>
           <div id="dtEquipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
             <button type="button" id="dtEquipTabExisting" class="equip-tab">Select Existing</button>
             <button type="button" id="dtEquipTabAddNew" class="equip-tab">+ Add New</button>
           </div>
           <div id="dtEquipPickerPanel" style="display:none; margin-bottom:14px;">
             <div id="dtEquipPickerList"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn" id="dtAddSelectedEquipBtn">Add Selected</button>
+              <button type="button" class="btn" id="dtAddAllEquipBtn">Add All On File</button>
+            </div>
           </div>
           <div id="dtEquipFieldsWrap">
             <div class="field"><label>Equipment Type</label><input type="text" id="dtEquipType" placeholder="e.g. Split Type Unit"></div>
@@ -638,13 +652,10 @@ window.awesLibs = {
               <div class="field"><label>Compressor Type</label><input type="text" id="dtCompressorType" placeholder="e.g. Inverter"></div>
               <div class="field"><label>Specific Location of Equipment</label><input type="text" id="dtEquipLocation"></div>
             </div>
+            <button type="button" class="btn btn-primary" id="dtAddEquipItemBtn" style="width:100%; margin-bottom:14px;">+ Add This Equipment to Ticket</button>
           </div>
-        </div>
-
-        <div class="field">
-          <label>5. Scope of Works per Equipment</label>
-          <div id="dtScopeList"></div>
-          <button type="button" class="add-row-btn" data-target="dtScopeList">+ Add scope item</button>
+          <div class="u-status" id="dtEquipCount" style="margin-bottom:8px;">No equipment added yet</div>
+          <div id="dtEquipItemsList"><div class="empty-state">No equipment added yet.</div></div>
         </div>
 
         <div class="field"><label>6. Special Instruction / Remarks</label><textarea id="dtRemarks" rows="3"></textarea></div>

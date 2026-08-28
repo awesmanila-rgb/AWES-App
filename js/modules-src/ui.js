@@ -2,6 +2,14 @@
   $('svcDate').addEventListener('change', ()=> $('metaDate').textContent = fmtDate($('svcDate').value));
 
   // ---------- init defaults ----------
+  // Which dispatch ticket + equipment line item (if any) the report
+  // currently being filed is tied to — set by srApplyJobOrder (dispatch.js)
+  // when a technician picks a piece of equipment off a Job Order, read by
+  // the save handler in pdf.js to mark that item "reported" once the report
+  // goes through. Declared here because resetForm() below runs once at load
+  // time, before dispatch.js's own module code has executed.
+  let srCurrentTicketId = null;
+  let srCurrentEquipId = null;
   function resetForm(){
     // Scoped to the Service Report view only. This used to select every text,
     // number, textarea and checkbox on the page, so starting a new report also
@@ -40,6 +48,8 @@
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
     currentSrNo = null;
     currentTechnicianId = null;
+    srCurrentTicketId = null;
+    srCurrentEquipId = null;
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();

@@ -191,48 +191,9 @@
       y = doc.lastAutoTable.finalY + 18;
     }
 
-    // 8. Terms & Conditions of Service
-    const tcSections = [
-      {
-        heading: 'Preventive Maintenance Service (PMS)',
-        body: 'PMS consists strictly of cleaning, routine inspection, and operational checks, and does not constitute a warranty on the equipment or its future performance. A limited 7-day workmanship guarantee covers only the direct physical labor (e.g., proper reassembly and drain line clearance). Pre-existing defects, component failures, and additional repairs require a separate quote and approval.'
-      },
-      {
-        heading: 'Repair Works',
-        body: 'Repairs cover only the specified scope and agreed-upon components. Replaced parts carry a 90-day warranty against manufacturing defects, while related labor carries a 30-day guarantee or as indicated in our proposal. Warranty is void if damage results from power surges, voltage fluctuations, unauthorized tampering, or external site factors.'
-      },
-      {
-        heading: 'Installation Works',
-        body: 'Installation workmanship and piping integrity are guaranteed for 6 months or as indicated in our proposal from commissioning. Equipment warranties are covered separately by the manufacturer. Warranty excludes damages from electrical supply issues, lack of routine maintenance, unauthorized modifications, or improper operation. Sign-off confirms turnover in good operating condition.'
-      }
-    ];
-    // Terms & Conditions and Acknowledgment belong together as the closing
-    // block of the report. Estimate the combined height up front so the pair
-    // is always pushed to a fresh page together rather than being split, and
-    // always ends up as the last block at the bottom of the printout.
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
-    let tcHeight = 26;
-    tcSections.forEach(sec=>{
-      const bodyLines = doc.splitTextToSize(sec.body, pageW-margin*2);
-      tcHeight += 10 + bodyLines.length*9.5 + 8;
-    });
-    const ackHeight = 190;
-    checkPageBreak(tcHeight + ackHeight);
-
-    sectionHeader('8. Terms & Conditions of Service');
-    tcSections.forEach(sec=>{
-      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(21,77,52);
-      doc.text(sec.heading, margin, y); y += 10;
-      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,68,63);
-      const lines = doc.splitTextToSize(sec.body, pageW-margin*2);
-      doc.text(lines, margin, y); y += lines.length*9.5 + 8;
-      doc.setTextColor(0,0,0);
-    });
-    y += 4;
-
-    // 9. Acknowledgment
+    // 8. Acknowledgment
     checkPageBreak(190);
-    sectionHeader('9. Acknowledgment');
+    sectionHeader('8. Acknowledgment');
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(70,80,74);
     const ackLines = doc.splitTextToSize(
       'I hereby acknowledge the services / works done on my equipment and agree to the terms & conditions stated herein.',
@@ -369,6 +330,11 @@
         return;
       }
       if(saveResult===SAVE_QUEUED) toast('Saved on this device — it will upload when you are online');
+      // If this report was filed against a specific piece of equipment on a
+      // dispatch ticket, mark that item reported so the ticket's progress
+      // ("38 of 100 reported") picks it up. Best-effort — never blocks or
+      // fails the report save itself.
+      if(srCurrentTicketId && srCurrentEquipId) await dtMarkEquipmentReported(srCurrentTicketId, srCurrentEquipId, currentSrNo);
       $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
       const doc = await buildPdf(data);
       const filename = (currentSrNo||'service-report')+'.pdf';

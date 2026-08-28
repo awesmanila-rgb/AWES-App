@@ -2848,6 +2848,14 @@
   $('svcDate').addEventListener('change', ()=> $('metaDate').textContent = fmtDate($('svcDate').value));
 
   // ---------- init defaults ----------
+  // Which dispatch ticket + equipment line item (if any) the report
+  // currently being filed is tied to — set by srApplyJobOrder (dispatch.js)
+  // when a technician picks a piece of equipment off a Job Order, read by
+  // the save handler in pdf.js to mark that item "reported" once the report
+  // goes through. Declared here because resetForm() below runs once at load
+  // time, before dispatch.js's own module code has executed.
+  let srCurrentTicketId = null;
+  let srCurrentEquipId = null;
   function resetForm(){
     // Scoped to the Service Report view only. This used to select every text,
     // number, textarea and checkbox on the page, so starting a new report also
@@ -2886,6 +2894,8 @@
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
     currentSrNo = null;
     currentTechnicianId = null;
+    srCurrentTicketId = null;
+    srCurrentEquipId = null;
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();
@@ -3226,48 +3236,9 @@
       y = doc.lastAutoTable.finalY + 18;
     }
 
-    // 8. Terms & Conditions of Service
-    const tcSections = [
-      {
-        heading: 'Preventive Maintenance Service (PMS)',
-        body: 'PMS consists strictly of cleaning, routine inspection, and operational checks, and does not constitute a warranty on the equipment or its future performance. A limited 7-day workmanship guarantee covers only the direct physical labor (e.g., proper reassembly and drain line clearance). Pre-existing defects, component failures, and additional repairs require a separate quote and approval.'
-      },
-      {
-        heading: 'Repair Works',
-        body: 'Repairs cover only the specified scope and agreed-upon components. Replaced parts carry a 90-day warranty against manufacturing defects, while related labor carries a 30-day guarantee or as indicated in our proposal. Warranty is void if damage results from power surges, voltage fluctuations, unauthorized tampering, or external site factors.'
-      },
-      {
-        heading: 'Installation Works',
-        body: 'Installation workmanship and piping integrity are guaranteed for 6 months or as indicated in our proposal from commissioning. Equipment warranties are covered separately by the manufacturer. Warranty excludes damages from electrical supply issues, lack of routine maintenance, unauthorized modifications, or improper operation. Sign-off confirms turnover in good operating condition.'
-      }
-    ];
-    // Terms & Conditions and Acknowledgment belong together as the closing
-    // block of the report. Estimate the combined height up front so the pair
-    // is always pushed to a fresh page together rather than being split, and
-    // always ends up as the last block at the bottom of the printout.
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
-    let tcHeight = 26;
-    tcSections.forEach(sec=>{
-      const bodyLines = doc.splitTextToSize(sec.body, pageW-margin*2);
-      tcHeight += 10 + bodyLines.length*9.5 + 8;
-    });
-    const ackHeight = 190;
-    checkPageBreak(tcHeight + ackHeight);
-
-    sectionHeader('8. Terms & Conditions of Service');
-    tcSections.forEach(sec=>{
-      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(21,77,52);
-      doc.text(sec.heading, margin, y); y += 10;
-      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,68,63);
-      const lines = doc.splitTextToSize(sec.body, pageW-margin*2);
-      doc.text(lines, margin, y); y += lines.length*9.5 + 8;
-      doc.setTextColor(0,0,0);
-    });
-    y += 4;
-
-    // 9. Acknowledgment
+    // 8. Acknowledgment
     checkPageBreak(190);
-    sectionHeader('9. Acknowledgment');
+    sectionHeader('8. Acknowledgment');
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(70,80,74);
     const ackLines = doc.splitTextToSize(
       'I hereby acknowledge the services / works done on my equipment and agree to the terms & conditions stated herein.',
@@ -3404,6 +3375,11 @@
         return;
       }
       if(saveResult===SAVE_QUEUED) toast('Saved on this device — it will upload when you are online');
+      // If this report was filed against a specific piece of equipment on a
+      // dispatch ticket, mark that item reported so the ticket's progress
+      // ("38 of 100 reported") picks it up. Best-effort — never blocks or
+      // fails the report save itself.
+      if(srCurrentTicketId && srCurrentEquipId) await dtMarkEquipmentReported(srCurrentTicketId, srCurrentEquipId, currentSrNo);
       $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
       const doc = await buildPdf(data);
       const filename = (currentSrNo||'service-report')+'.pdf';
@@ -4430,6 +4406,22 @@
   // direction from Leave/Cash Advance (which are technician-filed, admin-
   // reviewed) — here admin files, technician actions it.
   function dtGenLocalId(){ return 'JO-'+todayISO().replace(/-/g,'')+'-'+Date.now(); }
+  // Old tickets only ever had a single equipmentDetails object + one shared
+  // scope list. Wrap those into the new equipmentList shape on read so
+  // nothing written before this change breaks.
+  function dtNormalizeTicket(rec){
+    if(!rec) return rec;
+    if(!rec.equipmentList){
+      if(rec.equipmentDetails && Object.values(rec.equipmentDetails).some(v=>v)){
+        rec.equipmentList = [Object.assign({id:'legacy-1'}, rec.equipmentDetails, {
+          scope: rec.scope||[], reportSrNo: rec.status==='completed' ? 'legacy' : null
+        })];
+      }else{
+        rec.equipmentList = [];
+      }
+    }
+    return rec;
+  }
   const DT_PAGE = 200;
   const DT_MAX_ROWS = 5000;
   async function dtNextJobOrderNo(){
@@ -4479,7 +4471,7 @@
       const res = await window.storage.list('dispatch:', false);
       const items = [];
       for(const key of (res.keys||[])){
-        try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
+        try{ const item = await window.storage.get(key, false); items.push(dtNormalizeTicket(JSON.parse(item.value))); }catch(e){}
       }
       items.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
       return items;
@@ -4496,7 +4488,7 @@
       const { data, error } = await q;
       if(error) throw error;
       const rows = data || [];
-      rows.forEach(r=> out.push(r.data));
+      rows.forEach(r=> out.push(dtNormalizeTicket(r.data)));
       if(rows.length < DT_PAGE) break;
     }
     return out;
@@ -4535,9 +4527,15 @@
   }
 
   // ---------- Service Report: "From Job Order" picker ----------
-  // Shows the technician's own not-yet-completed Job Order tickets at the
-  // top of a new report, so tapping one fills in the customer/site/equipment
-  // fields captured on the dispatch ticket instead of retyping them.
+  // Shows the technician's own Job Order tickets that still have equipment
+  // needing a report. Tapping a ticket expands its pending equipment as a
+  // checklist; tapping one piece of equipment fills the form with THAT
+  // unit's details/scope and files one report just for it — one dispatch
+  // ticket can cover many units, but each still gets its own report.
+  // srCurrentTicketId / srCurrentEquipId (which ticket + equipment item the
+  // report currently being filed is tied to) are declared in ui.js, not
+  // here — resetForm() runs once at load time before this module's code
+  // executes, and clears them, so they must already be initialized by then.
   async function srRenderJobOrderPicker(){
     const card = $('srJobOrderCard');
     const list = $('srJobOrderList');
@@ -4550,29 +4548,51 @@
     card.style.display = '';
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const mine = await dtListForReporter(currentUser.id);
-    const openOnes = mine.filter(r=> r.status!=='completed');
+    const openOnes = mine.filter(r=> (r.equipmentList||[]).some(it=> !it.reportSrNo));
     if(openOnes.length===0){
-      list.innerHTML = '<div class="empty-state">No Job Order tickets assigned to you right now.</div>';
+      list.innerHTML = '<div class="empty-state">No Job Order tickets with equipment still needing a report.</div>';
       return;
     }
     list.innerHTML = '';
     openOnes.forEach(r=>{
+      const items = r.equipmentList||[];
+      const pending = items.filter(it=>!it.reportSrNo);
       const row = document.createElement('div');
       row.className = 'user-card';
-      row.style.cursor = 'pointer';
-      row.innerHTML = '<div class="user-card-head">'+
+      row.innerHTML = '<div class="user-card-head" style="cursor:pointer;">'+
           '<div>'+
             '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
             '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+
               (r.siteAddress ? (' · '+escapeHtml(r.siteAddress)) : '')+'</div>'+
+            '<div class="u-status">'+(items.length-pending.length)+' of '+items.length+' equipment reported</div>'+
           '</div>'+
           dtStatusPill(r.status)+
-        '</div>';
-      row.addEventListener('click', ()=> srApplyJobOrder(r));
+        '</div>'+
+        '<div class="dt-equip-pending" style="display:none; margin-top:8px;"></div>';
+      const head = row.querySelector('.user-card-head');
+      const pendingWrap = row.querySelector('.dt-equip-pending');
+      head.addEventListener('click', ()=>{
+        const isOpen = pendingWrap.style.display !== 'none';
+        pendingWrap.style.display = isOpen ? 'none' : '';
+        if(!isOpen && pendingWrap.childElementCount===0){
+          if(pending.length===0){
+            pendingWrap.innerHTML = '<div class="empty-state">All equipment on this ticket already has a report.</div>';
+          }
+          pending.forEach(it=>{
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'combo-item';
+            btn.style.cssText = 'display:block; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
+            btn.textContent = dtEquipSummaryLine(it);
+            btn.addEventListener('click', (e)=>{ e.stopPropagation(); srApplyJobOrder(r, it); });
+            pendingWrap.appendChild(btn);
+          });
+        }
+      });
       list.appendChild(row);
     });
   }
-  function srApplyJobOrder(ticket){
+  function srApplyJobOrder(ticket, equipItem){
     resetForm();
     // A Job Order was actually picked — Customer's Info (and everything
     // after it) can now be shown, since a technician's report must be tied
@@ -4587,16 +4607,13 @@
     if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
     if(ticket.contactName) $('contactPerson').value = ticket.contactName;
     if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
-    if(ticket.equipmentDetails && Object.values(ticket.equipmentDetails).some(v=>v)){
-      EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = ticket.equipmentDetails[k]||''; });
+    if(equipItem){
+      EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = equipItem[k]||''; });
       setEquipTab('addnew');
-    }else if(ticket.equipment && ticket.equipment.length){
-      $('equipType').value = ticket.equipment.join('; ');
-      setEquipTab('addnew');
+      if(equipItem.scope && equipItem.scope.length) $('troubleCall').value = equipItem.scope.join('; ');
     }
-    if(ticket.scope && ticket.scope.length){
-      $('troubleCall').value = ticket.scope.join('; ');
-    }
+    srCurrentTicketId = ticket.id;
+    srCurrentEquipId = equipItem ? equipItem.id : null;
     toast('Job Order '+ticket.jobOrderNo+' applied — check the fields below');
     $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
   }
@@ -4637,6 +4654,14 @@
   let dtCurrentCustomerId = null;
   let dtCurrentEquipmentCache = [];
   let dtCurrentEquipTab = null;
+  // Multi-equipment draft state for the ticket currently being built — each
+  // item becomes its own Service Report later, so each carries its own scope
+  // (seeded from the Default Scope list at the moment it's added, then
+  // independently editable per unit).
+  let dtDraftEquipItems = [];
+  function dtGenEquipId(){ return 'de-'+Date.now()+'-'+Math.random().toString(36).slice(2,7); }
+  function dtPickEquipFields(e){ const out={}; EQUIP_FIELD_KEYS.forEach(k=> out[k]=e[k]||''); return out; }
+  function dtEquipKey(fields){ return EQUIP_FIELD_KEYS.map(k=>(fields[k]||'').trim()).join('|'); }
   async function dtLoadCustomerEquipment(customerId){
     dtCurrentCustomerId = customerId;
     if(!customerId){ dtCurrentEquipmentCache = []; return; }
@@ -4653,6 +4678,9 @@
   function dtEquipSummaryLine(e){
     return [e.equipType, e.brand, e.coolCap, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
+  // Checkbox multi-select — lets an admin add several (or all) of a
+  // customer's known units to this ticket in one pass instead of loading
+  // them into the single-equipment fields one at a time.
   function dtRenderEquipPicker(){
     const list = $('dtEquipPickerList');
     list.innerHTML = '';
@@ -4664,19 +4692,102 @@
       list.innerHTML = '<div class="combo-empty">No equipment on file yet for this customer — tap "+ Add New" to add one.</div>';
       return;
     }
+    const addedKeys = new Set(dtDraftEquipItems.map(it=> dtEquipKey(it)));
     dtCurrentEquipmentCache.forEach(e=>{
-      const row = document.createElement('div');
-      row.className = 'combo-item';
-      row.style.cssText = 'border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;';
-      row.textContent = dtEquipSummaryLine(e);
-      row.addEventListener('click', ()=>{
-        EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); if(el) el.value = e[k]||''; });
-        dtSetEquipTab('addnew');
-        toast('Loaded equipment: '+dtEquipSummaryLine(e));
-      });
+      const already = addedKeys.has(dtEquipKey(e));
+      const row = document.createElement('label');
+      row.className = 'chk';
+      row.style.cssText = 'display:flex; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;'+(already?' opacity:.6;':'');
+      row.innerHTML = '<input type="checkbox" value="'+e.id+'"'+(already?' disabled checked':'')+'><span>'+escapeHtml(dtEquipSummaryLine(e))+(already?' (already added)':'')+'</span>';
       list.appendChild(row);
     });
   }
+  function dtEquipCountLabel(){
+    $('dtEquipCount').textContent = dtDraftEquipItems.length===0
+      ? 'No equipment added yet'
+      : (dtDraftEquipItems.length+' equipment added to this ticket');
+  }
+  // Appends one equipment line item as its own card with an independent,
+  // always-editable Scope of Service list — seeded from the Default Scope
+  // list at the moment of adding. Appending (never re-rendering the whole
+  // list) means adding/removing one item never wipes another item's
+  // in-progress scope edits.
+  function dtAppendEquipItemCard(item){
+    const wrap = $('dtEquipItemsList');
+    const empty = wrap.querySelector('.empty-state');
+    if(empty) empty.remove();
+    const scopeId = 'dtEquipScope-'+item.id;
+    const card = document.createElement('div');
+    card.className = 'user-card';
+    card.style.marginBottom = '8px';
+    card.dataset.equipId = item.id;
+    card.innerHTML = '<div class="user-card-head"><div><div class="u-name">'+escapeHtml(dtEquipSummaryLine(item))+'</div></div></div>'+
+      '<div class="field" style="margin-top:6px; margin-bottom:6px;">'+
+        '<label style="font-size:12px;">Scope of Service for this unit</label>'+
+        '<div id="'+scopeId+'"></div>'+
+      '</div>';
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button'; rmBtn.className = 'rm-btn'; rmBtn.textContent = 'Remove';
+    rmBtn.style.cssText = 'width:auto; padding:4px 10px;';
+    rmBtn.addEventListener('click', ()=>{
+      dtDraftEquipItems = dtDraftEquipItems.filter(x=> x.id!==item.id);
+      card.remove();
+      dtEquipCountLabel();
+      if(dtDraftEquipItems.length===0) wrap.innerHTML = '<div class="empty-state">No equipment added yet.</div>';
+      dtRenderEquipPicker();
+    });
+    card.querySelector('.user-card-head').appendChild(rmBtn);
+    const scopeBtn = document.createElement('button');
+    scopeBtn.type = 'button'; scopeBtn.className = 'add-row-btn'; scopeBtn.textContent = '+ Add scope item';
+    scopeBtn.addEventListener('click', ()=> dtAddSimpleRow(scopeId));
+    card.querySelector('.field').appendChild(scopeBtn);
+    wrap.appendChild(card);
+    const defaults = dtCollectSimpleList('dtDefaultScopeList');
+    if(defaults.length) defaults.forEach(v=> dtAddSimpleRow(scopeId, v));
+    else dtAddSimpleRow(scopeId);
+    dtEquipCountLabel();
+  }
+  function dtAddEquipItemFromFields(){
+    const fields = dtCollectEquipmentFields();
+    if(!EQUIP_FIELD_KEYS.some(k=>fields[k])){ toast('Enter at least one equipment detail'); return; }
+    const item = Object.assign({id: dtGenEquipId()}, fields);
+    dtDraftEquipItems.push(item);
+    dtAppendEquipItemCard(item);
+    if(dtCurrentCustomerId) dtAddCustomerEquipmentIfNew(dtCurrentCustomerId, fields);
+    dtResetEquipmentFields();
+    toast('Equipment added to ticket');
+  }
+  function dtAddSelectedExistingEquip(){
+    const checked = Array.from($('dtEquipPickerList').querySelectorAll('input:checked:not(:disabled)'));
+    if(checked.length===0){ toast('Select at least one'); return; }
+    checked.forEach(cb=>{
+      const e = dtCurrentEquipmentCache.find(x=> x.id===cb.value);
+      if(!e) return;
+      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      dtDraftEquipItems.push(item);
+      dtAppendEquipItemCard(item);
+    });
+    dtRenderEquipPicker();
+    toast(checked.length+' equipment added');
+  }
+  function dtAddAllExistingEquip(){
+    const addedKeys = new Set(dtDraftEquipItems.map(it=> dtEquipKey(it)));
+    let count = 0;
+    dtCurrentEquipmentCache.forEach(e=>{
+      const key = dtEquipKey(e);
+      if(addedKeys.has(key)) return;
+      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      dtDraftEquipItems.push(item);
+      dtAppendEquipItemCard(item);
+      addedKeys.add(key);
+      count++;
+    });
+    dtRenderEquipPicker();
+    toast(count>0 ? ('Added '+count+' equipment from file') : 'All equipment on file is already added');
+  }
+  $('dtAddEquipItemBtn').addEventListener('click', dtAddEquipItemFromFields);
+  $('dtAddSelectedEquipBtn').addEventListener('click', dtAddSelectedExistingEquip);
+  $('dtAddAllEquipBtn').addEventListener('click', dtAddAllExistingEquip);
   function dtSetEquipTab(tab){
     dtCurrentEquipTab = tab;
     $('dtEquipTabExisting').classList.toggle('active', tab==='existing');
@@ -4830,7 +4941,10 @@
     dtResetEquipmentFields();
     dtLoadCustomerEquipment(null);
     dtSetEquipTab(null);
-    $('dtScopeList').innerHTML=''; dtAddSimpleRow('dtScopeList');
+    $('dtDefaultScopeList').innerHTML=''; dtAddSimpleRow('dtDefaultScopeList');
+    dtDraftEquipItems = [];
+    $('dtEquipItemsList').innerHTML = '<div class="empty-state">No equipment added yet.</div>';
+    dtEquipCountLabel();
     $('dtRemarks').value = '';
     ['dtReqWorkPermit','dtReqGatePass','dtReqSafety','dtReqOthers'].forEach(id=> $(id).checked=false);
     $('dtReqOthersDetail').value = '';
@@ -4849,10 +4963,16 @@
     if(reporters.length===0){ toast('Select at least one technician who can create the Service Report'); return; }
     if(!custName){ toast('Enter the customer\'s name'); return; }
     if(!$('dtDate').value){ toast('Set the date'); return; }
+    if(dtDraftEquipItems.length===0){ toast('Add at least one piece of equipment to the ticket'); return; }
     $('dtCreateBtn').disabled = true; $('dtCreateBtn').textContent = 'Creating…';
     const jobOrderNo = await dtNextJobOrderNo();
     const id = jobOrderNo || dtGenLocalId();
-    const equipmentDetails = dtCollectEquipmentFields();
+    // One line item per piece of equipment, each with its own scope — one
+    // Service Report gets filed per item later, tracked via reportSrNo.
+    const equipmentList = dtDraftEquipItems.map(item=>{
+      const scope = dtCollectSimpleList('dtEquipScope-'+item.id);
+      return Object.assign({}, item, { scope, reportSrNo: null });
+    });
     const data = {
       id, jobOrderNo: id, status: 'open',
       date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
@@ -4860,8 +4980,7 @@
       reportAllowedWorkerIds: reporters.map(w=>w.id), reportAllowedWorkerNames: reporters.map(w=>w.name),
       custName, siteAddress: $('dtSiteAddress').value.trim(),
       contactName: $('dtContactName').value.trim(), contactNo: $('dtContactNo').value.trim(),
-      equipment: [dtEquipSummaryLine(equipmentDetails)], equipmentDetails,
-      scope: dtCollectSimpleList('dtScopeList'),
+      equipment: equipmentList.map(dtEquipSummaryLine), equipmentList,
       remarks: $('dtRemarks').value.trim(),
       requirements: {
         workPermit: $('dtReqWorkPermit').checked, gatePass: $('dtReqGatePass').checked,
@@ -4875,7 +4994,7 @@
     const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
     if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
-    if(custId) await dtAddCustomerEquipmentIfNew(custId, equipmentDetails);
+    if(custId) equipmentList.forEach(item=> dtAddCustomerEquipmentIfNew(custId, item));
     toast(res===SAVE_CLOUD
       ? ('Dispatch ticket '+id+' created')
       : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));
@@ -4899,6 +5018,24 @@
     if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Acknowledged</span>';
     return '<span class="status-pill status-draft">Open</span>';
   }
+  // Shows every equipment item on the ticket with its own scope and
+  // report status, capped so a 100-unit ticket doesn't blow up the card —
+  // the full list is still reachable via the technician's equipment
+  // checklist when filing reports.
+  function dtEquipmentSummaryBlock(r){
+    const items = r.equipmentList || [];
+    if(items.length===0) return '';
+    const reported = items.filter(it=>it.reportSrNo).length;
+    const cap = 8;
+    const rows = items.slice(0,cap).map(it=>{
+      const scope = (it.scope||[]).map(escapeHtml).join('; ');
+      return '<div style="margin:4px 0; padding-left:8px; border-left:2px solid var(--border);">'+
+        '<div>'+escapeHtml(dtEquipSummaryLine(it))+(it.reportSrNo ? ' <span style="color:var(--green-dark);">&#10003; Reported</span>' : '')+'</div>'+
+        (scope ? '<div style="font-size:12px; color:var(--text-muted);">Scope: '+scope+'</div>' : '')+
+      '</div>';
+    }).join('') + (items.length>cap ? '<div style="font-size:12px; color:var(--text-muted);">+'+(items.length-cap)+' more…</div>' : '');
+    return '<div class="leave-comment"><b>Equipment ('+reported+' of '+items.length+' reported)</b>'+rows+'</div>';
+  }
   function dtCardHtml(r, forAdmin){
     return '<div class="user-card-head">'+
         '<div>'+
@@ -4910,11 +5047,30 @@
       (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
       (forAdmin && r.reportAllowedWorkerNames && r.reportAllowedWorkerNames.length ? '<div class="leave-comment"><b>Can Create Service Report</b>'+escapeHtml(r.reportAllowedWorkerNames.join(', '))+'</div>' : '')+
       (r.contactName ? '<div class="leave-comment"><b>Contact at Site</b>'+escapeHtml(r.contactName)+(r.contactNo?(' · '+escapeHtml(r.contactNo)):'')+'</div>' : '')+
-      (r.equipment && r.equipment.length ? '<div class="leave-comment"><b>Equipment</b>'+r.equipment.map(escapeHtml).join('; ')+'</div>' : '')+
-      (r.scope && r.scope.length ? '<div class="leave-comment"><b>Scope of Works</b>'+r.scope.map(escapeHtml).join('; ')+'</div>' : '')+
+      dtEquipmentSummaryBlock(r)+
       (r.remarks ? '<div class="leave-comment"><b>Special Instructions</b>'+escapeHtml(r.remarks)+'</div>' : '')+
       '<div class="leave-comment"><b>Requirements</b>'+dtReqSummary(r)+'</div>'+
       (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '');
+  }
+  // Best-effort write-back: called after a Service Report tied to one
+  // equipment line item is saved, so the ticket's progress ("38 of 100
+  // reported") reflects it. Never blocks or fails the report save itself —
+  // if it can't reach the cloud right now, the ticket just catches up
+  // whenever it's next viewed online.
+  async function dtMarkEquipmentReported(ticketId, equipId, srNo){
+    if(!ticketId || !equipId) return;
+    if(!(await ensureCloud())) return;
+    try{
+      const rec = await dtGetTicket(ticketId);
+      if(!rec || !rec.equipmentList) return;
+      const idx = rec.equipmentList.findIndex(it=> it.id===equipId);
+      if(idx<0 || rec.equipmentList[idx].reportSrNo===srNo) return;
+      const equipmentList = rec.equipmentList.slice();
+      equipmentList[idx] = Object.assign({}, equipmentList[idx], { reportSrNo: srNo });
+      const merged = Object.assign({}, rec, { equipmentList });
+      const { error } = await db.from('dispatch_tickets').update({ data: merged }).eq('id', ticketId);
+      if(error) throw error;
+    }catch(e){ console.error('mark equipment reported failed', describeCloudError(e)); }
   }
 
   let dtAdminFilter = 'open';
@@ -4997,12 +5153,12 @@
       try{
         const { data, error } = await db.from('dispatch_tickets').select('data').eq('id', id).maybeSingle();
         if(error) throw error;
-        return data ? data.data : null;
+        return data ? dtNormalizeTicket(data.data) : null;
       }catch(e){ console.error('dispatch fetch failed', describeCloudError(e)); return null; }
     }
     try{
       const item = await window.storage.get('dispatch:'+id, false);
-      return item ? JSON.parse(item.value) : null;
+      return item ? dtNormalizeTicket(JSON.parse(item.value)) : null;
     }catch(e){ return null; }
   }
   async function dtApplyWorkerChange(id, mutate){
