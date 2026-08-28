@@ -1499,6 +1499,55 @@
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
   }
+  // Editing a record from the admin "Manage Equipment List → Edit" tab.
+  // Same reasoning as delete above: admin-only and requires a live cloud
+  // connection, no offline queue. Deliberately doesn't touch
+  // currentEquipmentCache — that cache belongs to whichever customer is
+  // currently open in Manage Customers / a report in progress, which may not
+  // be the customer this record belongs to; the admin list re-fetches fresh
+  // after saving instead.
+  async function cloudUpdateCustomerEquipment(id, fields){
+    if(!(await ensureCloud())) return false;
+    const rec = {};
+    EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+    try{
+      const { error } = await db.from('customer_equipment').update(rec).eq('id', id);
+      if(error) throw error;
+    }catch(e){
+      console.error('update equipment failed', describeCloudError(e));
+      return false;
+    }
+    return true;
+  }
+  // Adding a record from the admin "Manage Equipment List → Add" tab, for
+  // whichever customer the admin picks — deliberately independent of
+  // currentCustomerId / currentEquipmentCache (same reasoning as the
+  // dedicated dt* equipment state kept for the Dispatch Ticket picker):
+  // this runs the dupe-check against a fresh fetch for the target customer
+  // instead of the shared cache, so it can never clobber whatever customer's
+  // equipment is loaded behind this admin sheet in Manage Customers or an
+  // open report. Requires a live cloud connection.
+  async function cloudAddCustomerEquipmentAdmin(customerId, fields){
+    if(!customerId) return false;
+    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
+    if(!hasAnyValue) return false;
+    if(!(await ensureCloud())) return false;
+    try{
+      const { data, error } = await db.from('customer_equipment').select('*').eq('customer_id', customerId);
+      if(error) throw error;
+      const existing = (data||[]).map(equipRowToObj);
+      const dupe = existing.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'').trim()));
+      if(dupe) return 'dupe';
+      const rec = { customer_id: customerId };
+      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+      const { error: insErr } = await db.from('customer_equipment').insert(rec);
+      if(insErr) throw insErr;
+      return true;
+    }catch(e){
+      console.error('admin add customer equipment failed', describeCloudError(e));
+      return false;
+    }
+  }
   // Loads every equipment record across every customer, with the owning
   // customer's name attached — powers the admin "Customer Equipment List"
   // master view. (loadCustomerEquipment above is scoped to one customer,
@@ -2220,24 +2269,56 @@
     });
   }
 
-  // ---------- Customer Equipment List (admin menu — master view across
-  // every customer, not scoped to whichever one is open in Manage Customers) ----------
-  async function renderEquipmentMasterList(filterText){
+  // ---------- Manage Equipment List (admin menu — the equipment list per
+  // customer, in one master view across every customer, not scoped to
+  // whichever one is open in Manage Customers) ----------
+  let equipListTab = 'edit'; // 'edit' | 'add' | 'delete'
+
+  // (Re)builds the customer filter (Edit/Delete tabs) and the customer
+  // picker on the Add tab from the shared customers list, keeping whatever
+  // was already selected if it's still there.
+  async function populateEquipmentCustomerSelects(){
+    if(customersCache.length===0) await loadCustomers();
+    const sorted = customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    const opts = sorted.map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
+    const filterSel = $('equipmentListCustomerFilter');
+    const keepFilter = filterSel.value;
+    filterSel.innerHTML = '<option value="">All Customers</option>' + opts;
+    filterSel.value = keepFilter;
+    const addSel = $('eqAddCustomer');
+    const keepAdd = addSel.value;
+    addSel.innerHTML = '<option value="">Select a customer…</option>' + opts;
+    addSel.value = keepAdd;
+  }
+  function setEquipListTab(tab){
+    equipListTab = tab;
+    $('equipListTabEdit').classList.toggle('active', tab==='edit');
+    $('equipListTabAdd').classList.toggle('active', tab==='add');
+    $('equipListTabDelete').classList.toggle('active', tab==='delete');
+    $('equipListViewSection').style.display = tab==='add' ? 'none' : '';
+    $('equipAddSection').style.display = tab==='add' ? '' : 'none';
+    if(tab!=='add') renderEquipmentMasterList();
+  }
+  async function renderEquipmentMasterList(){
     const body = $('equipmentListBody');
     body.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await loadAllCustomerEquipment();
-    const q = (filterText||'').trim().toLowerCase();
-    const items = !q ? all : all.filter(e=>{
-      const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
-        .filter(Boolean).join(' ').toLowerCase();
-      return hay.includes(q);
-    });
+    const custId = $('equipmentListCustomerFilter').value;
+    const q = ($('equipmentListSearch').value||'').trim().toLowerCase();
+    let items = custId ? all.filter(e=> String(e.customerId)===String(custId)) : all;
+    if(q){
+      items = items.filter(e=>{
+        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+          .filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+    }
     items.sort((a,b)=> (a.customerName||'').localeCompare(b.customerName||''));
     body.innerHTML = '';
     if(items.length===0){
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.textContent = q ? 'No equipment matches "'+filterText+'".' : 'No equipment on file yet.';
+      empty.textContent = q ? 'No equipment matches "'+$('equipmentListSearch').value+'".' : 'No equipment on file yet.';
       body.appendChild(empty);
       return;
     }
@@ -2253,26 +2334,88 @@
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
         '</div></div>'+
         '<div class="user-card-actions">'+
-          '<button data-act="remove" class="danger">Remove</button>'+
-        '</div>';
-      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
-        if(!confirm('Remove this equipment record for '+e.customerName+'? This does not affect past reports.')) return;
-        const ok = await cloudDeleteCustomerEquipment(e.id);
-        if(ok){ toast('Removed'); renderEquipmentMasterList($('equipmentListSearch').value); }
-        else toast('Could not remove');
-      });
+          (equipListTab==='edit' ? '<button data-act="edit" class="primary">Edit</button>' : '')+
+          (equipListTab==='delete' ? '<button data-act="remove" class="danger">Delete</button>' : '')+
+        '</div>'+
+        (equipListTab==='edit' ?
+          '<div class="user-edit-panel" data-panel="1">'+
+            '<div class="field"><label>Equipment Type</label><input type="text" data-f="equipType" value="'+escapeHtml(e.equipType||'')+'"></div>'+
+            '<div class="field"><label>Specific Location</label><input type="text" data-f="equipLocation" value="'+escapeHtml(e.equipLocation||'')+'"></div>'+
+            '<div class="field"><label>Manufacturer / Brand</label><input type="text" data-f="brand" value="'+escapeHtml(e.brand||'')+'"></div>'+
+            '<div class="field"><label>Mounting Type</label><input type="text" data-f="mountType" value="'+escapeHtml(e.mountType||'')+'"></div>'+
+            '<div class="field"><label>Cooling Capacity</label><input type="text" data-f="coolCap" value="'+escapeHtml(e.coolCap||'')+'"></div>'+
+            '<div class="field"><label>Model No. (CU)</label><input type="text" data-f="modelCU" value="'+escapeHtml(e.modelCU||'')+'"></div>'+
+            '<div class="field"><label>Serial No. (CU)</label><input type="text" data-f="serialCU" value="'+escapeHtml(e.serialCU||'')+'"></div>'+
+            '<div class="field"><label>Model No. (FCU)</label><input type="text" data-f="modelFCU" value="'+escapeHtml(e.modelFCU||'')+'"></div>'+
+            '<div class="field"><label>Serial No. (FCU)</label><input type="text" data-f="serialFCU" value="'+escapeHtml(e.serialFCU||'')+'"></div>'+
+            '<div class="field"><label>Refrigerant Type</label><input type="text" data-f="refrigerantType" value="'+escapeHtml(e.refrigerantType||'')+'"></div>'+
+            '<div class="field"><label>Compressor Type</label><input type="text" data-f="compressorType" value="'+escapeHtml(e.compressorType||'')+'"></div>'+
+            '<div class="edit-save-row">'+
+              '<button class="cancel-btn" data-act="cancel" type="button">Cancel</button>'+
+              '<button class="save-btn" data-act="save" type="button">Save Changes</button>'+
+            '</div>'+
+          '</div>' : '');
+      if(equipListTab==='edit'){
+        const panel = card.querySelector('[data-panel="1"]');
+        card.querySelector('[data-act="edit"]').addEventListener('click', ()=>{
+          body.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+          panel.classList.toggle('open');
+        });
+        card.querySelector('[data-act="cancel"]').addEventListener('click', ()=> panel.classList.remove('open'));
+        card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
+          const fields = {};
+          EQUIP_FIELD_KEYS.forEach(k=>{ const inp = panel.querySelector('[data-f="'+k+'"]'); fields[k] = inp ? inp.value.trim() : ''; });
+          const ok = await cloudUpdateCustomerEquipment(e.id, fields);
+          if(ok){ toast('Saved'); renderEquipmentMasterList(); }
+          else toast('Could not save — check your connection');
+        });
+      }
+      if(equipListTab==='delete'){
+        card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+          if(!confirm('Remove this equipment record for '+e.customerName+'? This does not affect past reports.')) return;
+          const ok = await cloudDeleteCustomerEquipment(e.id);
+          if(ok){ toast('Removed'); renderEquipmentMasterList(); }
+          else toast('Could not remove');
+        });
+      }
       body.appendChild(card);
     });
   }
-  $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList($('equipmentListSearch').value));
+  $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList());
+  $('equipmentListCustomerFilter').addEventListener('change', ()=> renderEquipmentMasterList());
   $('closeEquipmentList').addEventListener('click', ()=> $('equipmentListOverlay').classList.remove('open'));
   $('equipmentListOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentListOverlay') $('equipmentListOverlay').classList.remove('open'); });
+  $('equipListTabEdit').addEventListener('click', ()=> setEquipListTab('edit'));
+  $('equipListTabAdd').addEventListener('click', ()=> setEquipListTab('add'));
+  $('equipListTabDelete').addEventListener('click', ()=> setEquipListTab('delete'));
+  $('eqAddSaveBtn').addEventListener('click', async ()=>{
+    const customerId = $('eqAddCustomer').value;
+    if(!customerId){ toast('Select a customer'); return; }
+    const fields = {};
+    EQUIP_FIELD_KEYS.forEach(k=>{
+      const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
+      fields[k] = el ? el.value.trim() : '';
+    });
+    if(!EQUIP_FIELD_KEYS.some(k=>fields[k])){ toast('Enter at least one equipment detail'); return; }
+    $('eqAddSaveBtn').disabled = true;
+    const result = await cloudAddCustomerEquipmentAdmin(customerId, fields);
+    $('eqAddSaveBtn').disabled = false;
+    if(result==='dupe'){ toast('That equipment is already on file for this customer'); return; }
+    if(!result){ toast('Could not add — check your connection'); return; }
+    toast('Equipment added');
+    EQUIP_FIELD_KEYS.forEach(k=>{
+      const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
+      if(el) el.value = '';
+    });
+  });
   $('menuManageEquipment').addEventListener('click', async ()=>{
     closeMainMenu();
     if(!(await ensureAdminAuthenticated())) return;
     $('equipmentListSearch').value = '';
+    await populateEquipmentCustomerSelects();
+    $('equipmentListCustomerFilter').value = '';
+    setEquipListTab('edit');
     $('equipmentListOverlay').classList.add('open');
-    renderEquipmentMasterList('');
   });
 
 

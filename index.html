@@ -153,7 +153,7 @@ window.awesLibs = {
       <div class="menu-dropdown" id="menuDropdown">
         <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
         <button type="button" id="menuManageCustomers"><span class="menu-ico">🏢</span>Manage Customers</button>
-        <button type="button" id="menuManageEquipment"><span class="menu-ico">🧰</span>Customer Equipment List</button>
+        <button type="button" id="menuManageEquipment"><span class="menu-ico">🧰</span>Manage Equipment List</button>
         <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
         <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
         <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
@@ -1074,23 +1074,55 @@ window.awesLibs = {
   </div>
 </div>
 
-<!-- Customer Equipment List sheet (admin-only) — a master view across every
-     customer, for when you want to look up or clean up a unit without first
-     hunting down which customer record it's filed under. Adding/editing a
-     unit still happens per-customer inside Manage Customers (it's tied to
-     the report flow that creates these); this view is read + remove only. -->
+<!-- Manage Equipment List sheet (admin-only) — the equipment list per
+     customer, in one master view across every customer. Edit / Add / Delete
+     tabs switch what the page lets you do; the customer filter (plus text
+     search) narrows the Edit and Delete list to one customer or all of them. -->
 <div class="overlay" id="equipmentListOverlay" style="z-index:55;">
   <div class="sheet">
     <div class="sheet-head">
-      <h3>Customer Equipment List</h3>
+      <h3>Manage Equipment List</h3>
       <button class="sheet-close" id="closeEquipmentList">&times;</button>
     </div>
     <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      Every unit on file, across all customers. Search by customer, brand, type, or serial number.
-      To add a new unit by hand or fix a customer's details, use Manage Customers instead.
+      Every unit on file, across all customers — showing each equipment's description and the
+      customer it's under. Use the tabs below to edit, add, or delete a record.
     </p>
-    <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
-    <div id="equipmentListBody"></div>
+    <div class="seg-tabs" id="equipListTabs">
+      <button type="button" class="seg-tab active" id="equipListTabEdit">Edit</button>
+      <button type="button" class="seg-tab" id="equipListTabAdd">Add</button>
+      <button type="button" class="seg-tab" id="equipListTabDelete">Delete</button>
+    </div>
+
+    <!-- Edit / Delete: filtered, per-customer list -->
+    <div id="equipListViewSection">
+      <div class="field">
+        <label>Filter by Customer</label>
+        <select id="equipmentListCustomerFilter"><option value="">All Customers</option></select>
+      </div>
+      <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
+      <div id="equipmentListBody"></div>
+    </div>
+
+    <!-- Add: a new equipment record for a chosen customer -->
+    <div id="equipAddSection" style="display:none;">
+      <div class="field">
+        <label>Customer <span class="req">*</span></label>
+        <select id="eqAddCustomer"><option value="">Select a customer…</option></select>
+      </div>
+      <div class="field"><label>Equipment Type</label><input type="text" id="eqAddEquipType"></div>
+      <div class="field"><label>Specific Location</label><input type="text" id="eqAddEquipLocation"></div>
+      <div class="field"><label>Manufacturer / Brand</label><input type="text" id="eqAddBrand"></div>
+      <div class="field"><label>Mounting Type</label><input type="text" id="eqAddMountType"></div>
+      <div class="field"><label>Cooling Capacity</label><input type="text" id="eqAddCoolCap"></div>
+      <div class="field"><label>Model No. (CU)</label><input type="text" id="eqAddModelCU"></div>
+      <div class="field"><label>Serial No. (CU)</label><input type="text" id="eqAddSerialCU"></div>
+      <div class="field"><label>Model No. (FCU)</label><input type="text" id="eqAddModelFCU"></div>
+      <div class="field"><label>Serial No. (FCU)</label><input type="text" id="eqAddSerialFCU"></div>
+      <div class="field"><label>Refrigerant Type</label><input type="text" id="eqAddRefrigerantType"></div>
+      <div class="field"><label>Compressor Type</label><input type="text" id="eqAddCompressorType"></div>
+      <button type="button" class="btn btn-primary" id="eqAddSaveBtn" style="width:100%;">Add Equipment</button>
+    </div>
   </div>
 </div>
 

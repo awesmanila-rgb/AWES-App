@@ -128,6 +128,55 @@
     currentEquipmentCache = currentEquipmentCache.filter(e=>e.id!==id);
     return true;
   }
+  // Editing a record from the admin "Manage Equipment List → Edit" tab.
+  // Same reasoning as delete above: admin-only and requires a live cloud
+  // connection, no offline queue. Deliberately doesn't touch
+  // currentEquipmentCache — that cache belongs to whichever customer is
+  // currently open in Manage Customers / a report in progress, which may not
+  // be the customer this record belongs to; the admin list re-fetches fresh
+  // after saving instead.
+  async function cloudUpdateCustomerEquipment(id, fields){
+    if(!(await ensureCloud())) return false;
+    const rec = {};
+    EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+    try{
+      const { error } = await db.from('customer_equipment').update(rec).eq('id', id);
+      if(error) throw error;
+    }catch(e){
+      console.error('update equipment failed', describeCloudError(e));
+      return false;
+    }
+    return true;
+  }
+  // Adding a record from the admin "Manage Equipment List → Add" tab, for
+  // whichever customer the admin picks — deliberately independent of
+  // currentCustomerId / currentEquipmentCache (same reasoning as the
+  // dedicated dt* equipment state kept for the Dispatch Ticket picker):
+  // this runs the dupe-check against a fresh fetch for the target customer
+  // instead of the shared cache, so it can never clobber whatever customer's
+  // equipment is loaded behind this admin sheet in Manage Customers or an
+  // open report. Requires a live cloud connection.
+  async function cloudAddCustomerEquipmentAdmin(customerId, fields){
+    if(!customerId) return false;
+    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
+    if(!hasAnyValue) return false;
+    if(!(await ensureCloud())) return false;
+    try{
+      const { data, error } = await db.from('customer_equipment').select('*').eq('customer_id', customerId);
+      if(error) throw error;
+      const existing = (data||[]).map(equipRowToObj);
+      const dupe = existing.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'').trim()));
+      if(dupe) return 'dupe';
+      const rec = { customer_id: customerId };
+      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+      const { error: insErr } = await db.from('customer_equipment').insert(rec);
+      if(insErr) throw insErr;
+      return true;
+    }catch(e){
+      console.error('admin add customer equipment failed', describeCloudError(e));
+      return false;
+    }
+  }
   // Loads every equipment record across every customer, with the owning
   // customer's name attached — powers the admin "Customer Equipment List"
   // master view. (loadCustomerEquipment above is scoped to one customer,
