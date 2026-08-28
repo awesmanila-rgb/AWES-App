@@ -2007,7 +2007,16 @@
     if(!$('equipTabExisting').dataset.hooked){
       $('equipTabExisting').dataset.hooked = '1';
       $('equipTabExisting').addEventListener('click', ()=> setEquipTab('existing'));
-      $('equipTabAddNew').addEventListener('click', ()=> setEquipTab('addnew'));
+      $('equipTabAddNew').addEventListener('click', ()=>{
+        // A direct tap on "+ Add New" means the technician wants to log
+        // equipment that isn't on file yet — start blank. (Don't put this
+        // inside setEquipTab() itself: history.js/dispatch.js/the equipment
+        // picker all call setEquipTab('addnew') AFTER filling the fields
+        // with data they want kept, so clearing has to be scoped to this
+        // literal button tap only.)
+        EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
+        setEquipTab('addnew');
+      });
       setEquipTab(null);
     }
   }
