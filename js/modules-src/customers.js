@@ -562,25 +562,6 @@
       $('equipTabAddNew').addEventListener('click', ()=> setEquipTab('addnew'));
       setEquipTab(null);
     }
-    document.querySelectorAll('.collapsible-head').forEach(head=>{
-      if(head.dataset.hooked) return;
-      head.dataset.hooked = '1';
-      head.addEventListener('click', ()=>{
-        // Accordion behavior: the phone screen is too small to read two open
-        // sections at once, so opening one collapses whichever other section
-        // was open. Only applies to user taps — expandAllSections (read-only
-        // history view) and resetForm's initial state still show multiple.
-        const body = head.nextElementSibling;
-        if(!body) return;
-        const willOpen = body.style.display === 'none';
-        if(willOpen){
-          document.querySelectorAll('.collapsible-head').forEach(h=>{
-            if(h !== head) toggleCollapsibleSection(h, false);
-          });
-        }
-        toggleCollapsibleSection(head, willOpen);
-      });
-    });
   }
   // Sections 3–8 (Report Summary through Acknowledgment) show only their
   // title until tapped — tapping the header expands/collapses its body.
@@ -597,6 +578,31 @@
   function expandAllSections(){
     document.querySelectorAll('.collapsible-head').forEach(head=> toggleCollapsibleSection(head, true));
   }
+  // Wired via event delegation on document, at load time — NOT inside
+  // attachAllCombos(). attachAllCombos() only runs after an async chain
+  // (loadFieldLists -> seedDefaultLists -> loadCustomers) that can stall or
+  // throw on a slow/offline connection; if it never completes, the old
+  // per-element listeners here never got attached and every header appeared
+  // permanently dead ("nothing happens" on tap). Delegation on document
+  // means tapping a header always works, independent of that network chain.
+  document.addEventListener('click', (e)=>{
+    const head = e.target.closest('.collapsible-head');
+    if(!head) return;
+    const body = head.nextElementSibling;
+    if(!body) return;
+    // Accordion behavior: the phone screen is too small to read two open
+    // sections at once, so opening one collapses whichever other section
+    // was open. expandAllSections() (read-only history view) and
+    // resetForm's initial state still show multiple — this only governs
+    // what happens on a user tap.
+    const willOpen = body.style.display === 'none';
+    if(willOpen){
+      document.querySelectorAll('.collapsible-head').forEach(h=>{
+        if(h !== head) toggleCollapsibleSection(h, false);
+      });
+    }
+    toggleCollapsibleSection(head, willOpen);
+  });
 
   function fieldsInGroup(group){
     return Object.keys(FIELD_META).filter(k=>FIELD_META[k].group===group);
