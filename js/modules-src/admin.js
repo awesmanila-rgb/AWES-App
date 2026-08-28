@@ -244,19 +244,6 @@
     addSel.innerHTML = '<option value="">Select a customer…</option>' + opts;
     addSel.value = keepAdd;
   }
-  // Wires each "Add Equipment" text box to the same admin-managed dropdown
-  // list (fieldLists, via attachCombo) that the matching field on the
-  // Service Report form already uses — e.g. eqAddBrand gets the same
-  // 'brand' suggestions as the report's Manufacturer/Brand field, kept in
-  // sync via Manage Dropdown Lists. attachCombo no-ops on a repeat call
-  // (input.dataset.comboAttached), so this is safe to call every time the
-  // Add tab is opened rather than only once.
-  function attachEquipAddCombos(){
-    EQUIP_FIELD_KEYS.forEach(k=>{
-      const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
-      if(el) attachCombo(el, k);
-    });
-  }
   function setEquipListTab(tab){
     equipListTab = tab;
     $('equipListTabEdit').classList.toggle('active', tab==='edit');
@@ -264,8 +251,7 @@
     $('equipListTabDelete').classList.toggle('active', tab==='delete');
     $('equipListViewSection').style.display = tab==='add' ? 'none' : '';
     $('equipAddSection').style.display = tab==='add' ? '' : 'none';
-    if(tab==='add') attachEquipAddCombos();
-    else renderEquipmentMasterList();
+    if(tab!=='add') renderEquipmentMasterList();
   }
   async function renderEquipmentMasterList(){
     const body = $('equipmentListBody');
@@ -375,6 +361,98 @@
       body.appendChild(card);
     });
   }
+  // ---------- Scan Equipment Label (Manage Equipment List → Add) ----------
+  // Best-effort only: OCR reads whatever text is on the nameplate photo, then
+  // a handful of regexes guess which bits are the model/serial/refrigerant/
+  // capacity/compressor/type. Anything it can't confidently identify — and
+  // anything it gets wrong — is left for the technician to fill in or fix by
+  // hand; the raw scanned text is kept visible for that reason.
+  function parseEquipmentLabelText(raw){
+    const text = (raw||'').toUpperCase();
+    const fields = {};
+    function grabAfter(regexes){
+      for(const re of regexes){
+        const m = text.match(re);
+        if(m && m[1]) return m[1].trim();
+      }
+      return '';
+    }
+    fields.modelCU = grabAfter([
+      /MODEL\s*(?:NO\.?|NUMBER|N[°O])?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/\.]{3,})/
+    ]);
+    fields.serialCU = grabAfter([
+      /SERIAL\s*(?:NO\.?|NUMBER)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/\.]{4,})/,
+      /S\/N\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/\.]{4,})/
+    ]);
+    const refMatch = text.match(/\bR[\-\s]?(22|32|134A|404A|407C|410A|410|290|600A)\b/);
+    if(refMatch) fields.refrigerantType = 'R-'+refMatch[1];
+    const btu = text.match(/([\d,]{3,7})\s*BTU/);
+    const hp = text.match(/(\d+(?:\.\d+)?)\s*HP\b/);
+    const kw = text.match(/(\d+(?:\.\d+)?)\s*KW\b/);
+    const ton = text.match(/(\d+(?:\.\d+)?)\s*(?:TON|TR)\b/);
+    if(btu) fields.coolCap = btu[1]+' BTU/hr';
+    else if(hp) fields.coolCap = hp[1]+' HP';
+    else if(kw) fields.coolCap = kw[1]+' kW';
+    else if(ton) fields.coolCap = ton[1]+' TR';
+    if(/\bSCROLL\b/.test(text)) fields.compressorType = 'Scroll';
+    else if(/\bROTARY\b/.test(text)) fields.compressorType = 'Rotary';
+    else if(/\bRECIPROCATING\b/.test(text)) fields.compressorType = 'Reciprocating';
+    if(/\bWINDOW\s*TYPE\b/.test(text)) fields.equipType = 'Window Type Unit';
+    else if(/\bSPLIT\s*TYPE\b/.test(text)) fields.equipType = 'Split Type Unit';
+    else if(/\bPACKAGE(?:D)?\s*TYPE\b/.test(text)) fields.equipType = 'Package Type Unit';
+    else if(/\bVRF\b|\bVRV\b/.test(text)) fields.equipType = 'VRF/VRV System';
+    const knownBrands = {
+      PANASONIC:'Panasonic', DAIKIN:'Daikin', CARRIER:'Carrier', LG:'LG', SAMSUNG:'Samsung',
+      MITSUBISHI:'Mitsubishi', YORK:'York', FUJITSU:'Fujitsu', HITACHI:'Hitachi', KOLIN:'Kolin',
+      CONDURA:'Condura', TCL:'TCL', MIDEA:'Midea', GREE:'Gree', KOPPEL:'Koppel', HAIER:'Haier',
+      SHARP:'Sharp', AUX:'AUX', CHIGO:'Chigo', TOSOT:'Tosot', ELECTROLUX:'Electrolux'
+    };
+    const brandKey = Object.keys(knownBrands).find(b=> text.includes(b));
+    if(brandKey) fields.brand = knownBrands[brandKey];
+    return fields;
+  }
+  async function scanEquipmentLabel(file){
+    const status = $('eqScanStatus');
+    status.style.display = '';
+    status.textContent = 'Loading scanner…';
+    try{
+      await loadAwesScript('tesseract', awesLibs.tesseract);
+    }catch(e){
+      status.textContent = 'Could not load the scanner — check your connection and try again.';
+      return;
+    }
+    status.textContent = 'Reading label… this can take a few seconds.';
+    let result;
+    try{
+      result = await Tesseract.recognize(file, 'eng');
+    }catch(e){
+      console.error('OCR failed', e);
+      status.textContent = 'Could not read that photo. Try a clearer, well-lit shot, or fill in the fields manually.';
+      return;
+    }
+    const rawText = (result && result.data && result.data.text) || '';
+    const parsed = parseEquipmentLabelText(rawText);
+    const filledLabels = [];
+    Object.keys(parsed).forEach(k=>{
+      if(!parsed[k]) return;
+      const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
+      // Never overwrite something the technician already typed in.
+      if(el && !el.value.trim()){ el.value = parsed[k]; filledLabels.push((FIELD_META[k]&&FIELD_META[k].label)||k); }
+    });
+    status.textContent = filledLabels.length
+      ? 'Filled in from the label: '+filledLabels.join(', ')+'. Please review before saving.'
+      : 'Could not confidently read any fields from that photo — please fill them in manually.';
+    const rawWrap = $('eqScanRawWrap');
+    rawWrap.style.display = rawText.trim() ? '' : 'none';
+    $('eqScanRawText').textContent = rawText.trim() || '(no text detected)';
+  }
+  $('eqScanBtn').addEventListener('click', ()=> $('eqScanInput').click());
+  $('eqScanInput').addEventListener('change', (e)=>{
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // lets the same photo be re-picked next time
+    if(file) scanEquipmentLabel(file);
+  });
+
   $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList());
   $('equipmentListCustomerFilter').addEventListener('change', ()=> renderEquipmentMasterList());
   $('closeEquipmentList').addEventListener('click', ()=> $('equipmentListOverlay').classList.remove('open'));
@@ -382,6 +460,12 @@
   $('equipListTabEdit').addEventListener('click', ()=> setEquipListTab('edit'));
   $('equipListTabAdd').addEventListener('click', ()=> setEquipListTab('add'));
   $('equipListTabDelete').addEventListener('click', ()=> setEquipListTab('delete'));
+  function resetEqScanUI(){
+    $('eqScanStatus').style.display = 'none';
+    $('eqScanStatus').textContent = '';
+    $('eqScanRawWrap').style.display = 'none';
+    $('eqScanRawText').textContent = '';
+  }
   $('eqAddSaveBtn').addEventListener('click', async ()=>{
     const customerId = $('eqAddCustomer').value;
     if(!customerId){ toast('Select a customer'); return; }
@@ -401,6 +485,7 @@
       const el = $('eqAdd'+k.charAt(0).toUpperCase()+k.slice(1));
       if(el) el.value = '';
     });
+    resetEqScanUI();
   });
   $('menuManageEquipment').addEventListener('click', async ()=>{
     closeMainMenu();
@@ -408,6 +493,7 @@
     $('equipmentListSearch').value = '';
     await populateEquipmentCustomerSelects();
     $('equipmentListCustomerFilter').value = '';
+    resetEqScanUI();
     setEquipListTab('edit');
     $('equipmentListOverlay').classList.add('open');
   });

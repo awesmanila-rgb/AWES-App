@@ -36,7 +36,13 @@ window.awesLibs = {
   autotable: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js',
   pdfjs: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   signature: 'https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js',
-  emailjs: 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js'
+  emailjs: 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js',
+  // Used only by "Scan Nameplate" on Manage Equipment List → Add. Loaded on
+  // first use, not on app start — it's a multi-MB OCR engine (JS + WASM +
+  // English trained data) and most sessions never touch this feature.
+  // NOTE: pin/verify this version still exists on cdnjs before relying on it;
+  // bump here (and in sw.js's CDN_SHELL) together if it ever needs updating.
+  tesseract: 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js'
 };
 </script>
 <!-- Firebase removed: this app now uses Supabase (Postgres + Auth) for the shared cloud backend. -->
@@ -128,32 +134,7 @@ window.awesLibs = {
      back, because History silently switches to cloud data when online. -->
 <div id="pendingSyncBanner" style="display:none; position:fixed; left:0; right:0; top:0; z-index:9998; background:#8A5A00; color:#fff; padding:10px 14px; align-items:center; justify-content:space-between; gap:10px; box-shadow:0 2px 8px rgba(0,0,0,.2);">
   <span id="pendingSyncText" style="font-size:12.5px; font-weight:600; line-height:1.35;">Some work is saved on this device only.</span>
-  <div style="flex:0 0 auto; display:flex; gap:6px;">
-    <button type="button" id="pendingSyncViewBtn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,.6); border-radius:7px; padding:7px 10px; font-size:12.5px; font-weight:700; cursor:pointer;">View</button>
-    <button type="button" id="pendingSyncBtn" style="background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
-  </div>
-</div>
-
-<!-- Lets someone see exactly what's stuck on this device and, when an item
-     will never go through (e.g. it keeps failing the cloud's validation),
-     discard it instead of it silently blocking every other pending item
-     behind it — outboxFlush() stops at the first failure it hits. Discarding
-     is local-only and permanent: it does not touch anything already on the
-     shared cloud, it just gives up on delivering that one local copy. -->
-<div class="overlay" id="pendingSyncOverlay" style="z-index:130;">
-  <div class="sheet">
-    <div class="sheet-head">
-      <h3>Saved on this device only</h3>
-      <button class="sheet-close" id="closePendingSync">&times;</button>
-    </div>
-    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      These items were saved here but haven't reached the shared cloud yet. Tap
-      "Sync now" first — if an item still won't go through, you can discard it,
-      but that copy will be gone for good unless you re-enter it.
-    </p>
-    <div id="pendingSyncList"></div>
-    <button class="btn btn-secondary" id="pendingSyncClearAllBtn" type="button" style="width:100%; margin-top:10px;">Discard All</button>
-  </div>
+  <button type="button" id="pendingSyncBtn" style="flex:0 0 auto; background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
 </div>
 
 <header class="app-top">
@@ -1131,6 +1112,18 @@ window.awesLibs = {
 
     <!-- Add: a new equipment record for a chosen customer -->
     <div id="equipAddSection" style="display:none;">
+      <div class="field">
+        <label>Scan Equipment Label (optional)</label>
+        <button type="button" class="btn btn-secondary" id="eqScanBtn" style="width:100%;">📷 Scan Nameplate</button>
+        <input type="file" accept="image/*" capture="environment" id="eqScanInput" style="display:none;">
+        <div id="eqScanStatus" style="font-size:12px; color:var(--text-muted); margin-top:6px; display:none;"></div>
+        <div id="eqScanRawWrap" style="display:none; margin-top:6px;">
+          <details>
+            <summary style="font-size:12px; color:var(--text-muted); cursor:pointer;">Scanned text (for reference)</summary>
+            <div id="eqScanRawText" style="font-size:12px; color:var(--text-muted); white-space:pre-wrap; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:6px;"></div>
+          </details>
+        </div>
+      </div>
       <div class="field">
         <label>Customer <span class="req">*</span></label>
         <select id="eqAddCustomer"><option value="">Select a customer…</option></select>

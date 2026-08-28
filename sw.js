@@ -1,5 +1,5 @@
 // Bumped so the corrected shell replaces the old cache on every installed device.
-const CACHE_NAME = 'awes-sr-v8';
+const CACHE_NAME = 'awes-sr-v5';
 
 // Split into two lists on purpose.
 //
@@ -28,7 +28,11 @@ const CDN_SHELL = [
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js',
-  'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js'
+  'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js',
+  // Not precached: it's only fetched the first time someone actually taps
+  // "Scan Nameplate", and it's multiple MB (JS + WASM + trained data) —
+  // precaching it on install would slow first load for everyone to help
+  // only the technicians who use that one feature.
 ];
 
 function isAppShellDoc(url){
