@@ -86,15 +86,44 @@
 
   // ---------- signature pads (lazy-loaded) ----------
   let sigCustomerPad = null, sigTechPad = null, sigPadsPromise = null;
+  // Whether each pad currently holds a "finalized" signature. Locking a pad
+  // stops it from accepting new strokes (via pad.off()) until it's cleared,
+  // so a signed signature can't accidentally get drawn over or altered.
+  const sigLocked = {sigCustomer:false, sigTech:false};
+  const sigPadById = () => ({sigCustomer:sigCustomerPad, sigTech:sigTechPad});
+  function lockSignature(padId){
+    const pad = sigPadById()[padId];
+    if(!pad || pad.isEmpty()) return;
+    sigLocked[padId] = true;
+    pad.off();
+    const box = $(padId).closest('.sig-box');
+    if(box) box.classList.add('locked');
+  }
+  function unlockSignature(padId){
+    const pad = sigPadById()[padId];
+    if(pad) pad.on();
+    sigLocked[padId] = false;
+    const box = $(padId).closest('.sig-box');
+    if(box) box.classList.remove('locked');
+  }
   function setupSigPad(canvasId, phId){
     const canvas = $(canvasId);
+    // Preserves the drawn strokes across a canvas resize. Resizing a canvas
+    // element (setting .width/.height) always blanks it in the browser, and
+    // this resize handler runs on every 'resize' event — including the ones
+    // mobile browsers fire when the on-screen keyboard opens or closes while
+    // the technician is typing into an unrelated field further down the
+    // form. That used to wipe out an already-drawn signature; now the pad's
+    // stroke data is captured beforehand and redrawn after resizing.
     function resize(){
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const rect = canvas.parentElement.getBoundingClientRect();
+      const data = (pad && !pad.isEmpty()) ? pad.toData() : null;
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
       canvas.getContext('2d').scale(ratio, ratio);
       pad.clear();
+      if(data) pad.fromData(data);
     }
     const pad = new SignaturePad(canvas, {penColor:'#1C2621', backgroundColor:'rgba(255,255,255,0)'});
     pad.addEventListener('beginStroke', ()=>{ $(phId).style.display='none'; });
@@ -126,12 +155,26 @@
     // chain, which can sit for up to 12s behind the CDN load timeout.
     if(navigator.onLine) outboxFlush({quiet:true});
   });
+  // "Confirm Signature" is the explicit action that locks a pad — drawing a
+  // stroke no longer locks it by itself, so the technician/customer can
+  // redo strokes freely and only locks it in once they're happy with it.
+  document.querySelectorAll('[data-confirm]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      await ensureSignaturePads();
+      const padId = btn.dataset.confirm;
+      const pad = sigPadById()[padId];
+      if(!pad || pad.isEmpty()){ toast('Please sign before confirming'); return; }
+      lockSignature(padId);
+    });
+  });
   document.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       await ensureSignaturePads();
+      const padId = btn.dataset.clear;
       const map = {sigCustomer:sigCustomerPad, sigTech:sigTechPad};
-      map[btn.dataset.clear].clear();
-      $(btn.dataset.clear+'Ph').style.display='flex';
+      map[padId].clear();
+      unlockSignature(padId); // clearing always re-opens the pad for a fresh signature
+      $(padId+'Ph').style.display='flex';
     });
   });
 

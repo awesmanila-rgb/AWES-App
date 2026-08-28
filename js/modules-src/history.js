@@ -174,8 +174,11 @@
     $('timeIn').value=d.timeIn||''; $('timeOut').value=d.timeOut||''; $('remarks').value=d.remarks||'';
     $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName || (currentUser ? currentUser.name : '') || '';
     const sigCust = asSignature(d.sigCustomer), sigTech = asSignature(d.sigTech);
-    if(sigCust){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(sigCust); $('sigCustomerPh').style.display='none'; }
-    if(sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(sigTech); $('sigTechPh').style.display='none'; }
+    // fromDataURL loads the image asynchronously (it returns a promise), so the
+    // lock is applied only once the pad has actually finished drawing the
+    // restored signature — otherwise isEmpty() could still read true and skip it.
+    if(sigCust){ await ensureSignaturePads(); await Promise.resolve(sigCustomerPad.fromDataURL(sigCust)); $('sigCustomerPh').style.display='none'; lockSignature('sigCustomer'); }
+    if(sigTech){ await ensureSignaturePads(); await Promise.resolve(sigTechPad.fromDataURL(sigTech)); $('sigTechPh').style.display='none'; lockSignature('sigTech'); }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');

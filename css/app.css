@@ -219,11 +219,24 @@
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:#B7C0B9; font-size:13px; pointer-events:none;
   }
-  .sig-tools{display:flex; justify-content:flex-end; padding:6px 8px; background:#F7F8F6; border-top:1px solid var(--border);}
+  .sig-tools{display:flex; justify-content:flex-end; gap:14px; padding:6px 8px; background:#F7F8F6; border-top:1px solid var(--border);}
   .sig-tools button{
     background:none; border:none; color:var(--text-muted); font-size:12px; font-weight:600; cursor:pointer; padding:4px 8px;
   }
   .sig-tools button:active{color:var(--danger);}
+  .sig-tools .sig-confirm-btn{color:#3E7C4A; margin-right:auto;}
+  .sig-tools .sig-confirm-btn:active{color:#2C5A35;}
+
+  /* Locked once "Confirm Signature" is tapped (see lockSignature() in
+     service-report.js) so it can't be drawn over or wiped by unrelated
+     changes elsewhere on the form. "Clear" still works to unlock and redo it. */
+  .sig-box.locked .sig-canvas-wrap{pointer-events:none;}
+  .sig-box.locked .sig-canvas-wrap::after{
+    content:'Confirmed \2713'; position:absolute; top:6px; right:8px;
+    font-size:11px; font-weight:700; color:#3E7C4A;
+    background:rgba(255,255,255,0.85); padding:2px 6px; border-radius:4px;
+  }
+  .sig-box.locked .sig-confirm-btn{display:none;}
 
   .footer-bar{
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);

@@ -43,6 +43,7 @@
     if($('srJobOrderHead')) toggleCollapsibleSection($('srJobOrderHead'), true); // keep the Job Order picker open too
     if(sigCustomerPad) sigCustomerPad.clear();
     if(sigTechPad) sigTechPad.clear();
+    unlockSignature('sigCustomer'); unlockSignature('sigTech');
     $('sigCustomerPh').style.display='flex'; $('sigTechPh').style.display='flex';
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';

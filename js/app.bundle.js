@@ -1252,15 +1252,44 @@
 
   // ---------- signature pads (lazy-loaded) ----------
   let sigCustomerPad = null, sigTechPad = null, sigPadsPromise = null;
+  // Whether each pad currently holds a "finalized" signature. Locking a pad
+  // stops it from accepting new strokes (via pad.off()) until it's cleared,
+  // so a signed signature can't accidentally get drawn over or altered.
+  const sigLocked = {sigCustomer:false, sigTech:false};
+  const sigPadById = () => ({sigCustomer:sigCustomerPad, sigTech:sigTechPad});
+  function lockSignature(padId){
+    const pad = sigPadById()[padId];
+    if(!pad || pad.isEmpty()) return;
+    sigLocked[padId] = true;
+    pad.off();
+    const box = $(padId).closest('.sig-box');
+    if(box) box.classList.add('locked');
+  }
+  function unlockSignature(padId){
+    const pad = sigPadById()[padId];
+    if(pad) pad.on();
+    sigLocked[padId] = false;
+    const box = $(padId).closest('.sig-box');
+    if(box) box.classList.remove('locked');
+  }
   function setupSigPad(canvasId, phId){
     const canvas = $(canvasId);
+    // Preserves the drawn strokes across a canvas resize. Resizing a canvas
+    // element (setting .width/.height) always blanks it in the browser, and
+    // this resize handler runs on every 'resize' event — including the ones
+    // mobile browsers fire when the on-screen keyboard opens or closes while
+    // the technician is typing into an unrelated field further down the
+    // form. That used to wipe out an already-drawn signature; now the pad's
+    // stroke data is captured beforehand and redrawn after resizing.
     function resize(){
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const rect = canvas.parentElement.getBoundingClientRect();
+      const data = (pad && !pad.isEmpty()) ? pad.toData() : null;
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
       canvas.getContext('2d').scale(ratio, ratio);
       pad.clear();
+      if(data) pad.fromData(data);
     }
     const pad = new SignaturePad(canvas, {penColor:'#1C2621', backgroundColor:'rgba(255,255,255,0)'});
     pad.addEventListener('beginStroke', ()=>{ $(phId).style.display='none'; });
@@ -1292,12 +1321,26 @@
     // chain, which can sit for up to 12s behind the CDN load timeout.
     if(navigator.onLine) outboxFlush({quiet:true});
   });
+  // "Confirm Signature" is the explicit action that locks a pad — drawing a
+  // stroke no longer locks it by itself, so the technician/customer can
+  // redo strokes freely and only locks it in once they're happy with it.
+  document.querySelectorAll('[data-confirm]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      await ensureSignaturePads();
+      const padId = btn.dataset.confirm;
+      const pad = sigPadById()[padId];
+      if(!pad || pad.isEmpty()){ toast('Please sign before confirming'); return; }
+      lockSignature(padId);
+    });
+  });
   document.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       await ensureSignaturePads();
+      const padId = btn.dataset.clear;
       const map = {sigCustomer:sigCustomerPad, sigTech:sigTechPad};
-      map[btn.dataset.clear].clear();
-      $(btn.dataset.clear+'Ph').style.display='flex';
+      map[padId].clear();
+      unlockSignature(padId); // clearing always re-opens the pad for a fresh signature
+      $(padId+'Ph').style.display='flex';
     });
   });
 
@@ -2889,6 +2932,7 @@
     if($('srJobOrderHead')) toggleCollapsibleSection($('srJobOrderHead'), true); // keep the Job Order picker open too
     if(sigCustomerPad) sigCustomerPad.clear();
     if(sigTechPad) sigTechPad.clear();
+    unlockSignature('sigCustomer'); unlockSignature('sigTech');
     $('sigCustomerPh').style.display='flex'; $('sigTechPh').style.display='flex';
     $('metaDate').textContent = fmtDate($('svcDate').value);
     $('statusPill').textContent='Draft'; $('statusPill').className='status-pill status-draft';
@@ -3236,9 +3280,48 @@
       y = doc.lastAutoTable.finalY + 18;
     }
 
-    // 8. Acknowledgment
+    // 8. Terms & Conditions of Service
+    const tcSections = [
+      {
+        heading: 'Preventive Maintenance Service (PMS)',
+        body: 'PMS consists strictly of cleaning, routine inspection, and operational checks, and does not constitute a warranty on the equipment or its future performance. A limited 7-day workmanship guarantee covers only the direct physical labor (e.g., proper reassembly and drain line clearance). Pre-existing defects, component failures, and additional repairs require a separate quote and approval.'
+      },
+      {
+        heading: 'Repair Works',
+        body: 'Repairs cover only the specified scope and agreed-upon components. Replaced parts carry a 90-day warranty against manufacturing defects, while related labor carries a 30-day guarantee or as indicated in our proposal. Warranty is void if damage results from power surges, voltage fluctuations, unauthorized tampering, or external site factors.'
+      },
+      {
+        heading: 'Installation Works',
+        body: 'Installation workmanship and piping integrity are guaranteed for 6 months or as indicated in our proposal from commissioning. Equipment warranties are covered separately by the manufacturer. Warranty excludes damages from electrical supply issues, lack of routine maintenance, unauthorized modifications, or improper operation. Sign-off confirms turnover in good operating condition.'
+      }
+    ];
+    // Terms & Conditions and Acknowledgment belong together as the closing
+    // block of the report. Estimate the combined height up front so the pair
+    // is always pushed to a fresh page together rather than being split, and
+    // always ends up as the last block at the bottom of the printout.
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+    let tcHeight = 26;
+    tcSections.forEach(sec=>{
+      const bodyLines = doc.splitTextToSize(sec.body, pageW-margin*2);
+      tcHeight += 10 + bodyLines.length*9.5 + 8;
+    });
+    const ackHeight = 190;
+    checkPageBreak(tcHeight + ackHeight);
+
+    sectionHeader('8. Terms & Conditions of Service');
+    tcSections.forEach(sec=>{
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(21,77,52);
+      doc.text(sec.heading, margin, y); y += 10;
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,68,63);
+      const lines = doc.splitTextToSize(sec.body, pageW-margin*2);
+      doc.text(lines, margin, y); y += lines.length*9.5 + 8;
+      doc.setTextColor(0,0,0);
+    });
+    y += 4;
+
+    // 9. Acknowledgment
     checkPageBreak(190);
-    sectionHeader('8. Acknowledgment');
+    sectionHeader('9. Acknowledgment');
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(70,80,74);
     const ackLines = doc.splitTextToSize(
       'I hereby acknowledge the services / works done on my equipment and agree to the terms & conditions stated herein.',
@@ -3591,8 +3674,11 @@
     $('timeIn').value=d.timeIn||''; $('timeOut').value=d.timeOut||''; $('remarks').value=d.remarks||'';
     $('custPrintedName').value=d.custPrintedName||''; $('techName').value=d.techName || (currentUser ? currentUser.name : '') || '';
     const sigCust = asSignature(d.sigCustomer), sigTech = asSignature(d.sigTech);
-    if(sigCust){ await ensureSignaturePads(); sigCustomerPad.fromDataURL(sigCust); $('sigCustomerPh').style.display='none'; }
-    if(sigTech){ await ensureSignaturePads(); sigTechPad.fromDataURL(sigTech); $('sigTechPh').style.display='none'; }
+    // fromDataURL loads the image asynchronously (it returns a promise), so the
+    // lock is applied only once the pad has actually finished drawing the
+    // restored signature — otherwise isEmpty() could still read true and skip it.
+    if(sigCust){ await ensureSignaturePads(); await Promise.resolve(sigCustomerPad.fromDataURL(sigCust)); $('sigCustomerPh').style.display='none'; lockSignature('sigCustomer'); }
+    if(sigTech){ await ensureSignaturePads(); await Promise.resolve(sigTechPad.fromDataURL(sigTech)); $('sigTechPh').style.display='none'; lockSignature('sigTech'); }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
     $('historyOverlay').classList.remove('open');
