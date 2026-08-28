@@ -418,23 +418,35 @@
     if(outboxFlushing) return {sent:0, left:0};
     if(!(await ensureCloud())) return {sent:0, left:await outboxCount()};
     outboxFlushing = true;
-    let sent = 0, left = 0;
+    let sent = 0, left = 0, lastError = null;
     try{
       const items = await outboxList();
       for(const item of items){
         const handler = outboxHandlers[item.kind];
         if(!handler){ left++; continue; }
-        let ok = false;
+        let ok = false, errMsg = null;
         try{ await handler(item.id, item.payload); ok = true; }
-        catch(e){ console.error('outbox replay failed', item.kind, item.id, describeCloudError(e)); }
+        catch(e){ errMsg = describeCloudError(e); console.error('outbox replay failed', item.kind, item.id, errMsg); }
         if(ok){
           sent++;
           try{ await window.storage.delete(item.storageKey); }catch(e){}
         }else{
           left++;
-          // Stop on the first failure: the connection is probably still bad,
-          // and hammering it just burns the technician's mobile data.
-          break;
+          lastError = errMsg;
+          // Record the failure reason on the item itself (surfaced in the
+          // "View" list) instead of only logging it to the console, since a
+          // technician in the field has no way to open devtools. Previously
+          // this loop also stopped at the very first failure on the
+          // assumption that any failure meant the connection had dropped —
+          // but a failure can just as easily be that ONE item's data being
+          // rejected (e.g. a validation or permissions error on the server),
+          // which used to permanently block every other, perfectly fine,
+          // item queued behind it. Now every item gets its own attempt.
+          try{
+            await window.storage.set(item.storageKey, JSON.stringify(Object.assign(
+              {}, item, {lastError: errMsg, lastTriedAt: new Date().toISOString()}
+            )), false);
+          }catch(e){}
         }
       }
     }finally{
@@ -442,7 +454,7 @@
     }
     if(sent && !opts.quiet) toast('Uploaded '+sent+' pending item'+(sent===1?'':'s')+' to the shared cloud');
     updateOutboxBadge();
-    return {sent, left};
+    return {sent, left, lastError};
   }
   async function updateOutboxBadge(){
     const el = $('pendingSyncBanner');
@@ -477,7 +489,7 @@
   const pendingSyncBtn = $('pendingSyncBtn');
   if(pendingSyncBtn) pendingSyncBtn.addEventListener('click', async ()=>{
     const res = await outboxFlush();
-    if(!res.sent) toast(res.left ? 'Still no connection — will keep trying' : 'Nothing pending');
+    if(!res.sent) toast(res.left ? (res.lastError ? 'Upload failed: '+res.lastError : 'Still no connection — will keep trying') : 'Nothing pending');
   });
 
   // Human-readable labels for each outbox "kind" — used only in the list below.
@@ -498,9 +510,13 @@
     listEl.innerHTML = items.map(item=>{
       const label = OUTBOX_KIND_LABELS[item.kind] || item.kind;
       const when = item.queuedAt ? new Date(item.queuedAt).toLocaleString() : '';
-      return '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">'
+      const errorLine = item.lastError
+        ? '<div style="font-size:12px; color:var(--danger); margin-top:2px;">Last try failed: '+escapeHtml(item.lastError)+'</div>'
+        : '';
+      return '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);">'
         + '<div><div style="font-weight:700; font-size:13.5px;">'+escapeHtml(label)+'</div>'
-        + '<div style="font-size:12px; color:var(--text-muted);">'+escapeHtml(String(item.id))+(when?' · '+escapeHtml(when):'')+'</div></div>'
+        + '<div style="font-size:12px; color:var(--text-muted);">'+escapeHtml(String(item.id))+(when?' · '+escapeHtml(when):'')+'</div>'
+        + errorLine + '</div>'
         + '<button type="button" class="btn pendingSyncDeleteBtn" data-key="'+escapeHtml(item.storageKey)+'" style="flex:0 0 auto; padding:6px 10px; font-size:12.5px; background:#fdeceb; color:var(--danger);">Discard</button>'
         + '</div>';
     }).join('');
