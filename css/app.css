@@ -73,8 +73,6 @@
   .menu-dropdown .menu-ico{width:18px; text-align:center; flex-shrink:0;}
 
   .home-screen{ padding:16px; padding-bottom:32px; }
-  .home-intro{ margin-bottom:14px; }
-  .home-intro-title{ font-size:15px; font-weight:700; color:var(--text); }
   .home-grid{
     display:grid; grid-template-columns:1fr 1fr; gap:12px;
   }
