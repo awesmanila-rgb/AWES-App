@@ -2535,67 +2535,9 @@
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
         '</div></div>'+
         (equipListTab==='delete' ?
-          '<div class="user-card-actions"><button data-act="remove" class="danger">Delete</button></div>' : '')+
-        (equipListTab==='edit' ?
-          '<div class="user-edit-panel" data-panel="1">'+
-            '<div class="field"><label>Equipment Type</label><input type="text" data-f="equipType" value="'+escapeHtml(e.equipType||'')+'"></div>'+
-            '<div class="field"><label>Specific Location</label><input type="text" data-f="equipLocation" value="'+escapeHtml(e.equipLocation||'')+'"></div>'+
-            '<div class="field"><label>Manufacturer / Brand</label><input type="text" data-f="brand" value="'+escapeHtml(e.brand||'')+'"></div>'+
-            '<div class="field"><label>Mounting Type</label><input type="text" data-f="mountType" value="'+escapeHtml(e.mountType||'')+'"></div>'+
-            '<div class="field"><label>Cooling Capacity</label><input type="text" data-f="coolCap" value="'+escapeHtml(e.coolCap||'')+'"></div>'+
-            '<div class="field"><label>Model No. (CU)</label><input type="text" data-f="modelCU" value="'+escapeHtml(e.modelCU||'')+'"></div>'+
-            '<div class="field"><label>Serial No. (CU)</label><input type="text" data-f="serialCU" value="'+escapeHtml(e.serialCU||'')+'"></div>'+
-            '<div class="field"><label>Model No. (FCU)</label><input type="text" data-f="modelFCU" value="'+escapeHtml(e.modelFCU||'')+'"></div>'+
-            '<div class="field"><label>Serial No. (FCU)</label><input type="text" data-f="serialFCU" value="'+escapeHtml(e.serialFCU||'')+'"></div>'+
-            '<div class="field"><label>Refrigerant Type</label><input type="text" data-f="refrigerantType" value="'+escapeHtml(e.refrigerantType||'')+'"></div>'+
-            '<div class="field"><label>Compressor Type</label><input type="text" data-f="compressorType" value="'+escapeHtml(e.compressorType||'')+'"></div>'+
-            '<div class="edit-save-row">'+
-              '<button class="cancel-btn" data-act="panelClose" type="button">Close</button>'+
-              '<button class="cancel-btn" data-act="panelEdit" type="button">Edit</button>'+
-              '<button class="save-btn" data-act="panelSave" type="button" disabled>Save Changes</button>'+
-            '</div>'+
-          '</div>' : '');
+          '<div class="user-card-actions"><button data-act="remove" class="danger">Delete</button></div>' : '');
       if(equipListTab==='edit'){
-        const panel = card.querySelector('[data-panel="1"]');
-        const inputs = Array.from(panel.querySelectorAll('input[data-f]'));
-        const closeBtn = panel.querySelector('[data-act="panelClose"]');
-        const editBtn = panel.querySelector('[data-act="panelEdit"]');
-        const saveBtn = panel.querySelector('[data-act="panelSave"]');
-        // Tapping the card first opens a read-only view of every field, all
-        // locked. Tapping Edit unlocks the fields and unlocks Save (which
-        // stays disabled until then) — Save only ever writes once Edit has
-        // been tapped.
-        function setPanelMode(mode){
-          panel.dataset.mode = mode;
-          inputs.forEach(inp=> inp.disabled = (mode==='view'));
-          editBtn.disabled = (mode==='edit');
-          saveBtn.disabled = (mode==='view');
-          closeBtn.textContent = mode==='view' ? 'Close' : 'Cancel';
-        }
-        panel._setMode = setPanelMode;
-        setPanelMode('view');
-        card.querySelector('[data-act="toggle"]').addEventListener('click', ()=>{
-          body.querySelectorAll('.user-edit-panel.open').forEach(p=>{
-            if(p!==panel){ p.classList.remove('open'); if(p._setMode) p._setMode('view'); }
-          });
-          panel.classList.toggle('open');
-        });
-        closeBtn.addEventListener('click', ()=>{
-          if(panel.dataset.mode==='edit'){
-            inputs.forEach(inp=>{ inp.value = e[inp.dataset.f]||''; });
-            setPanelMode('view');
-          }else{
-            panel.classList.remove('open');
-          }
-        });
-        editBtn.addEventListener('click', ()=> setPanelMode('edit'));
-        saveBtn.addEventListener('click', async ()=>{
-          const fields = {};
-          inputs.forEach(inp=> fields[inp.dataset.f] = inp.value.trim());
-          const ok = await cloudUpdateCustomerEquipment(e.id, fields);
-          if(ok){ toast('Saved'); renderEquipmentMasterList(); }
-          else toast('Could not save — check your connection');
-        });
+        card.querySelector('[data-act="toggle"]').addEventListener('click', ()=> openEquipmentDetailOverlay(e));
       }
       if(equipListTab==='delete'){
         card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
@@ -2608,6 +2550,59 @@
       body.appendChild(card);
     });
   }
+  // ---------- Equipment full-detail overlay (Manage Equipment List → View
+  // All → tap a row) — a clean label/value view of every field, the same
+  // layout the Dispatch Ticket equipment detail popup uses. "Edit" swaps the
+  // read-only rows for input fields in place; "Save" writes and re-renders
+  // the master list; "Cancel" discards and returns to the read-only view.
+  const EQUIP_DETAIL_KEYS = [
+    'equipType','brand','mountType','coolCap','modelCU','serialCU',
+    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation'
+  ];
+  let equipDetailRecord = null; // the equipment row currently open in the overlay
+  function equipDetailRowsHtml(record, editing){
+    return EQUIP_DETAIL_KEYS.map(k=>{
+      const label = (FIELD_META[k] && FIELD_META[k].label) || k;
+      const val = (record[k]||'').toString();
+      return '<div class="equip-detail-row"><span class="equip-detail-label">'+escapeHtml(label)+'</span>'+
+        (editing
+          ? '<input type="text" data-f="'+k+'" value="'+escapeHtml(val)+'" style="text-align:right; border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; flex:1; max-width:60%;">'
+          : '<span>'+(val.trim() ? escapeHtml(val) : '—')+'</span>')+
+      '</div>';
+    }).join('');
+  }
+  function setEquipDetailMode(mode){
+    if(!equipDetailRecord) return;
+    $('equipmentDetailBody').innerHTML = equipDetailRowsHtml(equipDetailRecord, mode==='edit');
+    $('equipmentDetailEditBtn').style.display = mode==='edit' ? 'none' : '';
+    $('equipmentDetailCancelBtn').style.display = mode==='edit' ? '' : 'none';
+    $('equipmentDetailSaveBtn').style.display = mode==='edit' ? '' : 'none';
+  }
+  function openEquipmentDetailOverlay(record){
+    equipDetailRecord = record;
+    const summary = [record.equipType, record.brand, record.coolCap, record.mountType, record.equipLocation].filter(Boolean).join(' · ') || record.customerName;
+    $('equipmentDetailTitle').textContent = summary;
+    setEquipDetailMode('view');
+    $('equipmentDetailOverlay').classList.add('open');
+  }
+  $('closeEquipmentDetail').addEventListener('click', ()=> $('equipmentDetailOverlay').classList.remove('open'));
+  $('equipmentDetailOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentDetailOverlay') $('equipmentDetailOverlay').classList.remove('open'); });
+  $('equipmentDetailEditBtn').addEventListener('click', ()=> setEquipDetailMode('edit'));
+  $('equipmentDetailCancelBtn').addEventListener('click', ()=> setEquipDetailMode('view'));
+  $('equipmentDetailSaveBtn').addEventListener('click', async ()=>{
+    if(!equipDetailRecord) return;
+    const fields = {};
+    Array.from($('equipmentDetailBody').querySelectorAll('input[data-f]')).forEach(inp=> fields[inp.dataset.f] = inp.value.trim());
+    const ok = await cloudUpdateCustomerEquipment(equipDetailRecord.id, fields);
+    if(ok){
+      toast('Saved');
+      Object.assign(equipDetailRecord, fields);
+      $('equipmentDetailOverlay').classList.remove('open');
+      renderEquipmentMasterList();
+    }else{
+      toast('Could not save — check your connection');
+    }
+  });
   // ---------- Scan Equipment Label (Manage Equipment List → Add) ----------
   // Best-effort only: OCR reads whatever text is on the nameplate photo, then
   // a handful of regexes guess which bits are the model/serial/refrigerant/

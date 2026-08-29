@@ -1204,6 +1204,25 @@ window.awesLibs = {
   </div>
 </div>
 
+<!-- Equipment full-detail overlay (Manage Equipment List → View All) — tapping
+     a row opens this clean label/value view instead of an inline accordion,
+     matching the same layout used by the Dispatch Ticket equipment detail
+     view. The Edit button swaps the read-only rows for editable fields. -->
+<div class="overlay" id="equipmentDetailOverlay" style="z-index:56;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="equipmentDetailTitle">Equipment Details</h3>
+      <button class="sheet-close" id="closeEquipmentDetail">&times;</button>
+    </div>
+    <div id="equipmentDetailBody"></div>
+    <div class="edit-save-row">
+      <button class="cancel-btn" id="equipmentDetailCancelBtn" type="button" style="display:none;">Cancel</button>
+      <button class="cancel-btn" id="equipmentDetailEditBtn" type="button">Edit</button>
+      <button class="save-btn" id="equipmentDetailSaveBtn" type="button" style="display:none;">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Cloud Setup sheet -->
 <div class="overlay" id="cloudOverlay" style="z-index:90;">
