@@ -451,6 +451,30 @@
     try{ const res = await window.storage.get('dtr:'+userId+':'+dateISO, false); return res ? JSON.parse(res.value) : null; }
     catch(e){ return null; }
   }
+  // Every technician's DTR for one date, for the admin Overview dashboard —
+  // a single query instead of one dtrGetDay() round-trip per technician.
+  async function dtrListAllForDate(dateISO){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('dtr_records').select('technician_id,data').eq('date', dateISO);
+        if(error) throw error;
+        return (data||[]).map(r=> Object.assign({technicianId:r.technician_id}, r.data));
+      }catch(e){ console.error('dtr list for date failed', describeCloudError(e)); }
+    }
+    // Offline fallback only ever sees this device's own technician (dtr keys
+    // are 'dtr:<userId>:<dateISO>' and nothing pools other phones' records
+    // locally), so the count will undercount — acceptable for a best-effort
+    // dashboard tile that already leads with cloud data whenever it's online.
+    try{
+      const res = await window.storage.list('dtr:', false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        if(!key.endsWith(':'+dateISO)) continue;
+        try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
+      }
+      return items;
+    }catch(e){ return []; }
+  }
   async function dtrSaveDay(userId, dateISO, data){
     if(await ensureCloud()){
       try{

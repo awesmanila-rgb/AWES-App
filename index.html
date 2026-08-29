@@ -192,6 +192,34 @@ window.awesLibs = {
       <div id="homeGreetingText"></div>
     </div>
   </div>
+  <div class="card" id="homeOverviewCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>📊 Overview</span></div>
+    <div class="card-body">
+      <div class="overview-grid">
+        <div class="overview-stat ov-green">
+          <div class="overview-stat-head"><span class="overview-stat-title">Active Technicians</span><span class="overview-stat-icon">👥</span></div>
+          <div class="overview-stat-value" id="ovTechValue">—</div>
+          <div class="overview-progress"><div class="overview-progress-bar" id="ovTechBar" style="width:0%"></div></div>
+          <div class="overview-stat-sub" id="ovTechSub">—</div>
+        </div>
+        <div class="overview-stat ov-amber">
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon">💵</span></div>
+          <div class="overview-stat-value" id="ovReqValue">—</div>
+          <div class="overview-stat-sub" id="ovReqSub">—</div>
+        </div>
+        <div class="overview-stat ov-blue">
+          <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon">🚚</span></div>
+          <div class="overview-stat-value" id="ovDispatchValue">—</div>
+          <div class="overview-stat-sub" id="ovDispatchSub">—</div>
+        </div>
+        <div class="overview-stat ov-gray">
+          <div class="overview-stat-head"><span class="overview-stat-title">Unreviewed Reports</span><span class="overview-stat-icon">📝</span></div>
+          <div class="overview-stat-value" id="ovReportsValue">—</div>
+          <div class="overview-stat-sub" id="ovReportsSub">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="home-intro">
     <div class="home-intro-title">What would you like to do?</div>
   </div>

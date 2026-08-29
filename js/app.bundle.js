@@ -4019,6 +4019,30 @@
     try{ const res = await window.storage.get('dtr:'+userId+':'+dateISO, false); return res ? JSON.parse(res.value) : null; }
     catch(e){ return null; }
   }
+  // Every technician's DTR for one date, for the admin Overview dashboard —
+  // a single query instead of one dtrGetDay() round-trip per technician.
+  async function dtrListAllForDate(dateISO){
+    if(await ensureCloud()){
+      try{
+        const { data, error } = await db.from('dtr_records').select('technician_id,data').eq('date', dateISO);
+        if(error) throw error;
+        return (data||[]).map(r=> Object.assign({technicianId:r.technician_id}, r.data));
+      }catch(e){ console.error('dtr list for date failed', describeCloudError(e)); }
+    }
+    // Offline fallback only ever sees this device's own technician (dtr keys
+    // are 'dtr:<userId>:<dateISO>' and nothing pools other phones' records
+    // locally), so the count will undercount — acceptable for a best-effort
+    // dashboard tile that already leads with cloud data whenever it's online.
+    try{
+      const res = await window.storage.list('dtr:', false);
+      const items = [];
+      for(const key of (res.keys||[])){
+        if(!key.endsWith(':'+dateISO)) continue;
+        try{ const item = await window.storage.get(key, false); items.push(JSON.parse(item.value)); }catch(e){}
+      }
+      return items;
+    }catch(e){ return []; }
+  }
   async function dtrSaveDay(userId, dateISO, data){
     if(await ensureCloud()){
       try{
@@ -6611,6 +6635,72 @@
     $('homeGreetingText').innerHTML = html;
   }
 
+  // ---------- Home screen overview (admin only) ----------
+  // A management snapshot shown above the feature tiles once logged in as
+  // admin — technician check-ins, requests awaiting a decision, dispatch
+  // ticket load, and reports still short of a customer sign-off. Every
+  // number here is a best-effort read of data other screens already own
+  // (DTR, Cash Advance, Leave, Dispatch, Service Reports); nothing new is
+  // stored just for this panel.
+  async function renderHomeOverview(){
+    const card = $('homeOverviewCard');
+    if(!currentUser || currentUser.role!=='admin'){ card.style.display = 'none'; return; }
+    card.style.display = '';
+
+    const [users, dtrToday, tickets, cashAdvances, leaves, reports] = await Promise.all([
+      cloudListUsers().catch(()=>[]),
+      dtrListAllForDate(todayISO()).catch(()=>[]),
+      dtListAll().catch(()=>[]),
+      caListAll().catch(()=>[]),
+      leaveListAll().catch(()=>[]),
+      (async ()=>{
+        // Mirrors loadHistory()'s cloud-first / local-fallback read, without
+        // scoping to one technician's device-only drafts.
+        if(await ensureCloud()){
+          const cloudRows = await cloudListReports().catch(()=>null);
+          if(cloudRows) return cloudRows;
+        }
+        const out = [];
+        try{
+          const res = await window.storage.list('report:', false);
+          for(const key of (res.keys||[])){
+            try{ const item = await window.storage.get(key, false); out.push(JSON.parse(item.value)); }catch(e){}
+          }
+        }catch(e){}
+        return out;
+      })()
+    ]);
+
+    // Active Technicians — how many of today's active roster have clocked in.
+    const activeUsers = (users||[]).filter(u=> u.active!==false);
+    const checkedInIds = new Set((dtrToday||[]).filter(d=> d && d.timeIn).map(d=> d.technicianId));
+    const totalTech = activeUsers.length;
+    const checkedInCount = activeUsers.filter(u=> checkedInIds.has(u.id)).length;
+    const pct = totalTech>0 ? Math.round((checkedInCount/totalTech)*100) : 0;
+    $('ovTechValue').textContent = checkedInCount+' / '+totalTech;
+    $('ovTechBar').style.width = pct+'%';
+    $('ovTechSub').textContent = pct+'% Check-in Rate (from Online DTR)';
+
+    // Pending Requisitions — Cash Advance / Leave requests awaiting a decision.
+    const pendingCA = (cashAdvances||[]).filter(r=> r.status==='pending').length;
+    const pendingLeave = (leaves||[]).filter(r=> r.status==='pending').length;
+    $('ovReqValue').textContent = String(pendingCA+pendingLeave);
+    $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
+
+    // Dispatch Status — open tickets, split into assigned/unassigned.
+    const openTickets = (tickets||[]).filter(t=> t.status!=='completed');
+    const unassigned = openTickets.filter(t=> !(t.assignedWorkerIds && t.assignedWorkerIds.length)).length;
+    const inProgress = openTickets.length - unassigned;
+    $('ovDispatchValue').textContent = String(openTickets.length);
+    $('ovDispatchSub').textContent = inProgress+' In Progress · '+unassigned+' Unassigned';
+
+    // Unreviewed Reports — completed drafts still waiting to be finished
+    // (which is where the customer's acknowledgment sign-off happens).
+    const draftReports = (reports||[]).filter(r=> !r.completed).length;
+    $('ovReportsValue').textContent = String(draftReports);
+    $('ovReportsSub').textContent = draftReports+' Service Report'+(draftReports===1?'':'s')+' Pending Sign-off';
+  }
+
   // ---------- Home screen (feature tiles) ----------
   // Admin's homepage reads "Field Operations Portal" / "Management &
   // Administration" instead of the technician's "Technician's Homepage" /
@@ -6634,6 +6724,7 @@
     setHeaderTitle(...homeHeaderTitle());
     $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
     renderHomeGreeting();
+    renderHomeOverview();
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------
