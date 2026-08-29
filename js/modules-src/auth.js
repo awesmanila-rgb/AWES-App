@@ -563,6 +563,12 @@
     currentUser = null;
     localStorage.removeItem('current-user');
     updateUserBadge();
+    // Belt-and-suspenders: the login overlay is meant to cover everything
+    // underneath regardless, but explicitly hiding the home screen (map
+    // included) here means a signed-out session never depends on stacking
+    // order alone to keep the previous account's screen out of view.
+    const homeScreenEl = $('homeScreen');
+    if(homeScreenEl) homeScreenEl.style.display = 'none';
     await showLoginScreen();
   }
 
