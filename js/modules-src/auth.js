@@ -529,6 +529,7 @@
     if(!currentUser || currentUser.role==='admin') return true; // admin sessions aren't gated this way
     const fresh = await cloudGetUser(currentUser.id);
     if(fresh && fresh.active===false){
+      trackerStopBroadcasting();
       localStorage.removeItem('current-user');
       currentUser = null;
       updateUserBadge();
@@ -547,6 +548,8 @@
 
   async function doLogout(){
     if(currentUser && currentUser.role==='admin') exitAdminModeUI();
+    trackerStopBroadcasting();
+    trackerAdminTeardown();
     currentUser = null;
     localStorage.removeItem('current-user');
     updateUserBadge();

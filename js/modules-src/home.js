@@ -97,7 +97,12 @@
   // stored just for this panel.
   async function renderHomeOverview(){
     const card = $('homeOverviewCard');
-    if(!currentUser || currentUser.role!=='admin'){ card.style.display = 'none'; return; }
+    if(!currentUser || currentUser.role!=='admin'){
+      card.style.display = 'none';
+      const trackerCard = $('homeTrackerCard');
+      if(trackerCard) trackerCard.style.display = 'none';
+      return;
+    }
     card.style.display = '';
 
     const [users, dtrToday, tickets, cashAdvances, leaves, reports] = await Promise.all([
@@ -152,6 +157,9 @@
     const draftReports = (reports||[]).filter(r=> !r.completed).length;
     $('ovReportsValue').textContent = String(draftReports);
     $('ovReportsSub').textContent = draftReports+' Service Report'+(draftReports===1?'':'s')+' Pending Sign-off';
+
+    // Live map of every technician currently sharing a location — see tracker.js.
+    trackerAdminInit();
   }
 
   // ---------- Home screen (feature tiles) ----------
@@ -247,6 +255,10 @@
     window.scrollTo({top:0});
   }
   function enterApp(){
+    // A technician's device only ever broadcasts its own position while
+    // that technician is actually signed in — see tracker.js.
+    if(currentUser && currentUser.role==='tech') trackerStartBroadcasting();
+    else trackerStopBroadcasting();
     showHome();
   }
   $('tile_serviceReport').addEventListener('click', showServiceReport);

@@ -30,6 +30,15 @@ window.loadAwesScript = function(key, src){
     throw err;
   });
 };
+// Same idea as loadAwesScript but for a <link rel="stylesheet">, which has no
+// onload/onerror path worth racing — CSS that arrives a beat late just means
+// a brief flash of unstyled map tiles, not a broken feature.
+window.loadAwesCss = function(key, href){
+  if(document.querySelector('link[data-awes-css="'+key+'"]')) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href; l.dataset.awesCss = key;
+  document.head.appendChild(l);
+};
 window.awesLibs = {
   supabase: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
   jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
@@ -42,7 +51,14 @@ window.awesLibs = {
   // English trained data) and most sessions never touch this feature.
   // NOTE: pin/verify this version still exists on cdnjs before relying on it;
   // bump here (and in sw.js's CDN_SHELL) together if it ever needs updating.
-  tesseract: 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js'
+  tesseract: 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js',
+  // Live technician map on the admin Home Overview. Admin-only and loaded on
+  // first view of that card, same reasoning as tesseract above — no reason to
+  // make every technician's first load pay for a map library they never see.
+  leaflet: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+};
+window.awesCss = {
+  leaflet: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
 };
 </script>
 <!-- Firebase removed: this app now uses Supabase (Postgres + Auth) for the shared cloud backend. -->
@@ -218,6 +234,20 @@ window.awesLibs = {
           <div class="overview-stat-sub" id="ovReportsSub">—</div>
         </div>
       </div>
+    </div>
+  </div>
+  <!-- Admin-only: live map of every technician currently signed in and sharing
+       a GPS position (tracker.js). Hidden for technician accounts, same as
+       homeOverviewCard above. -->
+  <div class="card" id="homeTrackerCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>🛰️ Technician Live Tracker</span></div>
+    <div class="card-body">
+      <div class="tracker-topline">
+        <span>Live location of technicians currently signed in and sharing their position.</span>
+        <span class="tracker-badge" id="trackerCount">— sharing</span>
+      </div>
+      <div id="trackerMapEl" class="tracker-map"></div>
+      <div class="tracker-list" id="trackerList"></div>
     </div>
   </div>
   <div class="card" id="homeIntroCard" style="margin-bottom:16px;">

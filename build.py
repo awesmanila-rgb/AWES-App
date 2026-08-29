@@ -6,7 +6,7 @@ OUT = ROOT / "js" / "app.bundle.js"
 MODULES = [
     "core.js", "auth.js", "service-report.js", "customers.js", "admin.js",
     "email.js", "ui.js", "pdf.js", "history.js", "leave.js", "dispatch.js",
-    "cash-advance.js", "home.js"
+    "cash-advance.js", "home.js", "tracker.js"
 ]
 # encoding="utf-8" is required here — without it, Python on Windows falls back
 # to the system's regional codepage (often cp1252), which crashes on the

@@ -144,6 +144,29 @@
   .overview-progress-bar{height:100%; background:var(--green); border-radius:4px; transition:width .3s;}
   .overview-stat-sub{font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.4;}
 
+  /* ---------- Technician Live Tracker (admin Home Overview) ---------- */
+  .tracker-topline{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-size:12px; color:var(--text-muted); margin-bottom:10px;
+  }
+  .tracker-badge{
+    flex-shrink:0; font-weight:700; color:var(--green-dark); background:var(--green-light);
+    border-radius:999px; padding:3px 10px; white-space:nowrap;
+  }
+  .tracker-map{
+    width:100%; height:340px; border-radius:8px; overflow:hidden;
+    border:1px solid var(--border); background:#EEF1EE;
+  }
+  .tracker-list{ margin-top:12px; display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; }
+  .tracker-list-item{
+    display:flex; align-items:center; gap:9px; padding:9px 10px;
+    border:1px solid var(--border); border-radius:8px; cursor:pointer; font-size:13px;
+  }
+  .tracker-list-item:active{ background:var(--green-light); }
+  .tracker-dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .tracker-list-name{ flex:1; font-weight:600; color:var(--text); }
+  .tracker-list-time{ color:var(--text-muted); font-size:12px; flex-shrink:0; }
+
   .field{margin-bottom:12px;}
   .field label{
     display:block; font-size:12px; font-weight:600; color:var(--text-muted);
