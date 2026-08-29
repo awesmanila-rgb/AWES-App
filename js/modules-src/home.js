@@ -256,9 +256,19 @@
   }
   function enterApp(){
     // A technician's device only ever broadcasts its own position while
-    // that technician is actually signed in — see tracker.js.
-    if(currentUser && currentUser.role==='tech') trackerStartBroadcasting();
-    else trackerStopBroadcasting();
+    // that technician is actually signed in — see tracker.js. Admin gets a
+    // 15-minute idle-timeout watch instead (see startAdminIdleWatch in
+    // auth.js) — technician sessions are never auto-logged-out this way.
+    if(currentUser && currentUser.role==='tech'){
+      trackerStartBroadcasting();
+      stopAdminIdleWatch();
+    }else if(currentUser && currentUser.role==='admin'){
+      trackerStopBroadcasting();
+      startAdminIdleWatch();
+    }else{
+      trackerStopBroadcasting();
+      stopAdminIdleWatch();
+    }
     showHome();
   }
   $('tile_serviceReport').addEventListener('click', showServiceReport);

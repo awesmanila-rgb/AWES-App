@@ -169,6 +169,42 @@
 
   let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
+  // ---------- Admin idle timeout ----------
+  // Admin only, by design: a shared/unattended device left signed in as
+  // Admin is the risky case (Manage Users, approvals, password changes).
+  // Technician sessions are unaffected and keep persisting indefinitely, same
+  // as before. Implemented as "last activity timestamp + periodic check"
+  // rather than clearTimeout/setTimeout on every event — mousemove alone can
+  // fire dozens of times a second, and resetting a real timer that often is
+  // wasted work for no behavioral difference.
+  const ADMIN_IDLE_MS = 15 * 60 * 1000;      // 15 minutes
+  const ADMIN_IDLE_CHECK_MS = 15 * 1000;     // how often we check the clock
+  let lastAdminActivity = Date.now();
+  let adminIdleInterval = null;
+
+  function markAdminActivity(){
+    if(currentUser && currentUser.role==='admin') lastAdminActivity = Date.now();
+  }
+  ['mousemove','mousedown','keydown','touchstart','scroll','wheel'].forEach(evt=>{
+    document.addEventListener(evt, markAdminActivity, {passive:true});
+  });
+
+  function startAdminIdleWatch(){
+    lastAdminActivity = Date.now();
+    if(adminIdleInterval) clearInterval(adminIdleInterval);
+    adminIdleInterval = setInterval(async ()=>{
+      if(!currentUser || currentUser.role!=='admin'){ stopAdminIdleWatch(); return; }
+      if(Date.now() - lastAdminActivity >= ADMIN_IDLE_MS){
+        stopAdminIdleWatch();
+        await doLogout();
+        toast('Signed out after 15 minutes of inactivity');
+      }
+    }, ADMIN_IDLE_CHECK_MS);
+  }
+  function stopAdminIdleWatch(){
+    if(adminIdleInterval){ clearInterval(adminIdleInterval); adminIdleInterval = null; }
+  }
+
   function updateUserBadge(){
     const el = $('metaUser');
     if(!el) return;
@@ -445,20 +481,6 @@
   }
 
   async function checkLoginGate(){
-    // If admin's session was flagged for forced logout (see the
-    // visibilitychange handler below), honor it before anything else —
-    // even if Supabase's own persisted auth token is still technically
-    // valid. This is checked first and synchronously-set, since an async
-    // signOut() call made right as the page is closing/backgrounding isn't
-    // reliably guaranteed to finish in time.
-    if(localStorage.getItem('admin-force-logout')==='1'){
-      localStorage.removeItem('admin-force-logout');
-      localStorage.removeItem('current-user');
-      currentUser = null;
-      if(await ensureCloud()){ try{ await db.auth.signOut(); }catch(e){} }
-      await showLoginScreen('Please sign in again.');
-      return;
-    }
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
     const verified = await getVerifiedSession();
@@ -511,19 +533,6 @@
     await showLoginScreen();
   }
 
-  // Security: an admin session should NOT survive the window being closed
-  // or minimized — the next time the app loads, admin must sign in again.
-  // (Technician sessions are unaffected and continue to persist normally.)
-  // We clear the persisted session as soon as the page is hidden (this
-  // fires for both minimizing and closing/navigating away), rather than
-  // waiting for an unload event — mobile browsers often don't reliably
-  // fire unload-type events at all, but visibilitychange is dependable.
-  document.addEventListener('visibilitychange', ()=>{
-    if(document.visibilityState==='hidden' && currentUser && currentUser.role==='admin'){
-      localStorage.setItem('admin-force-logout', '1');
-    }
-  });
-
   // returns false (and re-shows login) if this technician was deactivated mid-session
   async function verifyStillActive(){
     if(!currentUser || currentUser.role==='admin') return true; // admin sessions aren't gated this way
@@ -548,6 +557,7 @@
 
   async function doLogout(){
     if(currentUser && currentUser.role==='admin') exitAdminModeUI();
+    stopAdminIdleWatch();
     trackerStopBroadcasting();
     trackerAdminTeardown();
     currentUser = null;
