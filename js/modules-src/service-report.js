@@ -148,6 +148,7 @@
     $(id).addEventListener('pointerdown', ()=>{ ensureSignaturePads().catch(()=>toast('Signature tool could not be loaded')); }, {once:true});
   });
   loadFieldLists().then(async ()=>{
+    await migrateComponentFieldLists();
     await seedDefaultLists();
     await loadCustomers();
     attachAllCombos();

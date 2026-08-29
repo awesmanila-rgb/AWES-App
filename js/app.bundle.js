@@ -1314,6 +1314,7 @@
     $(id).addEventListener('pointerdown', ()=>{ ensureSignaturePads().catch(()=>toast('Signature tool could not be loaded')); }, {once:true});
   });
   loadFieldLists().then(async ()=>{
+    await migrateComponentFieldLists();
     await seedDefaultLists();
     await loadCustomers();
     attachAllCombos();
@@ -1919,8 +1920,56 @@
     ],
     equipType: [
       'Split Type Unit', 'Window Type', 'Chilled Water', 'Water-Cooled Type', 'Refrigerator', 'Freezer/Chiller'
+    ],
+    m_desc: [
+      'Compressor', 'Condenser Fan Motor', 'Blower/Fan Motor', 'Indoor PCB', 'Outdoor PCB',
+      'Remote Control', 'Capacitor', 'Contactor', 'Overload Relay', 'Thermostat/Sensor',
+      'Air Filter', 'Drain Pump', 'Cross Flow Fan', 'Expansion Valve', 'Solenoid Valve',
+      'Copper Pipe/Tubing', 'Insulation Tape/Armaflex', 'Refrigerant R22', 'Refrigerant R410A',
+      'Refrigerant R32', 'General Cleaning/Aircon Service'
+    ],
+    m_unit: [
+      'pc/s', 'set', 'assy', 'unit', 'lot', 'pair', 'roll', 'meter', 'kg', 'liter', 'can', 'box'
     ]
   };
+  // The Qty and Item Description suggestion lists moved to fresh keys/columns
+  // when this table split "Model No. / Details" into a plain Item Description
+  // column and a separate Unit column. Anyone who had already been building up
+  // suggestions under the old keys — or who (understandably, given the old
+  // combined field) had typed part descriptions into the Qty box and saved them
+  // there by mistake — would otherwise see those suggestions vanish from
+  // Description and linger, out of place, under Qty. Run this once to carry
+  // them over to where they now belong.
+  function looksLikePlainQty(v){ return /^\d+(\.\d+)?$/.test(String(v).trim()); }
+  async function migrateComponentFieldLists(){
+    if(fieldLists.__componentListsMigrated) return;
+    let changed = false;
+    if(Array.isArray(fieldLists.m_details) && fieldLists.m_details.length){
+      const desc = ensureList('m_desc');
+      fieldLists.m_details.forEach(v=>{ if(!desc.includes(v)) desc.push(v); });
+      changed = true;
+    }
+    if(Array.isArray(fieldLists.m_qty) && fieldLists.m_qty.length){
+      const desc = ensureList('m_desc');
+      const stillQty = [];
+      fieldLists.m_qty.forEach(v=>{
+        if(looksLikePlainQty(v)) stillQty.push(v);
+        else { if(!desc.includes(v)) desc.push(v); changed = true; }
+      });
+      if(stillQty.length !== fieldLists.m_qty.length){ fieldLists.m_qty = stillQty; changed = true; }
+    }
+    // Top up with the curated defaults too, so accounts that already had some
+    // Description suggestions (migrated or otherwise) still get the rest of
+    // the starter list, and everyone gets the new Unit suggestions — plain
+    // seedDefaultLists() below only seeds a key the very first time it's seen,
+    // which these two keys no longer qualify for once migration touches them.
+    ['m_desc','m_unit'].forEach(key=>{
+      const list = ensureList(key);
+      DEFAULT_LISTS[key].forEach(v=>{ if(!list.includes(v)){ list.push(v); changed = true; } });
+    });
+    fieldLists.__componentListsMigrated = true;
+    if(changed) await saveFieldLists();
+  }
   async function seedDefaultLists(){
     let changed = false;
     Object.keys(DEFAULT_LISTS).forEach(key=>{
