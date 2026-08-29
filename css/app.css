@@ -173,6 +173,7 @@
   table.materials td input:focus, table.materials td textarea:focus{outline:1px solid var(--green);}
   .letter-cell{width:28px; text-align:center; font-weight:700; color:var(--text-muted); padding:8px 4px;}
   .qty-cell{width:60px;}
+  .unit-cell{width:70px;}
 
   .toggle-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0 10px;}
   .toggle-row .ttl{font-size:13px; font-weight:600;}

@@ -53,28 +53,30 @@
     btn.addEventListener('click', ()=> addListRow(btn.dataset.target));
   });
 
-  // ---------- materials table ----------
+  // ---------- components / parts table ----------
   let materialRowCount = 0;
   function addMaterialRow(data){
     data = data || {};
-    const letter = String.fromCharCode(97 + materialRowCount);
     materialRowCount++;
+    const itemNo = materialRowCount;
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td class="letter-cell">'+letter+'.</td>'+
-      '<td><input type="text" class="m-details" value="'+escapeHtml(data.details||'')+'"></td>'+
+      '<td class="letter-cell">'+itemNo+'.</td>'+
+      '<td><input type="text" class="m-desc" value="'+escapeHtml(data.description||data.details||'')+'"></td>'+
       '<td class="qty-cell"><input type="text" class="m-qty" value="'+escapeHtml(data.qty||'')+'"></td>'+
+      '<td class="unit-cell"><input type="text" class="m-unit" value="'+escapeHtml(data.unit||'')+'"></td>'+
       '<td><button type="button" class="rm-btn" style="width:32px;height:32px;">\u2212</button></td>';
     tr.querySelector('.rm-btn').onclick = () => { tr.remove(); relabelMaterialRows(); };
     $('materialsBody').appendChild(tr);
-    attachCombo(tr.querySelector('.m-details'), 'm_details');
+    attachCombo(tr.querySelector('.m-desc'), 'm_desc');
     attachCombo(tr.querySelector('.m-qty'), 'm_qty');
+    attachCombo(tr.querySelector('.m-unit'), 'm_unit');
     $('materialsTableWrap').style.display = '';
   }
   function relabelMaterialRows(){
     const rows = $('materialsBody').querySelectorAll('tr');
     materialRowCount = rows.length;
-    rows.forEach((tr,i)=>{ tr.querySelector('.letter-cell').textContent = String.fromCharCode(97+i)+'.'; });
+    rows.forEach((tr,i)=>{ tr.querySelector('.letter-cell').textContent = (i+1)+'.'; });
     if(rows.length===0) $('materialsTableWrap').style.display = 'none';
   }
   $('addMaterialRow').addEventListener('click', ()=> addMaterialRow());
@@ -231,13 +233,14 @@
     riser_height:{label:'Riser Pipes Height', group:'Installation Data'},
     ptrap:{label:'P-Trap', group:'Installation Data'},
     bracketType:{label:'Accu Bracket Type', group:'Installation Data'},
-    m_details:{label:'Materials — Model No. / Details', group:'Materials'},
-    m_qty:{label:'Materials — Qty', group:'Materials'},
+    m_desc:{label:'Components — Item Description', group:'Components'},
+    m_qty:{label:'Components — Qty', group:'Components'},
+    m_unit:{label:'Components — Unit', group:'Components'},
     servicesDone:{label:'Services Done', group:'Services Done'},
     custPrintedName:{label:'Customer Printed Name', group:'Acknowledgment'},
     techName:{label:'Technician Name', group:'Acknowledgment'}
   };
-  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Materials','Services Done','Operating Data','Installation Data','Acknowledgment'];
+  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Components','Services Done','Operating Data','Installation Data','Acknowledgment'];
 
   let fieldLists = {};
   let adminMode = false;

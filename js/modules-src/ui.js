@@ -82,9 +82,10 @@
     const recs = Array.from($('recsList').querySelectorAll('textarea')).map(t=>t.value.trim()).filter(Boolean);
     const servicesDone = Array.from($('servicesDoneList').querySelectorAll('textarea')).map(t=>t.value.trim()).filter(Boolean);
     const materials = Array.from($('materialsBody').querySelectorAll('tr')).map(tr=>({
-      details: tr.querySelector('.m-details').value.trim(),
-      qty: tr.querySelector('.m-qty').value.trim()
-    })).filter(r=>r.details||r.qty);
+      description: tr.querySelector('.m-desc').value.trim(),
+      qty: tr.querySelector('.m-qty').value.trim(),
+      unit: tr.querySelector('.m-unit').value.trim()
+    })).filter(r=>r.description||r.qty||r.unit);
 
     return {
       srNo: currentSrNo,

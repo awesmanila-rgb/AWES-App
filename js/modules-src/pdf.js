@@ -52,6 +52,21 @@
     doc.setTextColor(0,0,0);
     y = headerH + 18;
 
+    // The Time In/Out fields are captured from <input type="time">, which
+    // stores a plain 24-hour "HH:MM" string with no AM/PM indicator. The PDF
+    // preview/output printed that raw string (e.g. "04:44"), leaving it
+    // ambiguous whether a service happened at 4 in the morning or afternoon.
+    // Render it as 12-hour time with an explicit AM/PM suffix instead.
+    function fmtTime12h(hhmm){
+      if(!hhmm) return '';
+      const m = /^(\d{1,2}):(\d{2})/.exec(hhmm);
+      if(!m) return hhmm;
+      let h = parseInt(m[1], 10);
+      const min = m[2];
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12; if(h === 0) h = 12;
+      return h + ':' + min + ' ' + ampm;
+    }
     function sectionHeader(title){
       doc.setFillColor(31,122,80);
       doc.rect(margin, y, pageW-margin*2, 18, 'F');
@@ -122,20 +137,20 @@
     });
     y += 10;
 
-    // 4. Materials & Spare Parts
+    // 4. Components / Parts Needed to Replace
     checkPageBreak(60);
-    sectionHeader('4. Materials & Spare Parts');
+    sectionHeader('4. Components / Parts Needed to Replace');
     const rows = data.materials.map((m,i)=>[
-      String.fromCharCode(97+i)+'.', m.details||'—', m.qty||'—'
+      String(i+1)+'.', m.description||m.details||'—', m.qty||'—', m.unit||'—'
     ]);
     doc.autoTable({
       startY: y,
       margin:{left:margin, right:margin},
-      head:[['Item','Model No. / Details / Capacity','Qty']],
-      body: rows.length? rows : [['a.','—','—']],
+      head:[['Item No.','Item Description','Qty','Unit']],
+      body: rows.length? rows : [['1.','—','—','—']],
       styles:{fontSize:8.5, cellPadding:4},
       headStyles:{fillColor:[231,243,236], textColor:[21,77,52], fontStyle:'bold'},
-      columnStyles:{0:{cellWidth:24},2:{cellWidth:60}}
+      columnStyles:{0:{cellWidth:40},2:{cellWidth:50},3:{cellWidth:50}}
     });
     y = doc.lastAutoTable.finalY + 18;
 
@@ -235,13 +250,13 @@
     sectionHeader('9. Acknowledgment');
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(70,80,74);
     const ackLines = doc.splitTextToSize(
-      'I hereby acknowledge the services / works done on my equipment and agree to the terms & conditions stated herein.',
+      'By signing below, the Client confirms that the scope of works indicated in this report has been performed to satisfaction and that the equipment was turned over in good, operational condition. The Client acknowledges, understands, and agrees to the Terms & Conditions set forth above.',
       pageW-margin*2
     );
     doc.text(ackLines, margin, y);
     doc.setTextColor(0,0,0);
     y += ackLines.length*11 + 12;
-    kv('TIME IN', data.timeIn||'—', 0, 150); kv('TIME OUT', data.timeOut||'—', 200, 150); y+=22;
+    kv('TIME IN', fmtTime12h(data.timeIn)||'—', 0, 150); kv('TIME OUT', fmtTime12h(data.timeOut)||'—', 200, 150); y+=22;
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('REMARKS', margin, y);
     doc.setFont('helvetica','normal');
     const remLines = doc.splitTextToSize(data.remarks||'—', pageW-margin*2);
