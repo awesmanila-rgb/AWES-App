@@ -677,21 +677,72 @@
   // Shows every equipment item on the ticket with its own scope and
   // report status, capped so a 100-unit ticket doesn't blow up the card —
   // the full list is still reachable via the technician's equipment
-  // checklist when filing reports.
+  // checklist when filing reports. Each row is a link (data-ticket-id /
+  // data-equip-idx) opening dtOpenEquipDetailOverlay with that unit's full
+  // record — see the click delegation on #dtAdminList/#dtTechList below,
+  // since dtCardHtml's result is injected via innerHTML rather than built
+  // as live DOM nodes, so individual listeners can't be attached here.
   function dtEquipmentSummaryBlock(r){
     const items = r.equipmentList || [];
     if(items.length===0) return '';
     const reported = items.filter(it=>it.reportSrNo).length;
     const cap = 8;
-    const rows = items.slice(0,cap).map(it=>{
+    const rows = items.slice(0,cap).map((it,i)=>{
       const scope = (it.scope||[]).map(escapeHtml).join('; ');
-      return '<div style="margin:4px 0; padding-left:8px; border-left:2px solid var(--border);">'+
-        '<div>'+escapeHtml(dtEquipSummaryLine(it))+(it.reportSrNo ? ' <span style="color:var(--green-dark);">&#10003; Reported</span>' : '')+'</div>'+
+      return '<div class="dt-equip-row" data-ticket-id="'+escapeHtml(r.id)+'" data-equip-idx="'+i+'" '+
+        'style="margin:4px 0; padding-left:8px; border-left:2px solid var(--border); cursor:pointer;">'+
+        '<div>'+escapeHtml(dtEquipSummaryLine(it))+(it.reportSrNo ? ' <span style="color:var(--green-dark);">&#10003; Reported</span>' : '')+
+          ' <span style="color:var(--green-dark); text-decoration:underline; font-size:12px;">View details ›</span></div>'+
         (scope ? '<div style="font-size:12px; color:var(--text-muted);">Scope: '+scope+'</div>' : '')+
       '</div>';
     }).join('') + (items.length>cap ? '<div style="font-size:12px; color:var(--text-muted);">+'+(items.length-cap)+' more…</div>' : '');
     return '<div class="leave-comment"><b>Equipment ('+reported+' of '+items.length+' reported)</b>'+rows+'</div>';
   }
+  // Full-detail view for one equipment line item — every field the
+  // Equipment Information section of a Service Report would show, plus
+  // this unit's Scope of Service and its report status on this ticket.
+  const DT_EQUIP_DETAIL_KEYS = [
+    'equipType','brand','mountType','coolCap','modelCU','serialCU',
+    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation'
+  ];
+  function dtOpenEquipDetailOverlay(ticket, item){
+    if(!item) return;
+    $('dtEquipDetailTitle').textContent = dtEquipSummaryLine(item);
+    const fieldRows = DT_EQUIP_DETAIL_KEYS.map(k=>{
+      const val = (item[k]||'').toString().trim();
+      if(!val) return '';
+      const label = (FIELD_META[k] && FIELD_META[k].label) || k;
+      return '<div class="equip-detail-row"><span class="equip-detail-label">'+escapeHtml(label)+'</span><span>'+escapeHtml(val)+'</span></div>';
+    }).join('');
+    const scope = (item.scope||[]).map(escapeHtml).join('; ');
+    const scopeRow = scope ? '<div class="equip-detail-row"><span class="equip-detail-label">Scope of Service</span><span>'+scope+'</span></div>' : '';
+    const statusRow = item.reportSrNo
+      ? '<div class="equip-detail-row"><span class="equip-detail-label">Report</span><span>'+escapeHtml(item.reportSrNo)+' — Reported</span></div>'
+      : item.draftSrNo
+        ? '<div class="equip-detail-row"><span class="equip-detail-label">Report</span><span>'+escapeHtml(item.draftSrNo)+' — Draft saved</span></div>'
+        : '<div class="equip-detail-row"><span class="equip-detail-label">Report</span><span>Not started yet</span></div>';
+    $('dtEquipDetailBody').innerHTML = (fieldRows || '<div class="empty-state">No equipment details on file.</div>') + scopeRow + statusRow;
+    $('dtEquipDetailOverlay').classList.add('open');
+  }
+  $('closeDtEquipDetail').addEventListener('click', ()=> $('dtEquipDetailOverlay').classList.remove('open'));
+  $('dtEquipDetailOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtEquipDetailOverlay') $('dtEquipDetailOverlay').classList.remove('open'); });
+  // Both admin's "All" tab and a technician's "My Job Order" tab render
+  // dtCardHtml() straight into innerHTML, so a single delegated listener per
+  // list (rather than one per row) is what actually gets a click on a
+  // "View details" row. dtLastTicketsById is refreshed by whichever render
+  // function ran most recently, so a click always resolves against what's
+  // currently on screen.
+  let dtLastTicketsById = {};
+  function dtHandleEquipRowClick(e){
+    const row = e.target.closest('.dt-equip-row');
+    if(!row) return;
+    e.stopPropagation();
+    const ticket = dtLastTicketsById[row.dataset.ticketId];
+    const item = ticket && (ticket.equipmentList||[])[Number(row.dataset.equipIdx)];
+    dtOpenEquipDetailOverlay(ticket, item);
+  }
+  $('dtAdminList').addEventListener('click', dtHandleEquipRowClick);
+  $('dtTechList').addEventListener('click', dtHandleEquipRowClick);
   function dtCardHtml(r, forAdmin){
     return '<div class="user-card-head">'+
         '<div>'+
@@ -756,6 +807,8 @@
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await dtListAll();
     const items = dtAdminFilter==='all' ? all : all.filter(r=> r.status===dtAdminFilter);
+    dtLastTicketsById = {};
+    items.forEach(r=> dtLastTicketsById[r.id] = r);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtAdminFilter==='all'?'':dtAdminFilter+' ')+'dispatch tickets.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
@@ -790,6 +843,8 @@
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const mine = await dtListForWorker(currentUser.id);
     const items = dtTechFilter==='all' ? mine : mine.filter(r=> r.status===dtTechFilter);
+    dtLastTicketsById = {};
+    items.forEach(r=> dtLastTicketsById[r.id] = r);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtTechFilter==='all'?'':dtTechFilter+' ')+'dispatch tickets assigned to you.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{

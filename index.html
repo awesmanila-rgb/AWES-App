@@ -346,6 +346,20 @@ window.awesLibs = {
   </div>
 </div>
 
+<!-- Equipment full-detail viewer — opened from the "Equipment (X of Y
+     reported)" list on a Dispatch Ticket card, so admin/technicians can see
+     every field on one unit (model/serial numbers, refrigerant, scope, its
+     report status, etc.) without leaving the ticket list. -->
+<div class="overlay" id="dtEquipDetailOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="dtEquipDetailTitle">Equipment Details</h3>
+      <button class="sheet-close" id="closeDtEquipDetail">&times;</button>
+    </div>
+    <div id="dtEquipDetailBody"></div>
+  </div>
+</div>
+
 <!-- Leave Form — a fully separate page/module. Technicians file a leave
      request here and track its approval status. Admin reviews every
      technician's requests and approves/disapproves with a comment. -->
