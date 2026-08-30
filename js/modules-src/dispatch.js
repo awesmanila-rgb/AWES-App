@@ -1164,10 +1164,38 @@
     }).join('');
     list.scrollTop = list.scrollHeight;
   }
+  // ---- Unread tracking (device-local — no "read receipts" table exists,
+  // so this is per-device, not synced across a technician's other phones) ----
+  function dtLastReadKey(ticketId){ return 'jo-lastread:'+(currentUser?currentUser.id:'')+':'+ticketId; }
+  function dtGetLastRead(ticketId){ try{ return localStorage.getItem(dtLastReadKey(ticketId)); }catch(e){ return null; } }
+  function dtMarkRead(ticketId, iso){ try{ localStorage.setItem(dtLastReadKey(ticketId), iso); }catch(e){} }
+
   async function dtRefreshMessages(){
     if(!dtOverlayTicket) return;
     const msgs = await dtLoadMessages(dtOverlayTicket.id);
     dtRenderMessages(msgs);
+    // Viewing the thread marks everything in it read up to this point.
+    if(msgs.length>0) dtMarkRead(dtOverlayTicket.id, msgs[msgs.length-1].created_at);
+  }
+  // Dashboard tile: how many messages across ALL of my tickets arrived after
+  // I last opened that specific ticket's thread, from someone other than me.
+  // One query covers every ticket — RLS on dispatch_ticket_messages already
+  // limits what comes back to messages on tickets I'm actually assigned to
+  // (or every ticket, for admin), so no per-ticket filtering is needed here.
+  async function dtCountUnreadMessages(){
+    if(!currentUser) return 0;
+    if(!(await ensureCloud())) return 0;
+    try{
+      const { data, error } = await db.from('dispatch_ticket_messages').select('ticket_id,sender_id,created_at');
+      if(error) throw error;
+      let count = 0;
+      (data||[]).forEach(m=>{
+        if(m.sender_id===currentUser.id) return;
+        const lastRead = dtGetLastRead(m.ticket_id);
+        if(!lastRead || new Date(m.created_at) > new Date(lastRead)) count++;
+      });
+      return count;
+    }catch(e){ console.error('unread JO message count failed', describeCloudError(e)); return 0; }
   }
   async function dtSendMessage(){
     if(!dtOverlayTicket) return;

@@ -44,48 +44,123 @@
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-PH', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
     const timeStr = now.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
-
-    const [tickets, reports, cashAdvances, leaves, todayDtr] = await Promise.all([
-      dtListForWorker(currentUser.id).catch(()=>[]),
-      cloudListReports().catch(()=>null),
-      caListForUser(currentUser.id).catch(()=>[]),
-      leaveListForUser(currentUser.id).catch(()=>[]),
-      dtrGetDay(currentUser.id, todayISO()).catch(()=>null)
-    ]);
-
-    const jobOrderCount = (tickets||[]).filter(t=> t.status!=='completed').length;
-    const draftReportCount = reports===null ? 0 : reports.filter(r=> r.technicianId===currentUser.id && !r.completed).length;
-    const cashAdvanceCount = (cashAdvances||[]).filter(caNeedsLiquidation).length;
-    const leaveCount = (leaves||[]).filter(r=> r.status==='pending').length;
+    const todayDtr = await dtrGetDay(currentUser.id, todayISO()).catch(()=>null);
     const alreadyTimedIn = !!(todayDtr && todayDtr.timeIn);
-
-    const items = [];
-    if(jobOrderCount>0) items.push({icon:'📋', count:jobOrderCount, label:'Job Order'+(jobOrderCount===1?'':'s')+' to accomplish'});
-    if(draftReportCount>0) items.push({icon:'🧾', count:draftReportCount, label:'Saved Service Report'+(draftReportCount===1?'':'s')+' to complete'});
-    if(cashAdvanceCount>0) items.push({icon:'💵', count:cashAdvanceCount, label:'Cash Advance'+(cashAdvanceCount===1?'':'s')+' to Liquidate'});
-    if(leaveCount>0) items.push({icon:'📅', count:leaveCount, label:'Leave Form Request'+(leaveCount===1?'':'s')+' pending'});
 
     let html =
       '<p class="greet-line">Good day, <b>'+escapeHtml(currentUser.name)+'</b>!</p>'+
       '<p class="greet-date">Today is '+dateStr+', '+timeStr+'.</p>';
-    if(items.length>0){
-      html += '<div class="greet-summary-label">You have</div><div class="greet-summary-list">'+
-        items.map(i=>
-          '<div class="greet-summary-item">'+
-            '<span class="greet-summary-icon">'+i.icon+'</span>'+
-            '<span class="greet-summary-count">'+i.count+'</span>'+
-            '<span class="greet-summary-text">'+i.label+'</span>'+
-          '</div>'
-        ).join('')+
-      '</div>';
-    }else{
-      html += '<p class="greet-allclear">You have no pending job orders, reports, or requests right now — nice and clear!</p>';
-    }
     if(!alreadyTimedIn){
       html += '<div class="greet-reminder">⏰ Don\'t forget to tap "Time-In" to officially register your attendance.</div>';
     }
     html += '<p class="greet-thanks">Thank you!</p>';
     $('homeGreetingText').innerHTML = html;
+  }
+
+  // ---------- Home screen overview (technician only) ----------
+  // Same visual language as the admin Overview below, scoped to just this
+  // technician's own numbers. Job Order's subtitle lists whichever teammates
+  // share at least one of this technician's own open tickets — pulled from
+  // assignedWorkerNames on those tickets, not a separate lookup.
+  async function renderHomeTechOverview(){
+    const card = $('homeTechOverviewCard');
+    if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
+    card.style.display = '';
+
+    const [tickets, reports, cashAdvances, leaves, todayDtr, unreadCount] = await Promise.all([
+      dtListForWorker(currentUser.id).catch(()=>[]),
+      cloudListReports().catch(()=>null),
+      caListForUser(currentUser.id).catch(()=>[]),
+      leaveListForUser(currentUser.id).catch(()=>[]),
+      dtrGetDay(currentUser.id, todayISO()).catch(()=>null),
+      dtCountUnreadMessages().catch(()=>0)
+    ]);
+
+    // Job Order — open tickets (not yet Completed or Closed), plus whichever
+    // teammates are on those same tickets with me.
+    const openTickets = (tickets||[]).filter(t=> !['completed','closed'].includes(dtEffectiveStatus(t)));
+    const mateNames = new Set();
+    openTickets.forEach(t=> (t.assignedWorkerNames||[]).forEach(n=>{
+      if(n && n!==currentUser.name) mateNames.add(n);
+    }));
+    $('ovMyJoValue').textContent = String(openTickets.length);
+    $('ovMyJoSub').textContent = openTickets.length===0
+      ? 'No open job orders'
+      : (mateNames.size>0 ? ('With '+Array.from(mateNames).join(', ')) : 'Solo assignment');
+
+    // Pending Service Reports — my own drafts not yet completed.
+    const draftReportCount = reports===null ? 0 : reports.filter(r=> r.technicianId===currentUser.id && !r.completed).length;
+    $('ovMyReportsValue').textContent = String(draftReportCount);
+    $('ovMyReportsSub').textContent = draftReportCount+' Saved Report'+(draftReportCount===1?'':'s')+' to Complete';
+
+    // Pending Requisitions — my own Cash Advance / Leave requests still
+    // awaiting an admin decision (separate from Liquidation below).
+    const pendingCA = (cashAdvances||[]).filter(r=> r.status==='pending').length;
+    const pendingLeave = (leaves||[]).filter(r=> r.status==='pending').length;
+    $('ovMyReqValue').textContent = String(pendingCA+pendingLeave);
+    $('ovMyReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
+
+    // Pending Liquidation — my own approved Cash Advances still needing one.
+    const liqCount = (cashAdvances||[]).filter(caNeedsLiquidation).length;
+    $('ovMyLiqValue').textContent = String(liqCount);
+    $('ovMyLiqSub').textContent = liqCount===0 ? 'Nothing to liquidate' : liqCount+' Cash Advance'+(liqCount===1?'':'s')+' to Liquidate';
+
+    // Today's Attendance — straight from Online DTR, no separate storage.
+    if(todayDtr && todayDtr.timeIn){
+      const inTime = new Date(todayDtr.timeIn);
+      const endTime = todayDtr.timeOut ? new Date(todayDtr.timeOut) : new Date();
+      const mins = Math.max(0, Math.round((endTime-inTime)/60000));
+      const hrs = Math.floor(mins/60), rem = mins%60;
+      $('ovMyDtrValue').textContent = inTime.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
+      $('ovMyDtrSub').textContent = todayDtr.timeOut
+        ? ('Timed out — worked '+hrs+'h '+rem+'m')
+        : (hrs+'h '+rem+'m so far today');
+    }else{
+      $('ovMyDtrValue').textContent = '—';
+      $('ovMyDtrSub').textContent = 'Not timed in yet';
+    }
+
+    // Next Job Order — the soonest-dated open ticket, so a technician sees
+    // what's coming up without opening My Job Order and scanning the list.
+    const nextJo = openTickets.filter(t=>t.date).slice()
+      .sort((a,b)=> a.date.localeCompare(b.date) || (a.expectedTime||'').localeCompare(b.expectedTime||''))[0];
+    if(nextJo){
+      $('ovMyNextJoValue').textContent = nextJo.jobOrderNo || nextJo.id;
+      $('ovMyNextJoSub').textContent = (nextJo.custName||'')+' — '+leaveFmtDate(nextJo.date)+(nextJo.expectedTime ? (' at '+nextJo.expectedTime) : '');
+    }else{
+      $('ovMyNextJoValue').textContent = '—';
+      $('ovMyNextJoSub').textContent = 'Nothing scheduled';
+    }
+
+    // Completed This Month — a light productivity snapshot, from tickets I
+    // marked Completed or Closed with a timestamp falling in the current
+    // calendar month (falls back to the ticket's own date for older records
+    // saved before completedAt/closedAt existed).
+    const monthPrefix = todayISO().slice(0,7);
+    const doneThisMonth = (tickets||[]).filter(t=>{
+      if(t.status!=='completed' && t.status!=='closed') return false;
+      const stamp = t.closedAt || t.completedAt || t.date || '';
+      return stamp.slice(0,7)===monthPrefix;
+    }).length;
+    $('ovMyDoneValue').textContent = String(doneThisMonth);
+    $('ovMyDoneSub').textContent = doneThisMonth+' Job Order'+(doneThisMonth===1?'':'s')+' finished this month';
+
+    // Job Order Messages — unread count across every ticket's inquiry
+    // thread (see dtCountUnreadMessages in dispatch.js). Device-local read
+    // tracking, so this can differ across a technician's own phone/tablet.
+    $('ovMyUnreadValue').textContent = String(unreadCount);
+    $('ovMyUnreadSub').textContent = unreadCount===0 ? 'No unread messages' : unreadCount+' new message'+(unreadCount===1?'':'s')+' on your Job Orders';
+
+    // Leave Days Used (This Year) — approved leave days so far this
+    // calendar year. Deliberately labeled "Used", not "Balance" — the app
+    // doesn't track an annual leave allotment/credit anywhere, so a true
+    // remaining-balance figure isn't something this can honestly show yet.
+    const yearPrefix = todayISO().slice(0,4);
+    const leaveDaysUsed = (leaves||[])
+      .filter(r=> r.status==='approved' && (r.dateFrom||'').slice(0,4)===yearPrefix)
+      .reduce((sum,r)=> sum+(r.days||0), 0);
+    $('ovMyLeaveValue').textContent = String(leaveDaysUsed);
+    $('ovMyLeaveSub').textContent = leaveDaysUsed+' approved leave day'+(leaveDaysUsed===1?'':'s')+' taken in '+yearPrefix;
   }
 
   // ---------- Home screen overview (admin only) ----------
@@ -185,6 +260,7 @@
     setHeaderTitle(...homeHeaderTitle());
     $('tile_dispatch_label').textContent = (currentUser && currentUser.role==='admin') ? 'Service Dispatch Ticket' : 'My Job Order';
     renderHomeGreeting();
+    renderHomeTechOverview();
     renderHomeOverview();
     window.scrollTo({top:0});
   }
