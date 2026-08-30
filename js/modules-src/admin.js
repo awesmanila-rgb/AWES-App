@@ -157,16 +157,33 @@
       const card = document.createElement('div');
       card.className = 'user-card';
       card.innerHTML =
-        '<div class="user-card-head"><div>'+
+        '<div class="user-card-head" data-act="toggle" style="cursor:pointer;"><div>'+
           '<div class="u-name">'+escapeHtml(c.name)+'</div>'+
           '<div class="u-status">'+escapeHtml(c.address||'No address on file')+'</div>'+
-        '</div></div>'+
-        '<div class="user-card-actions">'+
-          '<button data-act="edit" class="primary">Edit</button>'+
-          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div><span class="card-caret">▾</span></div>'+
+        '<div class="user-edit-panel" data-panel="1">'+
+          '<div class="cust-detail-row"><b>Address:</b> '+escapeHtml(c.address||'—')+'</div>'+
+          '<div class="cust-detail-row"><b>Contact No.:</b> '+escapeHtml(c.contactNo||'—')+'</div>'+
+          '<div class="cust-detail-row"><b>Contact Person:</b> '+escapeHtml(c.contactPerson||'—')+'</div>'+
+          '<div class="cust-detail-row"><b>Email:</b> '+escapeHtml(c.email||'—')+'</div>'+
+          '<div class="user-card-actions">'+
+            '<button data-act="edit" class="primary">Edit</button>'+
+            '<button data-act="remove" class="danger">Delete</button>'+
+          '</div>'+
         '</div>';
-      card.querySelector('[data-act="edit"]').addEventListener('click', ()=> startEditCustomer(c));
-      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+      const panel = card.querySelector('[data-panel="1"]');
+      card.querySelector('[data-act="toggle"]').addEventListener('click', (e)=>{
+        // Accordion behavior: opening one card's details closes any other
+        // that was left open, same convention as Manage Users above.
+        body.querySelectorAll('.user-edit-panel.open').forEach(p=>{
+          if(p!==panel){ p.classList.remove('open'); p.previousElementSibling.classList.remove('open'); }
+        });
+        panel.classList.toggle('open');
+        e.currentTarget.classList.toggle('open', panel.classList.contains('open'));
+      });
+      card.querySelector('[data-act="edit"]').addEventListener('click', (e)=>{ e.stopPropagation(); startEditCustomer(c); });
+      card.querySelector('[data-act="remove"]').addEventListener('click', async (e)=>{
+        e.stopPropagation();
         if(!confirm('Remove '+c.name+' from the customer list? This does not affect past reports.')) return;
         const ok = await cloudDeleteCustomer(c.id);
         if(ok){ toast('Removed '+c.name); renderCustomersList($('customerSearch').value); }

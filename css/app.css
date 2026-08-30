@@ -543,6 +543,9 @@
     display:none; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border);
   }
   .user-edit-panel.open{display:block;}
+  .user-card-head.open .card-caret{transform:rotate(180deg);}
+  .cust-detail-row{font-size:13px; margin-bottom:6px; line-height:1.4;}
+  .cust-detail-row b{color:var(--text-muted); font-weight:600;}
   .user-edit-panel .field{margin-bottom:10px;}
   .user-edit-panel .field label{display:block; font-size:12px; font-weight:700; margin-bottom:4px;}
   .user-edit-panel .field input{
