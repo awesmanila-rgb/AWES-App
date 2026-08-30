@@ -188,9 +188,18 @@
   $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));
   $('historyOverlay').addEventListener('click', (e)=>{ if(e.target.id==='historyOverlay') $('historyOverlay').classList.remove('open'); });
 
-  // ---------- Main Menu (consolidates Admin / History / Email Setup / Logout) ----------
-  function closeMainMenu(){ $('menuDropdown').classList.remove('open'); }
-  function openMainMenu(){ $('menuDropdown').classList.add('open'); }
+  // ---------- Main Menu (admin sidebar) ----------
+  // On mobile the admin sidebar is an off-canvas drawer toggled by menuBtn;
+  // on wide screens it's permanently visible (see the role-admin rules in
+  // css/app.css), where these two are harmless no-ops.
+  function closeMainMenu(){
+    $('adminSidebar').classList.remove('open');
+    $('sidebarBackdrop').classList.remove('open');
+  }
+  function openMainMenu(){
+    $('adminSidebar').classList.add('open');
+    $('sidebarBackdrop').classList.add('open');
+  }
   async function ensureAdminAuthenticated(){
     if(adminMode) return true;
     const pin = await askPassword({ label: 'Enter the Admin Password to continue' });
@@ -203,11 +212,13 @@
 
   $('menuBtn').addEventListener('click', (e)=>{
     e.stopPropagation();
-    $('menuDropdown').classList.toggle('open');
+    $('adminSidebar').classList.toggle('open');
+    $('sidebarBackdrop').classList.toggle('open');
   });
+  $('sidebarBackdrop').addEventListener('click', closeMainMenu);
   document.addEventListener('click', (e)=>{
-    if(!$('menuDropdown').classList.contains('open')) return;
-    if(!$('menuDropdown').contains(e.target) && e.target.id!=='menuBtn') closeMainMenu();
+    if(!$('adminSidebar').classList.contains('open')) return;
+    if(!$('adminSidebar').contains(e.target) && e.target.id!=='menuBtn') closeMainMenu();
   });
 
   $('menuManageUsers').addEventListener('click', async ()=>{

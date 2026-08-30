@@ -936,6 +936,7 @@
   });
 
   async function showCashAdvanceView(){
+    document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';

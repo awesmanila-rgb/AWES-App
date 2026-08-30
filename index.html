@@ -153,6 +153,63 @@ window.awesCss = {
   <button type="button" id="pendingSyncBtn" style="flex:0 0 auto; background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
 </div>
 
+<!-- Admin dashboard shell: a persistent sidebar + main content column.
+     Hidden entirely (via CSS, see body.role-admin rules) for technician
+     accounts and before login, so the plain mobile header below still
+     drives that experience unchanged. -->
+<div class="app-shell" id="appShell">
+<aside class="admin-sidebar" id="adminSidebar">
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-mark"><img src="logo.png" alt="Awes"></div>
+    <div class="sidebar-brand-text">
+      <div class="sidebar-brand-name">Field Operations Portal</div>
+      <div class="sidebar-brand-sub">Management &amp; Administration</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <button type="button" class="sidebar-link active" id="sbNavDashboard"><span class="menu-ico">🏠</span>Dashboard</button>
+    <div class="sidebar-section-label">Operations</div>
+    <button type="button" class="sidebar-link" id="sbNavTechnicians"><span class="menu-ico">🕒</span>Technicians</button>
+    <button type="button" class="sidebar-link" id="menuManageReports"><span class="menu-ico">🗂</span>Service Reports</button>
+    <button type="button" class="sidebar-link" id="sbNavRequisitions"><span class="menu-ico">💵</span>Requisitions</button>
+    <button type="button" class="sidebar-link" id="sbNavDispatch"><span class="menu-ico">🚚</span>Dispatch</button>
+    <button type="button" class="sidebar-link" id="menuManageCustomers"><span class="menu-ico">🏢</span>Customers</button>
+    <button type="button" class="sidebar-link" id="menuManageEquipment"><span class="menu-ico">🧰</span>Equipment</button>
+    <div class="sidebar-section-label">Management</div>
+    <button type="button" class="sidebar-link" id="menuManageUsers"><span class="menu-ico">👤</span>Users &amp; Roles</button>
+    <button type="button" class="sidebar-link" id="settingsBtn"><span class="menu-ico">⚙️</span>Settings</button>
+    <button type="button" class="sidebar-link" id="menuManageDropdowns"><span class="menu-ico">📋</span>Dropdown Lists</button>
+    <button type="button" class="sidebar-link" id="menuChangePin"><span class="menu-ico">🔑</span>Change Password</button>
+  </nav>
+  <div class="sidebar-footer">
+    <button class="icon-btn sidebar-cloud-btn" id="cloudBtn" title="Cloud connection status" aria-live="polite">☁ Not Connected</button>
+    <div class="sidebar-account">
+      <div class="sidebar-avatar">AD</div>
+      <div class="sidebar-account-text">
+        <div class="sidebar-account-name">Admin User</div>
+        <div class="sidebar-account-role">Super Administrator</div>
+      </div>
+      <button type="button" class="sidebar-logout" id="menuLogout" title="Logout">🚪</button>
+    </div>
+  </div>
+</aside>
+<div class="main-wrap" id="mainWrap">
+
+<!-- Dashboard top bar: replaces the plain mobile header while the admin
+     dashboard (homeScreen) is showing — see body.dashboard-active rules.
+     On every other admin screen the plain header below reappears instead,
+     since those screens still rely on it for the page title + Home button. -->
+<div class="dashboard-topbar" id="dashboardTopbar">
+  <div class="dt-greeting">
+    <div class="dt-greeting-title" id="dtGreetingTitle">Good day, Admin! 👋</div>
+    <div class="dt-greeting-sub">Here's what's happening with your field operations today.</div>
+  </div>
+  <div class="dt-actions">
+    <div class="dt-search"><span>🔍</span><input type="text" placeholder="Search anything..." disabled title="Search — coming soon"></div>
+    <button type="button" class="dt-icon-btn" id="dtNotifBtn" title="Pending items needing your attention">🔔<span class="dt-badge" id="notifBadge" style="display:none;">0</span></button>
+  </div>
+</div>
+
 <header class="app-top">
   <div class="brand">
     <div class="brand-mark"><img src="logo.png" alt="Awes"></div>
@@ -163,35 +220,23 @@ window.awesCss = {
   </div>
   <div class="top-actions">
     <button class="icon-btn" id="homeBtn" style="display:none;">🏠 Home</button>
-    <!-- Cloud status. core.js setCloudStatusUI() has always written to an element
-         with this id, but the element was never in the markup, so the whole
-         indicator silently did nothing and there was no way to tell whether the
-         app was talking to the shared database or quietly working alone. The
-         .cloud-connected style it toggles was already in css/app.css. -->
-    <button class="icon-btn" id="cloudBtn" title="Cloud connection status" aria-live="polite">☁ Not Connected</button>
     <button class="icon-btn" id="newBtn">New</button>
-    <div class="menu-wrap" id="menuWrap">
-      <button class="icon-btn" id="menuBtn">☰ Menu</button>
-      <div class="menu-dropdown" id="menuDropdown">
-        <button type="button" id="menuManageUsers"><span class="menu-ico">👤</span>Manage Users</button>
-        <button type="button" id="menuManageCustomers"><span class="menu-ico">🏢</span>Manage Customers</button>
-        <button type="button" id="menuManageEquipment"><span class="menu-ico">🧰</span>Manage Equipment List</button>
-        <button type="button" id="menuManageReports"><span class="menu-ico">🗂</span>Manage Service Report</button>
-        <button type="button" id="menuManageDropdowns"><span class="menu-ico">📋</span>Manage Dropdown Lists</button>
-        <button type="button" id="menuChangePin"><span class="menu-ico">🔑</span>Change Admin Password</button>
-        <button type="button" id="menuLogout" class="menu-danger"><span class="menu-ico">🚪</span>Logout</button>
-      </div>
-    </div>
-    <!-- Shown directly (not tucked in the Menu) for technician accounts -->
+    <!-- Shown directly (not tucked in a menu) for technician accounts -->
     <button class="icon-btn" id="userLogoutBtn" style="display:none;">🚪 Logout</button>
-    <!-- Legacy controls kept off-screen: existing app logic is wired to these ids -->
-    <!-- Permanently hidden. These two are not menu items; they are the click
-         targets the Menu entries forward to, so the Admin and Email Setup flows
-         each live in exactly one handler. Removing them would break both menus. -->
+    <!-- Legacy control kept off-screen: existing app logic is wired to this id. -->
     <button class="icon-btn" id="adminBtn" style="display:none;" aria-hidden="true" tabindex="-1">Admin</button>
-    <button class="icon-btn" id="settingsBtn" style="display:none;" aria-hidden="true" tabindex="-1">Email Setup</button>
+    <!-- Admin-only mobile hamburger: toggles the sidebar drawer below 1000px
+         (see body.role-admin #menuBtn / .admin-sidebar rules in app.css).
+         Hidden entirely for technician accounts and on wide screens, where
+         the sidebar is already permanently visible. -->
+    <button class="icon-btn" id="menuBtn" style="display:none;">☰ Menu</button>
   </div>
 </header>
+
+<!-- Backdrop behind the admin sidebar drawer on mobile. Lives outside the
+     header/sidebar so it can cover the whole screen; positioned fixed via
+     CSS regardless of where it sits in the DOM. -->
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
 <div class="meta-bar" id="metaBar" style="display:none;">
   <span>SR No. <b id="metaSrNo">—</b></span>
@@ -267,23 +312,23 @@ window.awesCss = {
     <div class="card-body">
       <div class="overview-grid">
         <div class="overview-stat ov-green">
-          <div class="overview-stat-head"><span class="overview-stat-title">Active Technicians</span><span class="overview-stat-icon">👥</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Active Technicians</span><span class="overview-stat-icon ov-icon-chip">👥</span></div>
           <div class="overview-stat-value" id="ovTechValue">—</div>
           <div class="overview-progress"><div class="overview-progress-bar" id="ovTechBar" style="width:0%"></div></div>
           <div class="overview-stat-sub" id="ovTechSub">—</div>
         </div>
         <div class="overview-stat ov-amber">
-          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon">💵</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
           <div class="overview-stat-value" id="ovReqValue">—</div>
           <div class="overview-stat-sub" id="ovReqSub">—</div>
         </div>
         <div class="overview-stat ov-blue">
-          <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon">🚚</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
           <div class="overview-stat-value" id="ovDispatchValue">—</div>
           <div class="overview-stat-sub" id="ovDispatchSub">—</div>
         </div>
         <div class="overview-stat ov-gray">
-          <div class="overview-stat-head"><span class="overview-stat-title">Unreviewed Reports</span><span class="overview-stat-icon">📝</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Unreviewed Reports</span><span class="overview-stat-icon ov-icon-chip">📝</span></div>
           <div class="overview-stat-value" id="ovReportsValue">—</div>
           <div class="overview-stat-sub" id="ovReportsSub">—</div>
         </div>
@@ -291,51 +336,66 @@ window.awesCss = {
     </div>
   </div>
   <!-- Admin-only: live map of every technician currently signed in and sharing
-       a GPS position (tracker.js). Hidden for technician accounts, same as
-       homeOverviewCard above. -->
-  <div class="card" id="homeTrackerCard" style="display:none; margin-bottom:16px;">
-    <div class="card-head"><span>🛰️ Technician Live Tracker</span></div>
-    <div class="card-body">
-      <div class="tracker-topline">
-        <span>Live location of technicians currently signed in and sharing their position.</span>
-        <span class="tracker-badge" id="trackerCount">— sharing</span>
+       a GPS position (tracker.js), plus a lightweight recent-activity feed
+       drawn from cash advances, leave requests and dispatch tickets. Both
+       hidden for technician accounts, same as homeOverviewCard above. -->
+  <div class="dash-two-col" id="dashTwoCol">
+    <div class="card" id="homeTrackerCard" style="display:none; margin-bottom:16px;">
+      <div class="card-head"><span>🛰️ Technician Live Tracker</span></div>
+      <div class="card-body">
+        <div class="tracker-topline">
+          <span>Live location of technicians currently signed in and sharing their position.</span>
+          <span class="tracker-badge" id="trackerCount">— sharing</span>
+        </div>
+        <div id="trackerMapEl" class="tracker-map"></div>
+        <div class="tracker-list" id="trackerList"></div>
       </div>
-      <div id="trackerMapEl" class="tracker-map"></div>
-      <div class="tracker-list" id="trackerList"></div>
+    </div>
+    <div class="card" id="homeActivityCard" style="display:none; margin-bottom:16px;">
+      <div class="card-head"><span>⚡ Recent Activity</span></div>
+      <div class="card-body">
+        <div id="recentActivityList"><div class="empty-state">No recent activity yet.</div></div>
+      </div>
     </div>
   </div>
   <div class="card" id="homeIntroCard" style="margin-bottom:16px;">
     <div class="card-head"><span>🧭 What would you like to do?</span></div>
     <div class="card-body">
   <div class="home-grid">
-    <button type="button" class="home-tile" id="tile_serviceReport">
+    <button type="button" class="home-tile qa-purple" id="tile_serviceReport">
       <span class="home-tile-icon">🧾</span>
-      <span class="home-tile-label">Service Report</span>
+      <span class="tile-text"><span class="home-tile-label">Service Report</span><span class="tile-desc">Create or manage service reports</span></span>
+      <span class="tile-chevron">›</span>
     </button>
-    <button type="button" class="home-tile" id="tile_dtr">
+    <button type="button" class="home-tile qa-gray" id="tile_dtr">
       <span class="home-tile-icon">🕒</span>
-      <span class="home-tile-label">Online DTR</span>
+      <span class="tile-text"><span class="home-tile-label">Online DTR</span><span class="tile-desc">Manage daily time records</span></span>
+      <span class="tile-chevron">›</span>
     </button>
-    <button type="button" class="home-tile" id="tile_cashAdvance">
+    <button type="button" class="home-tile qa-green" id="tile_cashAdvance">
       <span class="home-tile-icon">💵</span>
-      <span class="home-tile-label">Cash Advance Form</span>
+      <span class="tile-text"><span class="home-tile-label">Cash Advance Form</span><span class="tile-desc">Process cash advance requests</span></span>
+      <span class="tile-chevron">›</span>
     </button>
-    <button type="button" class="home-tile" id="tile_leave">
+    <button type="button" class="home-tile qa-violet" id="tile_leave">
       <span class="home-tile-icon">🗓️</span>
-      <span class="home-tile-label">Leave Form</span>
+      <span class="tile-text"><span class="home-tile-label">Leave Form</span><span class="tile-desc">Manage leave applications</span></span>
+      <span class="tile-chevron">›</span>
     </button>
-    <button type="button" class="home-tile" id="tile_dispatch">
+    <button type="button" class="home-tile qa-orange" id="tile_dispatch">
       <span class="home-tile-icon">🚚</span>
-      <span class="home-tile-label" id="tile_dispatch_label">Service Dispatch Ticket</span>
+      <span class="tile-text"><span class="home-tile-label" id="tile_dispatch_label">Service Dispatch Ticket</span><span class="tile-desc">Create new dispatch or view tickets</span></span>
+      <span class="tile-chevron">›</span>
     </button>
-    <button type="button" class="home-tile" id="tile_materialRequest">
+    <button type="button" class="home-tile qa-brown" id="tile_materialRequest">
       <span class="home-tile-icon">📦</span>
-      <span class="home-tile-label">Material Request Form</span>
-      <span class="home-tile-badge">Coming Soon</span>
+      <span class="tile-text"><span class="home-tile-label">Material Request Form <span class="home-tile-badge">Coming Soon</span></span><span class="tile-desc">Request materials and equipment</span></span>
+      <span class="tile-chevron">›</span>
     </button>
     <button type="button" class="home-tile" id="tile_changePassword" style="display:none;">
       <span class="home-tile-icon">🔑</span>
-      <span class="home-tile-label">Change My Password</span>
+      <span class="tile-text"><span class="home-tile-label">Change My Password</span></span>
+      <span class="tile-chevron">›</span>
     </button>
   </div>
     </div>
@@ -1474,6 +1534,9 @@ window.awesCss = {
     </div>
   </div>
 </div>
+
+</div><!-- /#mainWrap -->
+</div><!-- /#appShell -->
 
 <div class="toast" id="toast"></div>
 

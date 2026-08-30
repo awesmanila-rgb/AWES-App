@@ -1223,6 +1223,7 @@
   });
 
   async function showDispatchView(){
+    document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';
@@ -1250,6 +1251,7 @@
   }
 
   async function showLeaveView(){
+    document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';

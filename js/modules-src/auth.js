@@ -229,7 +229,11 @@
     // surface Email Setup + Logout directly instead of tucked in the menu.
     const isTech = !!(currentUser && currentUser.role!=='admin');
     const isAdmin = !!(currentUser && currentUser.role==='admin');
-    setVis('menuWrap', !isTech);
+    // Switches on the desktop/tablet sidebar dashboard shell (see the
+    // admin-sidebar / dashboard-topbar rules in css/app.css) — off for
+    // technician accounts and before login, so their view is unaffected.
+    document.body.classList.toggle('role-admin', isAdmin);
+    if(!isAdmin) document.body.classList.remove('dashboard-active');
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already
     // never saw the header button; admins can only view/edit existing

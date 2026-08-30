@@ -5,6 +5,7 @@
   }
 
   async function showDtrView(){
+    document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
     $('leaveView').style.display = 'none';
@@ -176,9 +177,12 @@
       card.style.display = 'none';
       const trackerCard = $('homeTrackerCard');
       if(trackerCard) trackerCard.style.display = 'none';
+      const actCard = $('homeActivityCard');
+      if(actCard) actCard.style.display = 'none';
       return;
     }
     card.style.display = '';
+    renderDashboardGreeting();
 
     const [users, dtrToday, tickets, cashAdvances, leaves, reports] = await Promise.all([
       cloudListUsers().catch(()=>[]),
@@ -233,9 +237,87 @@
     $('ovReportsValue').textContent = String(draftReports);
     $('ovReportsSub').textContent = draftReports+' Service Report'+(draftReports===1?'':'s')+' Pending Sign-off';
 
+    // Notification bell in the dashboard top bar — total items anywhere in
+    // the app that are waiting on an admin decision or sign-off.
+    const notifTotal = pendingCA + pendingLeave + draftReports;
+    const notifEl = $('notifBadge');
+    if(notifEl){
+      notifEl.textContent = notifTotal > 99 ? '99+' : String(notifTotal);
+      notifEl.style.display = notifTotal > 0 ? '' : 'none';
+    }
+
     // Live map of every technician currently sharing a location — see tracker.js.
     trackerAdminInit();
+    const actCard = $('homeActivityCard');
+    if(actCard){ actCard.style.display = ''; renderRecentActivity(cashAdvances, leaves, tickets); }
   }
+
+  // ---------- Dashboard top bar greeting (admin only) ----------
+  function renderDashboardGreeting(){
+    const el = $('dtGreetingTitle');
+    if(!el) return;
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+    const name = (currentUser && currentUser.name) ? currentUser.name : 'Admin';
+    el.textContent = 'Good '+part+', '+name+'! 👋';
+  }
+
+  // ---------- Recent Activity (admin dashboard, next to the live tracker) ----------
+  // A lightweight, best-effort feed built from data other screens already
+  // own (Cash Advance, Leave, Dispatch) — nothing new is stored just for
+  // this panel. Service reports aren't included since they don't carry a
+  // submission timestamp to sort by.
+  function timeAgo(iso){
+    if(!iso) return '';
+    const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime())/60000));
+    if(mins < 1) return 'Just now';
+    if(mins < 60) return mins+'m ago';
+    const hrs = Math.round(mins/60);
+    if(hrs < 24) return hrs+'h ago';
+    return Math.round(hrs/24)+'d ago';
+  }
+  function renderRecentActivity(cashAdvances, leaves, tickets){
+    const list = $('recentActivityList');
+    if(!list) return;
+    const statusDot = (status)=> status==='pending' ? 'amber' : (status==='approved' ? 'green' : 'gray');
+    const items = [];
+    (cashAdvances||[]).forEach(r=> items.push({
+      name: r.userName || 'Technician', desc: 'Filed a cash advance request',
+      time: r.submittedAt, dot: statusDot(r.status)
+    }));
+    (leaves||[]).forEach(r=> items.push({
+      name: r.userName || 'Technician', desc: 'Filed a leave request',
+      time: r.submittedAt, dot: statusDot(r.status)
+    }));
+    (tickets||[]).forEach(t=> items.push({
+      name: (t.assignedWorkerNames && t.assignedWorkerNames[0]) || t.custName || 'Dispatch',
+      desc: 'Dispatch ticket '+(t.jobOrderNo||'')+' — '+(t.status||'updated'),
+      time: t.createdAt, dot: 'blue'
+    }));
+    items.sort((a,b)=> (b.time||'').localeCompare(a.time||''));
+    const top = items.slice(0,6);
+    if(top.length===0){ list.innerHTML = '<div class="empty-state">No recent activity yet.</div>'; return; }
+    list.innerHTML = top.map(it=>
+      '<div class="activity-row"><span class="activity-dot activity-'+it.dot+'"></span>'+
+      '<div class="activity-body"><div class="activity-name">'+escapeHtml(it.name)+'</div>'+
+      '<div class="activity-desc">'+escapeHtml(it.desc)+'</div></div>'+
+      '<div class="activity-time">'+timeAgo(it.time)+'</div></div>'
+    ).join('');
+  }
+
+  // ---------- Sidebar nav (admin dashboard shell) ----------
+  function setSidebarActive(id){
+    $$('.sidebar-link').forEach(el=> el.classList.toggle('active', el.id===id));
+  }
+  $('sbNavDashboard').addEventListener('click', ()=>{ closeMainMenu(); showHome(); });
+  $('sbNavTechnicians').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavTechnicians'); showDtrView(); });
+  $('sbNavRequisitions').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavRequisitions'); showCashAdvanceView(); });
+  $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
+  $('menuManageReports').addEventListener('click', ()=> setSidebarActive('menuManageReports'));
+  $('menuManageCustomers').addEventListener('click', ()=> setSidebarActive('menuManageCustomers'));
+  $('menuManageEquipment').addEventListener('click', ()=> setSidebarActive('menuManageEquipment'));
+  $('menuManageUsers').addEventListener('click', ()=> setSidebarActive('menuManageUsers'));
+  $('menuManageDropdowns').addEventListener('click', ()=> setSidebarActive('menuManageDropdowns'));
 
   // ---------- Home screen (feature tiles) ----------
   // Admin's homepage reads "Field Operations Portal" / "Management &
@@ -248,6 +330,8 @@
       : ["Technician's Homepage", 'Field digital form'];
   }
   function showHome(){
+    document.body.classList.add('dashboard-active');
+    setSidebarActive('sbNavDashboard');
     $('homeScreen').style.display = '';
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';
@@ -309,6 +393,7 @@
   $('srTabAllBtn').addEventListener('click', ()=> srShowTab('all'));
 
   function showServiceReport(){
+    document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';

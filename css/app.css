@@ -562,3 +562,167 @@
   .edit-save-row .save-btn{background:var(--green-dark); color:#fff; border:1px solid var(--green-dark);}
   .edit-save-row .cancel-btn{background:#fff; color:var(--text); border:1px solid var(--border);}
   .edit-save-row button:disabled{opacity:.45; cursor:not-allowed;}
+
+  /* ==========================================================================
+     Admin dashboard shell (sidebar + top bar). At >=1000px wide the sidebar
+     is a permanent column and the dashboard top bar replaces the plain
+     mobile header. Below that, admin gets the plain mobile header back
+     (unchanged from the technician view) plus a hamburger button that opens
+     the SAME sidebar as a slide-in drawer, so every admin-only action still
+     has a way to reach it on a phone. Hidden entirely for technician
+     accounts and before login. See body.role-admin / body.dashboard-active
+     toggles in auth.js and home.js.
+     ========================================================================== */
+  .admin-sidebar{ display:none; }
+  .app-shell{ display:block; }
+  .dashboard-topbar{ display:none; }
+  .sidebar-backdrop{ display:none; }
+
+  /* Mobile/tablet: sidebar as an off-canvas drawer, opened by #menuBtn. */
+  @media (max-width:999px){
+    body.role-admin #menuBtn{ display:inline-block; }
+    body.role-admin .admin-sidebar{
+      display:flex; flex-direction:column; width:82vw; max-width:300px;
+      background:var(--green-dark); color:#fff; padding:18px 14px;
+      position:fixed; top:0; left:0; height:100vh; overflow-y:auto;
+      z-index:110; transform:translateX(-100%); transition:transform .2s ease;
+      box-shadow:2px 0 18px rgba(0,0,0,.25);
+    }
+    body.role-admin .admin-sidebar.open{ transform:translateX(0); }
+    body.role-admin .sidebar-backdrop.open{
+      display:block; position:fixed; inset:0; background:rgba(20,28,23,.5); z-index:105;
+    }
+  }
+
+  /* Desktop/tablet-landscape: sidebar is a permanent column, dashboard top
+     bar takes over from the plain header while on the dashboard screen. */
+  @media (min-width:1000px){
+    body.role-admin .app-shell{ display:flex; align-items:stretch; min-height:100vh; }
+    body.role-admin .admin-sidebar{
+      display:flex; flex-direction:column; width:264px; flex-shrink:0;
+      background:var(--green-dark); color:#fff; padding:18px 14px;
+      position:sticky; top:0; height:100vh; overflow-y:auto; transform:none;
+    }
+    body.role-admin .main-wrap{ flex:1; min-width:0; }
+    body.role-admin.dashboard-active header.app-top{ display:none; }
+    body.role-admin.dashboard-active .dashboard-topbar{ display:flex; }
+  }
+
+  .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:4px 6px 18px; }
+  .sidebar-brand-mark{
+    width:38px; height:38px; border-radius:9px; background:#fff; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+  }
+  .sidebar-brand-mark img{ width:100%; height:100%; object-fit:contain; }
+  .sidebar-brand-name{ font-weight:700; font-size:14.5px; line-height:1.25; }
+  .sidebar-brand-sub{ font-size:11px; opacity:.75; margin-top:1px; }
+
+  .sidebar-nav{ display:flex; flex-direction:column; gap:2px; flex:1; }
+  .sidebar-section-label{
+    font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.6px;
+    color:rgba(255,255,255,.55); margin:14px 10px 4px;
+  }
+  .sidebar-link{
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    padding:10px 10px; border:none; border-radius:8px; background:none;
+    color:rgba(255,255,255,.9); font-size:13.5px; font-weight:600; cursor:pointer;
+  }
+  .sidebar-link .menu-ico{ width:18px; text-align:center; flex-shrink:0; opacity:.9; }
+  .sidebar-link:hover, .sidebar-link:active{ background:rgba(255,255,255,.1); }
+  .sidebar-link.active{ background:var(--green); color:#fff; }
+  .sidebar-link.menu-danger{ color:#F7C7BB; }
+
+  .sidebar-footer{ margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,.15); }
+  .sidebar-cloud-btn{ width:100%; text-align:center; margin-bottom:12px; }
+  .sidebar-account{ display:flex; align-items:center; gap:9px; }
+  .sidebar-avatar{
+    width:34px; height:34px; border-radius:50%; background:var(--green);
+    color:#fff; font-weight:700; font-size:12.5px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sidebar-account-text{ flex:1; min-width:0; }
+  .sidebar-account-name{ font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sidebar-account-role{ font-size:11px; opacity:.7; }
+  .sidebar-logout{
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
+    color:#fff; border-radius:8px; width:32px; height:32px; flex-shrink:0; cursor:pointer;
+  }
+  .sidebar-logout:active{ background:rgba(255,255,255,.25); }
+
+  .dashboard-topbar{
+    align-items:center; justify-content:space-between; gap:16px;
+    padding:18px 24px; background:var(--bg);
+  }
+  .dt-greeting-title{ font-size:19px; font-weight:800; color:var(--text); }
+  .dt-greeting-sub{ font-size:13px; color:var(--text-muted); margin-top:2px; }
+  .dt-actions{ display:flex; align-items:center; gap:12px; flex-shrink:0; }
+  .dt-search{
+    display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border);
+    border-radius:9px; padding:8px 12px; font-size:13px; color:var(--text-muted); min-width:220px;
+  }
+  .dt-search input{ border:none; outline:none; font:inherit; flex:1; background:none; color:var(--text); }
+  .dt-icon-btn{
+    position:relative; background:#fff; border:1px solid var(--border); border-radius:9px;
+    width:38px; height:38px; font-size:15px; cursor:default;
+  }
+  .dt-badge{
+    position:absolute; top:-5px; right:-5px; background:var(--danger); color:#fff;
+    font-size:10px; font-weight:700; border-radius:999px; min-width:16px; height:16px;
+    display:flex; align-items:center; justify-content:center; padding:0 4px;
+  }
+
+  /* Overview stat cards get a small colored icon chip (top of dashboard) */
+  .ov-icon-chip{
+    width:30px; height:30px; border-radius:9px; display:flex; align-items:center;
+    justify-content:center; font-size:15px; background:var(--green-light);
+  }
+  .ov-amber .ov-icon-chip{ background:#FBF0DC; }
+  .ov-blue .ov-icon-chip{ background:#DCEEFB; }
+  .ov-gray .ov-icon-chip{ background:#ECEDEF; }
+
+  /* Live tracker + recent activity side-by-side */
+  .dash-two-col{ display:flex; align-items:flex-start; gap:16px; }
+  .dash-two-col > .card{ margin-bottom:16px; }
+  #homeTrackerCard{ flex:2; min-width:0; }
+  #homeActivityCard{ flex:1; min-width:260px; }
+  @media (max-width:1100px){ .dash-two-col{ flex-direction:column; } }
+
+  .activity-row{ display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); }
+  .activity-row:last-child{ border-bottom:none; }
+  .activity-dot{ width:9px; height:9px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+  .activity-green{ background:var(--green); }
+  .activity-amber{ background:var(--amber); }
+  .activity-blue{ background:#2C7BE5; }
+  .activity-gray{ background:#9AA5A0; }
+  .activity-body{ flex:1; min-width:0; }
+  .activity-name{ font-size:13px; font-weight:700; color:var(--text); }
+  .activity-desc{ font-size:12px; color:var(--text-muted); margin-top:1px; }
+  .activity-time{ font-size:11px; color:var(--text-muted); flex-shrink:0; white-space:nowrap; }
+
+  /* "What would you like to do?" — on wide admin screens this becomes a
+     two-column list of rows (icon, title+description, chevron) instead of
+     the mobile icon-on-top tile grid; the tile grid itself stays unchanged
+     for technicians and narrow screens. */
+  @media (min-width:760px){
+    body.role-admin .home-grid{ grid-template-columns:1fr 1fr; }
+    body.role-admin .home-tile{
+      flex-direction:row; align-items:center; text-align:left; gap:12px;
+      padding:14px 14px; border-radius:12px;
+    }
+    body.role-admin .home-tile-icon{
+      font-size:19px; width:42px; height:42px; border-radius:10px; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center; background:var(--green-light);
+    }
+    body.role-admin .home-tile.qa-gray .home-tile-icon{ background:#ECEDEF; }
+    body.role-admin .home-tile.qa-green .home-tile-icon{ background:#E4F6EA; }
+    body.role-admin .home-tile.qa-violet .home-tile-icon{ background:#EDE7FB; }
+    body.role-admin .home-tile.qa-orange .home-tile-icon{ background:#FCEBD9; }
+    body.role-admin .home-tile.qa-brown .home-tile-icon{ background:#F1E4D6; }
+    body.role-admin .tile-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+    body.role-admin .home-tile-label{ font-size:14px; }
+    body.role-admin .tile-desc{ display:block; font-size:12px; font-weight:500; color:var(--text-muted); }
+    body.role-admin .home-tile-badge{ margin-top:0; margin-left:6px; }
+    body.role-admin .tile-chevron{ font-size:20px; color:var(--text-muted); flex-shrink:0; }
+  }
+  .tile-desc{ display:none; }
+  .tile-chevron{ display:none; }
