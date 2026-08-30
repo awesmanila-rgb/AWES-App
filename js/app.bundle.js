@@ -2752,6 +2752,19 @@
     });
     resetEqScanUI();
   });
+  // Links each "Add Equipment" field to the same named suggestion list the
+  // technician's own Service Report Equipment section uses (configured via
+  // Manage Dropdown Lists), even though these inputs have different ids —
+  // attachCombo's keyOverride lets a differently-id'd input share a list.
+  // Guarded by attachCombo's own dataset flag, so calling this more than
+  // once (e.g. every time the overlay opens) is harmless.
+  function attachEquipAddCombos(){
+    const idFor = (key)=> 'eqAdd'+key.charAt(0).toUpperCase()+key.slice(1);
+    EQUIP_FIELD_KEYS.forEach(key=>{
+      const el = $(idFor(key));
+      if(el) attachCombo(el, key);
+    });
+  }
   $('menuManageEquipment').addEventListener('click', async ()=>{
     closeMainMenu();
     if(!(await ensureAdminAuthenticated())) return;
@@ -2760,6 +2773,7 @@
     $('equipmentListCustomerFilter').value = '';
     resetEqScanUI();
     setEquipListTab('edit');
+    attachEquipAddCombos();
     $('equipmentListOverlay').classList.add('open');
   });
 
