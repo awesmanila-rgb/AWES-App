@@ -6858,6 +6858,7 @@
     $('serviceReportView').style.display = 'none';
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
     $('cashAdvanceView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
