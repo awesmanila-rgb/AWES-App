@@ -583,7 +583,9 @@
 
   /* Mobile/tablet: sidebar as an off-canvas drawer, opened by #menuBtn. */
   @media (max-width:999px){
-    body.role-admin #menuBtn{ display:inline-block; }
+    /* !important needed: #menuBtn carries an inline style="display:none"
+       in the markup, which would otherwise always beat this rule. */
+    body.role-admin #menuBtn{ display:inline-block !important; }
     body.role-admin .admin-sidebar{
       display:flex; flex-direction:column; width:82vw; max-width:300px;
       background:var(--green-dark); color:#fff; padding:18px 14px;
@@ -609,6 +611,14 @@
     body.role-admin .main-wrap{ flex:1; min-width:0; }
     body.role-admin.dashboard-active header.app-top{ display:none; }
     body.role-admin.dashboard-active .dashboard-topbar{ display:flex; }
+
+    /* On every other admin screen (Online DTR, Service Reports, Dispatch,
+       etc.) the plain header still renders, but the sidebar already gives
+       admins a logo, a Dashboard/Home link, and a Logout button — so hide
+       the duplicate logo/Home/Logout here and keep only the feature title. */
+    body.role-admin header.app-top .brand-mark{ display:none; }
+    body.role-admin header.app-top #homeBtn{ display:none !important; }
+    body.role-admin header.app-top #userLogoutBtn{ display:none !important; }
   }
 
   .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:4px 6px 18px; }
