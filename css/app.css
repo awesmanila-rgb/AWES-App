@@ -186,6 +186,25 @@
   .tracker-list-name{ flex:1; font-weight:600; color:var(--text); }
   .tracker-list-time{ color:var(--text-muted); font-size:12px; flex-shrink:0; }
 
+  /* ---------- Job Order detail overlay: close checklist + inquiry thread ---------- */
+  .dt-close-row{
+    border:1px solid var(--border); border-radius:9px; padding:10px; margin-bottom:8px;
+  }
+  .dt-close-row textarea{
+    width:100%; border:1px solid var(--border); border-radius:7px; padding:8px;
+    font:inherit; margin-top:6px; resize:vertical;
+  }
+  .dt-msg-list{
+    max-height:260px; overflow-y:auto; padding:6px 4px; border:1px solid var(--border);
+    border-radius:9px; background:#FAFBFA;
+  }
+  .dt-msg-row{ margin-bottom:10px; }
+  .dt-msg-meta{ font-size:11px; color:var(--text-muted); margin-bottom:3px; }
+  .dt-msg-bubble{
+    display:inline-block; max-width:85%; padding:8px 11px; border-radius:12px;
+    font-size:13px; line-height:1.4; text-align:left;
+  }
+
   .field{margin-bottom:12px;}
   .field label{
     display:block; font-size:12px; font-weight:600; color:var(--text-muted);

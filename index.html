@@ -420,6 +420,40 @@ window.awesCss = {
   </div>
 </div>
 
+<!-- Job Order detail — opened via "Open Job Order" on any ticket card.
+     Two things live here that don't belong on the card list: closing the
+     ticket (with a per-unit "scope not completed" exceptions checklist),
+     and a small inquiry/message thread scoped to that one ticket. -->
+<div class="overlay" id="dtTicketOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="dtTicketTitle">Job Order</h3>
+      <button class="sheet-close" id="closeDtTicketOverlay">&times;</button>
+    </div>
+    <div id="dtTicketStatusWrap" style="margin-bottom:10px;"></div>
+    <div id="dtTicketSummary"></div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Close Job Order</label>
+      <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+        If any equipment's scope wasn't completed, check it below and give a reason — then Close Job Order.
+        Closing is available to the assigned technician(s) or admin, any time.
+      </p>
+      <div id="dtCloseSection"></div>
+      <button type="button" class="btn btn-primary" id="dtCloseSubmitBtn" style="width:100%; margin-top:10px;">Close Job Order</button>
+    </div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Job Order Inquiry</label>
+      <div id="dtMsgList" class="dt-msg-list"><div class="empty-state">Loading…</div></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <input type="text" id="dtMsgInput" placeholder="Ask a question about this Job Order…" style="flex:1;">
+        <button type="button" class="btn btn-primary" id="dtMsgSendBtn" style="flex:none; padding:10px 16px;">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Leave Form — a fully separate page/module. Technicians file a leave
      request here and track its approval status. Admin reviews every
      technician's requests and approves/disapproves with a comment. -->
@@ -756,6 +790,8 @@ window.awesCss = {
           <button type="button" data-filter="open" class="active">Open</button>
           <button type="button" data-filter="acknowledged">Acknowledged</button>
           <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="expired">Expired</button>
+          <button type="button" data-filter="closed">Closed</button>
           <button type="button" data-filter="all">All</button>
         </div>
         <div id="dtAdminList"><div class="empty-state">Loading…</div></div>
@@ -772,6 +808,8 @@ window.awesCss = {
           <button type="button" data-filter="open" class="active">Open</button>
           <button type="button" data-filter="acknowledged">Acknowledged</button>
           <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="expired">Expired</button>
+          <button type="button" data-filter="closed">Closed</button>
           <button type="button" data-filter="all">All</button>
         </div>
         <div id="dtTechList"><div class="empty-state">Loading…</div></div>

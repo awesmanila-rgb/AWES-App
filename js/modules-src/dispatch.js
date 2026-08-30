@@ -164,7 +164,7 @@
               (r.siteAddress ? (' · '+escapeHtml(r.siteAddress)) : '')+'</div>'+
             '<div class="u-status">'+(items.length-pending.length)+' of '+items.length+' equipment reported</div>'+
           '</div>'+
-          dtStatusPill(r.status)+
+          dtStatusPill(r)+
         '</div>'+
         '<div class="dt-equip-pending" style="display:none; margin-top:8px;"></div>';
       const head = row.querySelector('.user-card-head');
@@ -669,8 +669,27 @@
     }
     return items.length ? items.join(', ') : 'None specified';
   }
-  function dtStatusPill(status){
+  // ---------- Auto-expire (display-only) ----------
+  // A ticket is never silently rewritten by this — "expired" is computed
+  // fresh every render, purely from today's date vs. the ticket's scheduled
+  // date. Nothing is actually resolved until someone uses Close Job Order
+  // (see dtCloseTicket below), which is the only thing that writes a final
+  // status. If the date field is edited or the ticket already reached
+  // completed/closed, this stops applying on its own — no cleanup needed.
+  function dtIsPastDue(r){ return !!r.date && r.date < todayISO(); }
+  function dtEffectiveStatus(r){
+    if(r.status==='completed' || r.status==='closed') return r.status;
+    if(dtIsPastDue(r)) return 'expired';
+    return r.status || 'open';
+  }
+  function dtStatusPill(r){
+    const status = dtEffectiveStatus(r);
     if(status==='completed') return leaveStatusPill('approved');
+    if(status==='closed'){
+      const hasExceptions = (r.equipmentList||[]).some(it=> it.notDone);
+      return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
+    }
+    if(status==='expired') return '<span class="status-pill" style="background:#F8D7DA; color:#B02A37;">Expired</span>';
     if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Acknowledged</span>';
     return '<span class="status-pill status-draft">Open</span>';
   }
@@ -729,11 +748,17 @@
   // Both admin's "All" tab and a technician's "My Job Order" tab render
   // dtCardHtml() straight into innerHTML, so a single delegated listener per
   // list (rather than one per row) is what actually gets a click on a
-  // "View details" row. dtLastTicketsById is refreshed by whichever render
-  // function ran most recently, so a click always resolves against what's
-  // currently on screen.
+  // "View details" row, or the "Open Job Order" button. dtLastTicketsById is
+  // refreshed by whichever render function ran most recently, so a click
+  // always resolves against what's currently on screen.
   let dtLastTicketsById = {};
   function dtHandleEquipRowClick(e){
+    const openBtn = e.target.closest('[data-jo-open]');
+    if(openBtn){
+      e.stopPropagation();
+      dtOpenTicketOverlay(openBtn.dataset.joOpen);
+      return;
+    }
     const row = e.target.closest('.dt-equip-row');
     if(!row) return;
     e.stopPropagation();
@@ -743,13 +768,18 @@
   }
   $('dtAdminList').addEventListener('click', dtHandleEquipRowClick);
   $('dtTechList').addEventListener('click', dtHandleEquipRowClick);
+  // The Job Order detail overlay re-renders dtCardHtml() too (for the
+  // summary at the top), so its equipment "View details" rows need the
+  // same delegated handler — see dtOpenTicketOverlay, which also seeds
+  // dtLastTicketsById with the ticket being viewed.
+  $('dtTicketOverlay').addEventListener('click', dtHandleEquipRowClick);
   function dtCardHtml(r, forAdmin){
     return '<div class="user-card-head">'+
         '<div>'+
           '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
           '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+' · '+escapeHtml((r.assignedWorkerNames||[]).join(', '))+'</div>'+
         '</div>'+
-        dtStatusPill(r.status)+
+        dtStatusPill(r)+
       '</div>'+
       (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
       (forAdmin && r.reportAllowedWorkerNames && r.reportAllowedWorkerNames.length ? '<div class="leave-comment"><b>Can Create Service Report</b>'+escapeHtml(r.reportAllowedWorkerNames.join(', '))+'</div>' : '')+
@@ -757,7 +787,8 @@
       dtEquipmentSummaryBlock(r)+
       (r.remarks ? '<div class="leave-comment"><b>Special Instructions</b>'+escapeHtml(r.remarks)+'</div>' : '')+
       '<div class="leave-comment"><b>Requirements</b>'+dtReqSummary(r)+'</div>'+
-      (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '');
+      (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '')+
+      '<div style="margin-top:10px;"><button type="button" class="btn" data-jo-open="'+escapeHtml(r.id)+'">Open Job Order</button></div>';
   }
   // Best-effort write-back: called after a Service Report tied to one
   // equipment line item is saved, so the ticket's progress ("38 of 100
@@ -806,7 +837,7 @@
     const list = $('dtAdminList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await dtListAll();
-    const items = dtAdminFilter==='all' ? all : all.filter(r=> r.status===dtAdminFilter);
+    const items = dtAdminFilter==='all' ? all : all.filter(r=> dtEffectiveStatus(r)===dtAdminFilter);
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtAdminFilter==='all'?'':dtAdminFilter+' ')+'dispatch tickets.</div>'; return; }
@@ -842,7 +873,7 @@
     if(!currentUser || currentUser.role==='admin') return;
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const mine = await dtListForWorker(currentUser.id);
-    const items = dtTechFilter==='all' ? mine : mine.filter(r=> r.status===dtTechFilter);
+    const items = dtTechFilter==='all' ? mine : mine.filter(r=> dtEffectiveStatus(r)===dtTechFilter);
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtTechFilter==='all'?'':dtTechFilter+' ')+'dispatch tickets assigned to you.</div>'; return; }
@@ -953,6 +984,215 @@
     if(ok) toast('Marked completed');
     dtRenderTechList();
   }
+
+  // ---------- Job Order detail overlay: close-with-exceptions + inquiry thread ----------
+  // Opened via the "Open Job Order" button on any ticket card (admin or
+  // technician). Two things live here that don't belong on the card list
+  // itself: the "Close Job Order" flow (report any scope that wasn't done,
+  // then close), and a small message thread scoped to this one ticket.
+  let dtOverlayTicket = null;
+  let dtMsgChannel = null;
+
+  function dtCloseTicketOverlay(){
+    const overlay = $('dtTicketOverlay');
+    if(overlay) overlay.classList.remove('open');
+    if(dtMsgChannel && db){ try{ db.removeChannel(dtMsgChannel); }catch(e){} }
+    dtMsgChannel = null;
+    dtOverlayTicket = null;
+  }
+
+  function dtRenderCloseChecklist(rec){
+    const items = rec.equipmentList || [];
+    if(items.length===0) return '<div class="empty-state">No equipment on this ticket.</div>';
+    return items.map((it,i)=>{
+      const reportStatus = it.reportSrNo
+        ? ('Reported ('+escapeHtml(it.reportSrNo)+')')
+        : (it.draftSrNo ? 'Draft saved' : 'Not started');
+      const checked = it.notDone ? 'checked' : '';
+      return '<div class="dt-close-row" data-idx="'+i+'">'+
+        '<div style="font-weight:600;">'+escapeHtml(dtEquipSummaryLine(it))+'</div>'+
+        '<div class="u-status" style="margin-bottom:6px;">'+reportStatus+'</div>'+
+        '<label class="chk"><input type="checkbox" class="dt-notdone-chk" '+checked+'><span>Scope not completed on this unit</span></label>'+
+        '<textarea class="dt-notdone-reason" rows="2" placeholder="Reason (e.g. parts needed, access denied, unit not operational)" '+
+          'style="display:'+(it.notDone ? '' : 'none')+';">'+escapeHtml(it.notDoneReason||'')+'</textarea>'+
+      '</div>';
+    }).join('');
+  }
+
+  function dtCanActOnTicket(rec){
+    if(!currentUser) return false;
+    if(currentUser.role==='admin') return true;
+    return (rec.assignedWorkerIds||[]).includes(currentUser.id);
+  }
+
+  async function dtOpenTicketOverlay(ticketId){
+    const rec = await dtGetTicket(ticketId);
+    if(!rec){ toast('Ticket not found'); return; }
+    dtOverlayTicket = rec;
+    dtLastTicketsById[rec.id] = rec; // so equipment "View details" rows inside this overlay resolve
+    const canAct = dtCanActOnTicket(rec);
+    const alreadyClosed = dtEffectiveStatus(rec)==='closed';
+
+    $('dtTicketTitle').textContent = rec.jobOrderNo+' — '+rec.custName;
+    $('dtTicketStatusWrap').innerHTML = dtStatusPill(rec);
+    $('dtTicketSummary').innerHTML = dtCardHtml(rec, currentUser && currentUser.role==='admin')
+      // The card's own "Open Job Order" button doesn't belong inside itself.
+      .replace(/<div style="margin-top:10px;"><button[^]*?<\/button><\/div>$/, '');
+
+    if(alreadyClosed){
+      const closedNote = '<div class="leave-comment"><b>Closed</b>'+
+        escapeHtml(rec.closedBy||'—')+' · '+(rec.closedAt ? leaveFmtDate(rec.closedAt.slice(0,10)) : '')+
+        (rec.closeRemarks ? ('<br>'+escapeHtml(rec.closeRemarks)) : '')+'</div>';
+      $('dtCloseSection').innerHTML = closedNote + '<div style="margin-top:10px;">'+dtRenderCloseChecklist(rec)+'</div>';
+      $$('#dtCloseSection .dt-notdone-chk, #dtCloseSection .dt-close-row textarea', document).forEach(el=> el.disabled = true);
+      $('dtCloseSubmitBtn').style.display = 'none';
+    }else if(canAct){
+      $('dtCloseSection').innerHTML =
+        '<div id="dtCloseChecklist">'+dtRenderCloseChecklist(rec)+'</div>'+
+        '<div class="field" style="margin-top:8px;"><label>Overall Remarks (optional)</label>'+
+        '<textarea id="dtCloseRemarks" rows="2" placeholder="Anything else worth noting before closing"></textarea></div>';
+      $('dtCloseSubmitBtn').style.display = '';
+    }else{
+      $('dtCloseSection').innerHTML = '<div class="empty-state">Only the assigned technician(s) or admin can close this ticket.</div>';
+      $('dtCloseSubmitBtn').style.display = 'none';
+    }
+
+    $('dtTicketOverlay').classList.add('open');
+    await dtRefreshMessages();
+    if(dtMsgChannel && db){ try{ db.removeChannel(dtMsgChannel); }catch(e){} dtMsgChannel = null; }
+    if(await ensureCloud()){
+      dtMsgChannel = db.channel('dt-messages-'+ticketId)
+        .on('postgres_changes', { event:'INSERT', schema:'public', table:'dispatch_ticket_messages', filter:'ticket_id=eq.'+ticketId }, ()=> dtRefreshMessages())
+        .subscribe();
+    }
+  }
+  $('closeDtTicketOverlay').addEventListener('click', dtCloseTicketOverlay);
+  $('dtTicketOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtTicketOverlay') dtCloseTicketOverlay(); });
+
+  // Toggle a unit's reason textarea as its "not completed" checkbox changes.
+  $('dtCloseSection').addEventListener('change', (e)=>{
+    if(!e.target.classList.contains('dt-notdone-chk')) return;
+    const row = e.target.closest('.dt-close-row');
+    const ta = row && row.querySelector('.dt-notdone-reason');
+    if(ta) ta.style.display = e.target.checked ? '' : 'none';
+  });
+
+  async function dtCloseTicket(ticketId, equipmentList, remarks){
+    if(!currentUser){ toast('Please sign in again'); return false; }
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return false; }
+    try{
+      const rec = await dtGetTicket(ticketId);
+      if(!rec){ toast('Ticket not found'); return false; }
+      if(!dtCanActOnTicket(rec)){ toast('This ticket is not assigned to you'); return false; }
+      if(dtEffectiveStatus(rec)==='closed'){ toast('Already closed'); return false; }
+      const merged = Object.assign({}, rec, {
+        equipmentList,
+        status: 'closed',
+        closedBy: currentUser.name,
+        closedById: currentUser.id,
+        closedAt: new Date().toISOString(),
+        closeRemarks: remarks || ''
+      });
+      const { data: rows, error } = await db.from('dispatch_tickets')
+        .update({ status: 'closed', data: merged }).eq('id', ticketId).select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){ toast('This ticket changed elsewhere — refreshing'); return false; }
+      return true;
+    }catch(e){
+      console.error('close ticket failed', describeCloudError(e));
+      toast('Could not close — please try again');
+      return false;
+    }
+  }
+  $('dtCloseSubmitBtn').addEventListener('click', async ()=>{
+    if(!dtOverlayTicket) return;
+    const rows = $$('#dtCloseChecklist .dt-close-row');
+    const equipmentList = (dtOverlayTicket.equipmentList||[]).slice();
+    for(let i=0; i<rows.length; i++){
+      const chk = rows[i].querySelector('.dt-notdone-chk');
+      const reasonEl = rows[i].querySelector('.dt-notdone-reason');
+      const notDone = chk.checked;
+      const reason = reasonEl.value.trim();
+      if(notDone && !reason){
+        toast('Add a reason for every unit marked "not completed"');
+        reasonEl.focus();
+        return;
+      }
+      equipmentList[i] = Object.assign({}, equipmentList[i], { notDone, notDoneReason: notDone ? reason : '' });
+    }
+    const exceptionCount = equipmentList.filter(it=>it.notDone).length;
+    const confirmMsg = exceptionCount>0
+      ? ('Close this Job Order with '+exceptionCount+' unit'+(exceptionCount===1?'':'s')+' marked as not completed?')
+      : 'Close this Job Order? This marks it as fully done.';
+    if(!confirm(confirmMsg)) return;
+    const remarksEl = $('dtCloseRemarks');
+    const remarks = remarksEl ? remarksEl.value.trim() : '';
+    $('dtCloseSubmitBtn').disabled = true;
+    const ok = await dtCloseTicket(dtOverlayTicket.id, equipmentList, remarks);
+    $('dtCloseSubmitBtn').disabled = false;
+    if(ok){
+      toast('Job Order closed');
+      dtCloseTicketOverlay();
+      if(currentUser && currentUser.role==='admin') dtRenderAdminList(); else dtRenderTechList();
+    }
+  });
+
+  // ---- Job Order inquiry thread ----
+  async function dtLoadMessages(ticketId){
+    if(!(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('dispatch_ticket_messages').select('*')
+        .eq('ticket_id', ticketId).order('created_at', {ascending:true});
+      if(error) throw error;
+      return data || [];
+    }catch(e){ console.error('load JO messages failed', describeCloudError(e)); return []; }
+  }
+  function dtRenderMessages(msgs){
+    const list = $('dtMsgList');
+    if(!list) return;
+    if(msgs.length===0){
+      list.innerHTML = '<div class="empty-state">No messages yet — ask a question about this Job Order here.</div>';
+      return;
+    }
+    list.innerHTML = msgs.map(m=>{
+      const mine = currentUser && m.sender_id===currentUser.id;
+      const time = new Date(m.created_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+      return '<div class="dt-msg-row" style="text-align:'+(mine?'right':'left')+';">'+
+        '<div class="dt-msg-meta">'+escapeHtml(m.sender_name)+' · '+time+'</div>'+
+        '<div class="dt-msg-bubble" style="background:'+(mine?'var(--green)':'#EEF1EE')+'; color:'+(mine?'#fff':'var(--text)')+';">'+escapeHtml(m.body)+'</div>'+
+      '</div>';
+    }).join('');
+    list.scrollTop = list.scrollHeight;
+  }
+  async function dtRefreshMessages(){
+    if(!dtOverlayTicket) return;
+    const msgs = await dtLoadMessages(dtOverlayTicket.id);
+    dtRenderMessages(msgs);
+  }
+  async function dtSendMessage(){
+    if(!dtOverlayTicket) return;
+    const input = $('dtMsgInput');
+    const body = input.value.trim();
+    if(!body) return;
+    if(!currentUser){ toast('Please sign in again'); return; }
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return; }
+    $('dtMsgSendBtn').disabled = true;
+    try{
+      const { error } = await db.from('dispatch_ticket_messages').insert({
+        ticket_id: dtOverlayTicket.id, sender_id: currentUser.id,
+        sender_name: currentUser.name, sender_role: currentUser.role,
+        body
+      });
+      if(error) throw error;
+      input.value = '';
+      await dtRefreshMessages();
+    }catch(e){ console.error('send JO message failed', describeCloudError(e)); toast('Could not send — try again'); }
+    $('dtMsgSendBtn').disabled = false;
+  }
+  $('dtMsgSendBtn').addEventListener('click', dtSendMessage);
+  $('dtMsgInput').addEventListener('keydown', (e)=>{
+    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); dtSendMessage(); }
+  });
 
   async function showDispatchView(){
     $('homeScreen').style.display = 'none';
