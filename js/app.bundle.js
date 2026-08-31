@@ -4446,13 +4446,22 @@
 
 
 // ---------- Leave Form (table: leave_requests; id/status/technician_id are real columns, rest in data) ----------
+  // Fallback UUID v4 generator for browsers without crypto.randomUUID — the
+  // id column requires a real UUID shape, not just any unique-looking string.
+  function leaveGenUUIDv4Fallback(){
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+      const r = Math.random()*16|0;
+      return (c==='x' ? r : (r&0x3|0x8)).toString(16);
+    });
+  }
   function leaveGenId(userId){
-    // Date.now() collides when two requests are created in the same millisecond
-    // (and it made ids guessable). Use a real UUID where available.
-    const rand = (window.crypto && window.crypto.randomUUID)
+    // id is a real UUID column in Postgres — it must be a single valid UUID,
+    // not the technician's id glued onto a random one with '_' (that combined
+    // string fails Postgres's uuid type check on every insert, online or not).
+    // The technician is already recorded separately via technician_id.
+    return (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
-      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
-    return userId+'_'+rand;
+      : leaveGenUUIDv4Fallback();
   }
 
   // A technician submitting or editing their OWN request. Note this deliberately
@@ -6012,11 +6021,23 @@
 
 
 // ---------- Cash Advance Form (table: cash_advance_requests) ----------
+  // Fallback UUID v4 generator for browsers without crypto.randomUUID — the
+  // id column requires a real UUID shape, not just any unique-looking string.
+  function genUUIDv4Fallback(){
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+      const r = Math.random()*16|0;
+      return (c==='x' ? r : (r&0x3|0x8)).toString(16);
+    });
+  }
   function caGenId(userId){
-    const rand = (window.crypto && window.crypto.randomUUID)
+    // This is a real UUID column in Postgres — it must be a single valid UUID,
+    // not the technician's id glued onto a random one (that combined string
+    // fails Postgres's uuid type check on every insert, with no online/offline
+    // difference: it never goes through regardless of connection). The
+    // technician is already recorded separately via technician_id.
+    return (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
-      : (Date.now()+'_'+Math.random().toString(36).slice(2,10));
-    return userId+'_'+rand;
+      : genUUIDv4Fallback();
   }
 
   // Receipt images live inside the JSONB row as base64 data URLs. That keeps the
