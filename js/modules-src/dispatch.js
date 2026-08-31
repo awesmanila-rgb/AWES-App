@@ -1232,6 +1232,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -1263,6 +1265,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';

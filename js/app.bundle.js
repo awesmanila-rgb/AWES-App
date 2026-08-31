@@ -5958,6 +5958,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -5989,6 +5991,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6954,6 +6958,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('cashAdvanceView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6988,6 +6994,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -7032,6 +7040,8 @@
     $('equipmentManagerView').style.display = '';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7060,6 +7070,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = '';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7083,6 +7095,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = '';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7585,6 +7599,8 @@
     $('equipmentManagerView').style.display = 'none';
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
