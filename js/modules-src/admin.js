@@ -203,7 +203,7 @@
     $('cancelEditCustomerBtn').style.display = '';
     $('customerEquipmentSection').style.display = '';
     renderCustomerEquipmentList(c.id);
-    $('customersOverlay').querySelector('.sheet').scrollTop = $('customersOverlay').querySelector('.sheet').scrollHeight;
+    $('customerFormTitle').scrollIntoView({behavior:'smooth', block:'start'});
   }
   async function renderCustomerEquipmentList(customerId){
     const body = $('customerEquipmentList');
@@ -467,8 +467,6 @@
 
   $('equipmentListSearch').addEventListener('input', ()=> renderEquipmentMasterList());
   $('equipmentListCustomerFilter').addEventListener('change', ()=> renderEquipmentMasterList());
-  $('closeEquipmentList').addEventListener('click', ()=> $('equipmentListOverlay').classList.remove('open'));
-  $('equipmentListOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentListOverlay') $('equipmentListOverlay').classList.remove('open'); });
   $('equipListTabEdit').addEventListener('click', ()=> setEquipListTab('edit'));
   $('equipListTabAdd').addEventListener('click', ()=> setEquipListTab('add'));
   $('equipListTabDelete').addEventListener('click', ()=> setEquipListTab('delete'));
@@ -512,17 +510,17 @@
       if(el) attachCombo(el, key);
     });
   }
-  $('menuManageEquipment').addEventListener('click', async ()=>{
-    closeMainMenu();
-    if(!(await ensureAdminAuthenticated())) return;
+  // ---------- Manage Equipment List — full page (admin-only) ----------
+  // Reached via the "Equipment" sidebar nav item; see showEquipmentManagerView()
+  // in home.js, which shows this page and then calls this to populate it.
+  async function openEquipmentManagerPage(){
     $('equipmentListSearch').value = '';
     await populateEquipmentCustomerSelects();
     $('equipmentListCustomerFilter').value = '';
     resetEqScanUI();
     setEquipListTab('edit');
     attachEquipAddCombos();
-    $('equipmentListOverlay').classList.add('open');
-  });
+  }
 
 
   function resetCustomerForm(){
@@ -561,15 +559,14 @@
     } finally { $('saveCustomerBtn').disabled = false; }
   });
   $('customerSearch').addEventListener('input', ()=> renderCustomersList($('customerSearch').value));
-  $('closeCustomers').addEventListener('click', ()=> $('customersOverlay').classList.remove('open'));
-  $('customersOverlay').addEventListener('click', (e)=>{ if(e.target.id==='customersOverlay') $('customersOverlay').classList.remove('open'); });
-  $('menuManageCustomers').addEventListener('click', async ()=>{
-    closeMainMenu();
-    if(!(await ensureAdminAuthenticated())) return;
+
+  // ---------- Manage Customers — full page (admin-only) ----------
+  // Reached via the "Customers" sidebar nav item; see showCustomersManagerView()
+  // in home.js, which shows this page and then calls this to populate it.
+  async function openCustomersManagerPage(){
     resetCustomerForm();
-    $('customersOverlay').classList.add('open');
     renderCustomersList('');
-  });
+  }
 
   $('addUserBtn').addEventListener('click', async ()=>{
     const name = $('newUserName').value.trim();
