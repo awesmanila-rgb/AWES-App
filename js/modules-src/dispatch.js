@@ -1229,6 +1229,9 @@
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -1257,6 +1260,9 @@
     $('dtrView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';

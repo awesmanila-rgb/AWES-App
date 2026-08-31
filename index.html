@@ -483,16 +483,35 @@ window.awesCss = {
     </div>
   </div>
 
-  <div class="card" id="dtrAdminViewingCard" style="display:none;">
-    <div class="card-head"><span>🕒 Daily Time Record</span></div>
+  <!-- Admin landing view for Online DTR: every active technician's today
+       status at a glance, in place of the old "pick a name from a popup"
+       flow. Tapping "View DTR" swaps this out for the read-only detail +
+       history view below, scoped to that one technician. -->
+  <div class="card" id="dtrAdminTableCard" style="display:none;">
+    <div class="card-head"><span>🕒 Technician Attendance</span><span id="dtrAttendanceDate" style="font-weight:600; opacity:.85;"></span></div>
     <div class="card-body">
-      <div class="dtr-banner dtr-banner-info">
-        Viewing <b id="dtrAdminViewingName">—</b>'s DTR (read-only). <button type="button" id="dtrSwitchUserBtn" style="background:none; border:none; color:var(--green-dark); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-size:13px;">Switch user</button>
+      <div class="att-summary" id="dtrAttendanceSummary"></div>
+      <div class="attendance-table-wrap">
+        <table class="attendance-table">
+          <thead>
+            <tr><th>Technician</th><th>Status</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Action</th></tr>
+          </thead>
+          <tbody id="dtrAttendanceTableBody"><tr><td colspan="6"><div class="empty-state">Loading…</div></td></tr></tbody>
+        </table>
       </div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="dtrAdminViewingCard" style="display:none;">
+    <div class="card-head"><span>🕒 Daily Time Record</span></div>
+    <div class="card-body">
+      <div class="dtr-banner dtr-banner-info">
+        Viewing <b id="dtrAdminViewingName">—</b>'s DTR (read-only). <button type="button" id="dtrSwitchUserBtn" style="background:none; border:none; color:var(--green-dark); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-size:13px;">← Back to attendance list</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="dtrHistoryCard">
     <div class="card-head"><span>History (last 30 days)</span></div>
     <div class="card-body">
       <div id="dtrHistoryList"><div class="empty-state">No DTR entries yet.</div></div>
@@ -501,16 +520,68 @@ window.awesCss = {
 
 </main>
 
-<!-- DTR user picker (admin only) — admin must choose which technician's DTR to view -->
-<div class="overlay" id="dtrUserPickerOverlay">
-  <div class="sheet">
-    <div class="sheet-head">
-      <h3>View DTR for…</h3>
-      <button class="sheet-close" id="closeDtrUserPicker">&times;</button>
+<!-- Manage Equipment List — full page (admin-only), reached via the
+     "Equipment" sidebar nav item. Every unit on file, across all customers.
+     Was previously a popup sheet; now its own dedicated page, same pattern
+     as the other admin/technician full-page views (dtrView, leaveView, etc). -->
+<main id="equipmentManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="equipmentManagerCard">
+    <div class="card-head"><span>🧰 Manage Equipment List</span></div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+        Every unit on file, across all customers — showing each equipment's description and the
+        customer it's under. Use the tabs below to edit, add, or delete a record.
+      </p>
+      <div class="seg-tabs" id="equipListTabs">
+        <button type="button" class="seg-tab" id="equipListTabAdd">Add</button>
+        <button type="button" class="seg-tab" id="equipListTabDelete">Delete</button>
+        <button type="button" class="seg-tab active" id="equipListTabEdit">View All</button>
+      </div>
+
+      <!-- View All / Delete: filtered, per-customer list -->
+      <div id="equipListViewSection">
+        <div class="field">
+          <label>Filter by Customer</label>
+          <select id="equipmentListCustomerFilter"><option value="">All Customers</option></select>
+        </div>
+        <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
+        <div id="equipmentListBody"></div>
+      </div>
+
+      <!-- Add: a new equipment record for a chosen customer -->
+      <div id="equipAddSection" style="display:none;">
+        <div class="field">
+          <label>Scan Equipment Label (optional)</label>
+          <button type="button" class="btn btn-secondary" id="eqScanBtn" style="width:100%;">📷 Scan Nameplate</button>
+          <input type="file" accept="image/*" capture="environment" id="eqScanInput" style="display:none;">
+          <div id="eqScanStatus" style="font-size:12px; color:var(--text-muted); margin-top:6px; display:none;"></div>
+          <div id="eqScanRawWrap" style="display:none; margin-top:6px;">
+            <details>
+              <summary style="font-size:12px; color:var(--text-muted); cursor:pointer;">Scanned text (for reference)</summary>
+              <div id="eqScanRawText" style="font-size:12px; color:var(--text-muted); white-space:pre-wrap; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:6px;"></div>
+            </details>
+          </div>
+        </div>
+        <div class="field">
+          <label>Customer <span class="req">*</span></label>
+          <select id="eqAddCustomer"><option value="">Select a customer…</option></select>
+        </div>
+        <div class="field"><label>Equipment Type</label><input type="text" id="eqAddEquipType"></div>
+        <div class="field"><label>Specific Location</label><input type="text" id="eqAddEquipLocation"></div>
+        <div class="field"><label>Manufacturer / Brand</label><input type="text" id="eqAddBrand"></div>
+        <div class="field"><label>Mounting Type</label><input type="text" id="eqAddMountType"></div>
+        <div class="field"><label>Cooling Capacity</label><input type="text" id="eqAddCoolCap"></div>
+        <div class="field"><label>Model No. (CU)</label><input type="text" id="eqAddModelCU"></div>
+        <div class="field"><label>Serial No. (CU)</label><input type="text" id="eqAddSerialCU"></div>
+        <div class="field"><label>Model No. (FCU)</label><input type="text" id="eqAddModelFCU"></div>
+        <div class="field"><label>Serial No. (FCU)</label><input type="text" id="eqAddSerialFCU"></div>
+        <div class="field"><label>Refrigerant Type</label><input type="text" id="eqAddRefrigerantType"></div>
+        <div class="field"><label>Compressor Type</label><input type="text" id="eqAddCompressorType"></div>
+        <button type="button" class="btn btn-primary" id="eqAddSaveBtn" style="width:100%;">Add Equipment</button>
+      </div>
     </div>
-    <div id="dtrUserPickerList"><div class="empty-state">Loading…</div></div>
   </div>
-</div>
+</main>
 
 <!-- DTR location detail — shows the reverse-geocoded address and an
      embedded map for a Time In/Out location tap. -->
@@ -1340,107 +1411,44 @@ window.awesCss = {
   </div>
 </div>
 
-<!-- Manage Customers sheet (admin-only) -->
-<div class="overlay" id="customersOverlay" style="z-index:55;">
-  <div class="sheet">
-    <div class="sheet-head">
-      <h3>Manage Customers</h3>
-      <button class="sheet-close" id="closeCustomers">&times;</button>
-    </div>
-    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      This is the client list technicians pick from on Service Reports — selecting a name
-      auto-fills address and contact info. Only Admin can add or edit customer records here;
-      technicians can view and select, but can't add new ones.
-    </p>
-    <div class="field"><input type="text" id="customerSearch" placeholder="Search customers…"></div>
-    <div id="customersList"></div>
-    <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
-      <div style="font-size:12px; font-weight:700; margin-bottom:8px;" id="customerFormTitle">Add a customer</div>
-      <input type="hidden" id="editCustomerId" value="">
-      <div class="field"><label>Customer's Name</label><input type="text" id="newCustName" placeholder="e.g. Dela Cruz Residence"></div>
-      <div class="field"><label>Complete Address</label><textarea id="newCustAddress" placeholder="Street, Barangay, City"></textarea></div>
-      <div class="field"><label>Contact No.</label><input type="text" id="newCustContactNo" placeholder="09xx xxx xxxx"></div>
-      <div class="field"><label>Contact Person</label><input type="text" id="newCustContactPerson"></div>
-      <div class="field"><label>Email (optional)</label><input type="text" id="newCustEmail" placeholder="customer@email.com"></div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" id="saveCustomerBtn" type="button" style="flex:1;">Save Customer</button>
-        <button class="btn btn-secondary" id="cancelEditCustomerBtn" type="button" style="display:none;">Cancel</button>
-      </div>
-    </div>
-    <div id="customerEquipmentSection" style="display:none; border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
-      <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Equipment on file for this customer</div>
-      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
-        Added automatically as technicians file reports for this customer. Edit to fix a typo, or remove a
-        decommissioned/duplicate unit.
+<!-- Manage Customers — full page (admin-only), reached via the "Customers"
+     sidebar nav item. Was previously a popup sheet; now its own dedicated
+     page, same pattern as the Equipment page. -->
+<main id="customersManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="customersManagerCard">
+    <div class="card-head"><span>🏢 Manage Customers</span></div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+        This is the client list technicians pick from on Service Reports — selecting a name
+        auto-fills address and contact info. Only Admin can add or edit customer records here;
+        technicians can view and select, but can't add new ones.
       </p>
-      <div id="customerEquipmentList"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Manage Equipment List sheet (admin-only) — the equipment list per
-     customer, in one master view across every customer. Edit / Add / Delete
-     tabs switch what the page lets you do; the customer filter (plus text
-     search) narrows the Edit and Delete list to one customer or all of them. -->
-<div class="overlay" id="equipmentListOverlay" style="z-index:55;">
-  <div class="sheet">
-    <div class="sheet-head">
-      <h3>Manage Equipment List</h3>
-      <button class="sheet-close" id="closeEquipmentList">&times;</button>
-    </div>
-    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
-      Every unit on file, across all customers — showing each equipment's description and the
-      customer it's under. Use the tabs below to edit, add, or delete a record.
-    </p>
-    <div class="seg-tabs" id="equipListTabs">
-      <button type="button" class="seg-tab" id="equipListTabAdd">Add</button>
-      <button type="button" class="seg-tab" id="equipListTabDelete">Delete</button>
-      <button type="button" class="seg-tab active" id="equipListTabEdit">View All</button>
-    </div>
-
-    <!-- View All / Delete: filtered, per-customer list -->
-    <div id="equipListViewSection">
-      <div class="field">
-        <label>Filter by Customer</label>
-        <select id="equipmentListCustomerFilter"><option value="">All Customers</option></select>
-      </div>
-      <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
-      <div id="equipmentListBody"></div>
-    </div>
-
-    <!-- Add: a new equipment record for a chosen customer -->
-    <div id="equipAddSection" style="display:none;">
-      <div class="field">
-        <label>Scan Equipment Label (optional)</label>
-        <button type="button" class="btn btn-secondary" id="eqScanBtn" style="width:100%;">📷 Scan Nameplate</button>
-        <input type="file" accept="image/*" capture="environment" id="eqScanInput" style="display:none;">
-        <div id="eqScanStatus" style="font-size:12px; color:var(--text-muted); margin-top:6px; display:none;"></div>
-        <div id="eqScanRawWrap" style="display:none; margin-top:6px;">
-          <details>
-            <summary style="font-size:12px; color:var(--text-muted); cursor:pointer;">Scanned text (for reference)</summary>
-            <div id="eqScanRawText" style="font-size:12px; color:var(--text-muted); white-space:pre-wrap; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:6px;"></div>
-          </details>
+      <div class="field"><input type="text" id="customerSearch" placeholder="Search customers…"></div>
+      <div id="customersList"></div>
+      <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;" id="customerFormTitle">Add a customer</div>
+        <input type="hidden" id="editCustomerId" value="">
+        <div class="field"><label>Customer's Name</label><input type="text" id="newCustName" placeholder="e.g. Dela Cruz Residence"></div>
+        <div class="field"><label>Complete Address</label><textarea id="newCustAddress" placeholder="Street, Barangay, City"></textarea></div>
+        <div class="field"><label>Contact No.</label><input type="text" id="newCustContactNo" placeholder="09xx xxx xxxx"></div>
+        <div class="field"><label>Contact Person</label><input type="text" id="newCustContactPerson"></div>
+        <div class="field"><label>Email (optional)</label><input type="text" id="newCustEmail" placeholder="customer@email.com"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="saveCustomerBtn" type="button" style="flex:1;">Save Customer</button>
+          <button class="btn btn-secondary" id="cancelEditCustomerBtn" type="button" style="display:none;">Cancel</button>
         </div>
       </div>
-      <div class="field">
-        <label>Customer <span class="req">*</span></label>
-        <select id="eqAddCustomer"><option value="">Select a customer…</option></select>
+      <div id="customerEquipmentSection" style="display:none; border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Equipment on file for this customer</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+          Added automatically as technicians file reports for this customer. Edit to fix a typo, or remove a
+          decommissioned/duplicate unit.
+        </p>
+        <div id="customerEquipmentList"></div>
       </div>
-      <div class="field"><label>Equipment Type</label><input type="text" id="eqAddEquipType"></div>
-      <div class="field"><label>Specific Location</label><input type="text" id="eqAddEquipLocation"></div>
-      <div class="field"><label>Manufacturer / Brand</label><input type="text" id="eqAddBrand"></div>
-      <div class="field"><label>Mounting Type</label><input type="text" id="eqAddMountType"></div>
-      <div class="field"><label>Cooling Capacity</label><input type="text" id="eqAddCoolCap"></div>
-      <div class="field"><label>Model No. (CU)</label><input type="text" id="eqAddModelCU"></div>
-      <div class="field"><label>Serial No. (CU)</label><input type="text" id="eqAddSerialCU"></div>
-      <div class="field"><label>Model No. (FCU)</label><input type="text" id="eqAddModelFCU"></div>
-      <div class="field"><label>Serial No. (FCU)</label><input type="text" id="eqAddSerialFCU"></div>
-      <div class="field"><label>Refrigerant Type</label><input type="text" id="eqAddRefrigerantType"></div>
-      <div class="field"><label>Compressor Type</label><input type="text" id="eqAddCompressorType"></div>
-      <button type="button" class="btn btn-primary" id="eqAddSaveBtn" style="width:100%;">Add Equipment</button>
     </div>
   </div>
-</div>
+</main>
 
 <!-- Equipment full-detail overlay (Manage Equipment List → View All) — tapping
      a row opens this clean label/value view instead of an inline accordion,
@@ -1556,16 +1564,24 @@ window.awesCss = {
   </div>
 </div>
 
-<!-- History sheet -->
-<div class="overlay" id="historyOverlay">
-  <div class="sheet">
-    <div class="sheet-head">
-      <h3>Saved Reports</h3>
-      <button class="sheet-close" id="closeHistory">&times;</button>
+<!-- Manage Service Reports — full page (admin-only), reached via the
+     "Service Reports" sidebar nav item. Was previously the "Saved Reports"
+     popup sheet; now its own dedicated page with All / Draft / Completed
+     tabs and a search bar, same pattern as the other full-page views. -->
+<main id="serviceReportsManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card">
+    <div class="card-head"><span>🗂 Saved Reports</span></div>
+    <div class="card-body">
+      <div class="leave-filter-row" id="srMgrFilterRow">
+        <button type="button" data-filter="all" class="active">All</button>
+        <button type="button" data-filter="draft">Saved Draft</button>
+        <button type="button" data-filter="completed">Completed</button>
+      </div>
+      <div class="field"><input type="text" id="srMgrSearch" placeholder="Search by customer or SR number…"></div>
+      <div id="historyList"><div class="empty-state">No saved reports yet.</div></div>
     </div>
-    <div id="historyList"><div class="empty-state">No saved reports yet.</div></div>
   </div>
-</div>
+</main>
 
 <!-- Announcements: technician "View All" (read-only) -->
 <div class="overlay" id="announcementsViewAllOverlay">

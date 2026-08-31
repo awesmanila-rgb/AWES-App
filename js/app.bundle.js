@@ -3631,7 +3631,7 @@
 
 
 // ---------- history ----------
-  async function loadHistory(containerId, filter, onlyUserId){
+  async function loadHistory(containerId, filter, onlyUserId, searchText){
     const list = $(containerId || 'historyList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     let reports = null;
@@ -3652,8 +3652,11 @@
     if(filter==='draft') reports = reports.filter(d=> !d.completed);
     else if(filter==='completed') reports = reports.filter(d=> d.completed);
     // filter==='all' (or omitted) keeps everything, unfiltered.
+    const q = (searchText||'').trim().toLowerCase();
+    if(q) reports = reports.filter(d=> (d.custName||'').toLowerCase().includes(q) || (d.srNo||'').toLowerCase().includes(q));
     if(reports.length===0){
-      const emptyMsg = filter==='draft' ? 'No draft reports yet.'
+      const emptyMsg = q ? 'No reports match "'+searchText.trim()+'".'
+        : filter==='draft' ? 'No draft reports yet.'
         : filter==='completed' ? 'No completed reports yet.'
         : 'No saved reports yet.';
       list.innerHTML = '<div class="empty-state">'+emptyMsg+'</div>';
@@ -3746,6 +3749,7 @@
     });
   }
   async function openReport(d){
+    showServiceReport();
     resetForm();
     currentSrNo = d.srNo; $('metaSrNo').textContent = d.srNo||'—';
     currentTechnicianId = d.technicianId || (currentUser ? currentUser.id : null);
@@ -3814,12 +3818,33 @@
     if(sigTech){ await ensureSignaturePads(); await Promise.resolve(sigTechPad.fromDataURL(sigTech)); $('sigTechPh').style.display='none'; lockSignature('sigTech'); }
     $('statusPill').textContent = d.completed ? 'Completed' : 'Draft';
     $('statusPill').className = 'status-pill ' + (d.completed ? 'status-done' : 'status-draft');
-    $('historyOverlay').classList.remove('open');
     srShowTab('new', {skipReset:true});
     window.scrollTo({top:0, behavior:'smooth'});
   }
-  $('closeHistory').addEventListener('click', ()=> $('historyOverlay').classList.remove('open'));
-  $('historyOverlay').addEventListener('click', (e)=>{ if(e.target.id==='historyOverlay') $('historyOverlay').classList.remove('open'); });
+
+  // ---------- Manage Service Reports (admin-only full page) — the "Saved
+  // Reports" list across every technician, with All / Draft / Completed
+  // tabs and a search bar. Reached via the "Service Reports" sidebar nav
+  // item (see showServiceReportsManagerView in home.js). ----------
+  let srMgrFilter = 'all';
+  function renderServiceReportsManagerList(){
+    loadHistory('historyList', srMgrFilter==='all' ? undefined : srMgrFilter, null, $('srMgrSearch').value);
+  }
+  async function openServiceReportsManagerPage(){
+    srMgrFilter = 'all';
+    $('srMgrSearch').value = '';
+    $$('#srMgrFilterRow button').forEach(b=> b.classList.toggle('active', b.dataset.filter==='all'));
+    await renderServiceReportsManagerList();
+  }
+  $$('#srMgrFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      $$('#srMgrFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      srMgrFilter = btn.dataset.filter;
+      renderServiceReportsManagerList();
+    });
+  });
+  $('srMgrSearch').addEventListener('input', ()=> renderServiceReportsManagerList());
 
   // ---------- Main Menu (admin sidebar) ----------
   // On mobile the admin sidebar is an off-canvas drawer toggled by menuBtn;
@@ -3869,11 +3894,6 @@
   $('menuChangePin').addEventListener('click', ()=>{
     closeMainMenu();
     doChangeAdminPin();
-  });
-  $('menuManageReports').addEventListener('click', ()=>{
-    closeMainMenu();
-    $('historyOverlay').classList.add('open');
-    loadHistory();
   });
   $('menuLogout').addEventListener('click', ()=>{
     closeMainMenu();
@@ -4348,31 +4368,84 @@
   $('dtrOtTimeInBtn').addEventListener('click', dtrDoOtTimeIn);
   $('dtrOtTimeOutBtn').addEventListener('click', dtrDoOtTimeOut);
 
-  // ---- Admin: DTR is per-user, so admin must pick whose to view ----
-  async function dtrOpenAdminPicker(){
-    const list = $('dtrUserPickerList');
-    list.innerHTML = '<div class="empty-state">Loading…</div>';
-    $('dtrUserPickerOverlay').classList.add('open');
-    const users = (await cloudListUsers()) || [];
-    const active = users.filter(u=>u.active!==false);
-    if(active.length===0){ list.innerHTML = '<div class="empty-state">No technician accounts yet.</div>'; return; }
-    list.innerHTML = '';
-    active.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
-      const btn = document.createElement('button');
-      btn.type = 'button'; btn.className = 'dtr-picker-btn';
-      btn.textContent = u.name;
-      btn.addEventListener('click', ()=>{
-        dtrViewingUser = {id:u.id, name:u.name};
-        $('dtrUserPickerOverlay').classList.remove('open');
-        $('dtrAdminViewingName').textContent = u.name;
-        dtrRenderHistory();
-      });
-      list.appendChild(btn);
-    });
+  // ---- Admin: today's attendance table (the DTR landing view) ----
+  // One row per active technician — Present (timed in, no time out yet),
+  // Completed (timed in and out today), or Absent (no DTR record today).
+  // "View DTR" on a row swaps to the read-only detail + 30-day history
+  // view further down, scoped to that technician.
+  function dtrHoursLabel(mins){
+    if(mins==null) return '—';
+    const h = Math.floor(mins/60), m = mins%60;
+    return h+'h '+String(m).padStart(2,'0')+'m';
   }
-  $('closeDtrUserPicker').addEventListener('click', ()=> $('dtrUserPickerOverlay').classList.remove('open'));
-  $('dtrUserPickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtrUserPickerOverlay') $('dtrUserPickerOverlay').classList.remove('open'); });
-  $('dtrSwitchUserBtn').addEventListener('click', dtrOpenAdminPicker);
+  async function dtrRenderAdminTable(){
+    const body = $('dtrAttendanceTableBody');
+    const dateISO = todayISO();
+    const dateEl = $('dtrAttendanceDate');
+    if(dateEl) dateEl.textContent = dtrFmtDateLabel(dateISO);
+    body.innerHTML = '<tr><td colspan="6"><div class="empty-state">Loading…</div></td></tr>';
+    const [users, records] = await Promise.all([
+      cloudListUsers().catch(()=>[]),
+      dtrListAllForDate(dateISO).catch(()=>[])
+    ]);
+    const active = (users||[]).filter(u=> u.active!==false)
+      .sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    const summaryEl = $('dtrAttendanceSummary');
+    if(active.length===0){
+      body.innerHTML = '<tr><td colspan="6"><div class="empty-state">No technician accounts yet.</div></td></tr>';
+      if(summaryEl) summaryEl.textContent = '';
+      return;
+    }
+    const recByTech = Object.create(null);
+    (records||[]).forEach(r=>{ if(r && r.technicianId) recByTech[r.technicianId] = r; });
+
+    const now = new Date();
+    let presentCount = 0, completedCount = 0, absentCount = 0;
+    body.innerHTML = '';
+    active.forEach(u=>{
+      const rec = recByTech[u.id];
+      let statusLabel, inTxt = '—', outTxt = '—', hoursTxt = '—';
+      if(rec && rec.timeIn && rec.timeOut){
+        statusLabel = '⚫ Completed'; completedCount++;
+        inTxt = dtrFmtTime(rec.timeIn); outTxt = dtrFmtTime(rec.timeOut);
+        hoursTxt = dtrHoursLabel(Math.max(0, Math.round((new Date(rec.timeOut)-new Date(rec.timeIn))/60000)));
+      }else if(rec && rec.timeIn){
+        statusLabel = '🟢 Present'; presentCount++;
+        inTxt = dtrFmtTime(rec.timeIn);
+        hoursTxt = dtrHoursLabel(Math.max(0, Math.round((now-new Date(rec.timeIn))/60000)));
+      }else{
+        statusLabel = '🔴 Absent'; absentCount++;
+      }
+      const row = document.createElement('tr');
+      row.innerHTML =
+        '<td class="att-name">'+escapeHtml(u.name)+'</td>'+
+        '<td class="att-status">'+statusLabel+'</td>'+
+        '<td>'+escapeHtml(inTxt)+'</td>'+
+        '<td>'+escapeHtml(outTxt)+'</td>'+
+        '<td>'+escapeHtml(hoursTxt)+'</td>'+
+        '<td><button type="button" class="att-view-btn">View DTR</button></td>';
+      row.querySelector('.att-view-btn').addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
+      body.appendChild(row);
+    });
+    if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+absentCount+' Absent · '+active.length+' Total';
+  }
+  function dtrShowTechnicianDetail(u){
+    dtrViewingUser = u;
+    $('dtrAdminTableCard').style.display = 'none';
+    $('dtrAdminViewingCard').style.display = '';
+    $('dtrHistoryCard').style.display = '';
+    $('dtrAdminViewingName').textContent = u.name;
+    dtrRenderHistory();
+    window.scrollTo({top:0});
+  }
+  function dtrBackToAttendanceList(){
+    dtrViewingUser = null;
+    $('dtrAdminViewingCard').style.display = 'none';
+    $('dtrHistoryCard').style.display = 'none';
+    $('dtrAdminTableCard').style.display = '';
+    dtrRenderAdminTable();
+  }
+  $('dtrSwitchUserBtn').addEventListener('click', dtrBackToAttendanceList);
 
 
 // ---------- Leave Form (table: leave_requests; id/status/technician_id are real columns, rest in data) ----------
@@ -5885,6 +5958,9 @@
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -5913,6 +5989,9 @@
     $('dtrView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6875,6 +6954,9 @@
     $('dtrView').style.display = 'none';
     $('leaveView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('cashAdvanceView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6906,6 +6988,9 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6913,21 +6998,100 @@
     setHeaderTitle('Online DTR', 'Daily Time Record');
     window.scrollTo({top:0});
     if(currentUser && currentUser.role==='admin'){
-      // Admin has no DTR of their own — DTR is per-technician, so ask which one.
+      // Admin has no DTR of their own — DTR is per-technician. Land on the
+      // attendance table (today's status for everyone); "View DTR" on a
+      // row drills into that one technician's read-only history below.
       $('dtrTechCard').style.display = 'none';
-      $('dtrAdminViewingCard').style.display = '';
+      $('dtrAdminTableCard').style.display = '';
+      $('dtrAdminViewingCard').style.display = 'none';
+      $('dtrHistoryCard').style.display = 'none';
       dtrViewingUser = null;
       $('dtrHistoryList').innerHTML = '<div class="empty-state">Select a technician to view their DTR.</div>';
-      dtrOpenAdminPicker();
+      dtrRenderAdminTable();
     }else if(currentUser){
       $('dtrTechCard').style.display = '';
+      $('dtrAdminTableCard').style.display = 'none';
       $('dtrAdminViewingCard').style.display = 'none';
+      $('dtrHistoryCard').style.display = '';
       $('dtrTechName').textContent = currentUser.name;
       dtrViewingUser = null;
       await dtrRenderDeviceBanner();
       await dtrRenderTodayStatus();
       await dtrRenderHistory();
     }
+  }
+
+  // ---------- Manage Equipment List — full page (admin-only), reached via
+  // the "Equipment" sidebar nav item. Was previously a popup sheet; now its
+  // own dedicated page, same pattern as the other full-page views above. ----------
+  async function showEquipmentManagerView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('equipmentManagerView').style.display = '';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Equipment', 'Manage Equipment List');
+    window.scrollTo({top:0});
+    await openEquipmentManagerPage();
+  }
+  $('menuManageEquipment').addEventListener('click', async ()=>{
+    closeMainMenu();
+    setSidebarActive('menuManageEquipment');
+    if(!(await ensureAdminAuthenticated())) return;
+    showEquipmentManagerView();
+  });
+
+  // ---------- Manage Customers — full page (admin-only), reached via the
+  // "Customers" sidebar nav item. Was previously a popup sheet; now its own
+  // dedicated page, same pattern as the other full-page views above. ----------
+  async function showCustomersManagerView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = '';
+    $('serviceReportsManagerView').style.display = 'none';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Customers', 'Manage Customers');
+    window.scrollTo({top:0});
+    await openCustomersManagerPage();
+  }
+
+  // ---------- Manage Service Reports — full page (admin-only), reached via
+  // the "Service Reports" sidebar nav item. Was previously the "Saved
+  // Reports" popup sheet; now its own dedicated page with All / Draft /
+  // Completed tabs and a search bar. ----------
+  async function showServiceReportsManagerView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Service Reports', 'Saved Reports');
+    window.scrollTo({top:0});
+    await openServiceReportsManagerPage();
   }
 
   // ---------- Home screen greeting (technicians only) ----------
@@ -7221,9 +7385,17 @@
   $('sbNavTechnicians').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavTechnicians'); showDtrView(); });
   $('sbNavRequisitions').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavRequisitions'); showCashAdvanceView(); });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
-  $('menuManageReports').addEventListener('click', ()=> setSidebarActive('menuManageReports'));
-  $('menuManageCustomers').addEventListener('click', ()=> setSidebarActive('menuManageCustomers'));
-  $('menuManageEquipment').addEventListener('click', ()=> setSidebarActive('menuManageEquipment'));
+  $('menuManageReports').addEventListener('click', ()=>{
+    closeMainMenu();
+    setSidebarActive('menuManageReports');
+    showServiceReportsManagerView();
+  });
+  $('menuManageCustomers').addEventListener('click', async ()=>{
+    closeMainMenu();
+    setSidebarActive('menuManageCustomers');
+    if(!(await ensureAdminAuthenticated())) return;
+    showCustomersManagerView();
+  });
   $('menuManageUsers').addEventListener('click', ()=> setSidebarActive('menuManageUsers'));
   $('menuManageDropdowns').addEventListener('click', ()=> setSidebarActive('menuManageDropdowns'));
 
@@ -7254,6 +7426,9 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('messagesView').style.display = '';
     $('footerBar').style.display = 'none';
@@ -7310,6 +7485,9 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = '';
     $('footerBar').style.display = 'none';
@@ -7340,6 +7518,9 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
@@ -7404,6 +7585,9 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
