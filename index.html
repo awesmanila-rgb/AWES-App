@@ -162,32 +162,54 @@ window.awesCss = {
   <div class="sidebar-brand">
     <div class="sidebar-brand-mark"><img src="logo.png" alt="Awes"></div>
     <div class="sidebar-brand-text">
-      <div class="sidebar-brand-name">Field Operations Portal</div>
-      <div class="sidebar-brand-sub">Management &amp; Administration</div>
+      <div class="sidebar-brand-name" id="sidebarBrandName">Field Operations Portal</div>
+      <div class="sidebar-brand-sub" id="sidebarBrandSub">Management &amp; Administration</div>
     </div>
   </div>
   <nav class="sidebar-nav">
     <button type="button" class="sidebar-link active" id="sbNavDashboard"><span class="menu-ico">🏠</span>Dashboard</button>
-    <div class="sidebar-section-label">Operations</div>
-    <button type="button" class="sidebar-link" id="sbNavTechnicians"><span class="menu-ico">🕒</span>Technicians</button>
-    <button type="button" class="sidebar-link" id="menuManageReports"><span class="menu-ico">🗂</span>Service Reports</button>
-    <button type="button" class="sidebar-link" id="sbNavRequisitions"><span class="menu-ico">💵</span>Requisitions</button>
-    <button type="button" class="sidebar-link" id="sbNavDispatch"><span class="menu-ico">🚚</span>Dispatch</button>
-    <button type="button" class="sidebar-link" id="menuManageCustomers"><span class="menu-ico">🏢</span>Customers</button>
-    <button type="button" class="sidebar-link" id="menuManageEquipment"><span class="menu-ico">🧰</span>Equipment</button>
-    <div class="sidebar-section-label">Management</div>
-    <button type="button" class="sidebar-link" id="menuManageUsers"><span class="menu-ico">👤</span>Users &amp; Roles</button>
-    <button type="button" class="sidebar-link" id="settingsBtn"><span class="menu-ico">⚙️</span>Settings</button>
-    <button type="button" class="sidebar-link" id="menuManageDropdowns"><span class="menu-ico">📋</span>Dropdown Lists</button>
-    <button type="button" class="sidebar-link" id="menuChangePin"><span class="menu-ico">🔑</span>Change Password</button>
+
+    <!-- Technician-only nav — hidden for admin via setVis('sidebarTechGroup', isTech)
+         in auth.js's applyUserRestrictions(). Each item routes to the same
+         screens already reachable from the Dashboard's tiles/Quick Actions;
+         this is just a persistent way to reach them without going Home first. -->
+    <div id="sidebarTechGroup" style="display:none;">
+      <div class="sidebar-section-label">My Work</div>
+      <button type="button" class="sidebar-link" id="techNavDispatch"><span class="menu-ico">📋</span>Job Orders</button>
+      <button type="button" class="sidebar-link" id="techNavServiceReport"><span class="menu-ico">🧾</span>Service Reports</button>
+      <button type="button" class="sidebar-link" id="techNavRequisition"><span class="menu-ico">📦</span>Requisitions</button>
+      <button type="button" class="sidebar-link" id="techNavLiquidation"><span class="menu-ico">🧮</span>Liquidation</button>
+      <button type="button" class="sidebar-link" id="techNavDtr"><span class="menu-ico">🕒</span>Attendance</button>
+      <button type="button" class="sidebar-link" id="techNavLeave"><span class="menu-ico">🗓️</span>Leaves</button>
+      <button type="button" class="sidebar-link" id="techNavMessages"><span class="menu-ico">💬</span>Messages<span class="sidebar-badge" id="sidebarMsgBadge" style="display:none;">0</span></button>
+      <button type="button" class="sidebar-link" id="techNavDocuments"><span class="menu-ico">📁</span>Documents</button>
+      <button type="button" class="sidebar-link" id="techNavSettings"><span class="menu-ico">⚙️</span>Settings</button>
+    </div>
+
+    <!-- Admin-only nav — hidden for technicians via setVis('sidebarAdminGroup', isAdmin). -->
+    <div id="sidebarAdminGroup">
+      <div class="sidebar-section-label">Operations</div>
+      <button type="button" class="sidebar-link" id="sbNavTechnicians"><span class="menu-ico">🕒</span>Technicians</button>
+      <button type="button" class="sidebar-link" id="menuManageReports"><span class="menu-ico">🗂</span>Service Reports</button>
+      <button type="button" class="sidebar-link" id="sbNavRequisitions"><span class="menu-ico">💵</span>Requisitions</button>
+      <button type="button" class="sidebar-link" id="sbNavDispatch"><span class="menu-ico">🚚</span>Dispatch</button>
+      <button type="button" class="sidebar-link" id="menuManageCustomers"><span class="menu-ico">🏢</span>Customers</button>
+      <button type="button" class="sidebar-link" id="menuManageEquipment"><span class="menu-ico">🧰</span>Equipment</button>
+      <div class="sidebar-section-label">Management</div>
+      <button type="button" class="sidebar-link" id="menuManageUsers"><span class="menu-ico">👤</span>Users &amp; Roles</button>
+      <button type="button" class="sidebar-link" id="menuManageAnnouncements"><span class="menu-ico">📣</span>Announcements</button>
+      <button type="button" class="sidebar-link" id="settingsBtn"><span class="menu-ico">⚙️</span>Settings</button>
+      <button type="button" class="sidebar-link" id="menuManageDropdowns"><span class="menu-ico">📋</span>Dropdown Lists</button>
+      <button type="button" class="sidebar-link" id="menuChangePin"><span class="menu-ico">🔑</span>Change Password</button>
+    </div>
   </nav>
   <div class="sidebar-footer">
     <button class="icon-btn sidebar-cloud-btn" id="cloudBtn" title="Cloud connection status" aria-live="polite">☁ Not Connected</button>
     <div class="sidebar-account">
-      <div class="sidebar-avatar">AD</div>
+      <div class="sidebar-avatar" id="sidebarAvatar">AD</div>
       <div class="sidebar-account-text">
-        <div class="sidebar-account-name">Admin User</div>
-        <div class="sidebar-account-role">Super Administrator</div>
+        <div class="sidebar-account-name" id="sidebarAccountName">Admin User</div>
+        <div class="sidebar-account-role" id="sidebarAccountRole">Super Administrator</div>
       </div>
       <button type="button" class="sidebar-logout" id="menuLogout" title="Logout">🚪</button>
     </div>
@@ -260,51 +282,62 @@ window.awesCss = {
     <div class="card-body">
       <div class="overview-grid">
         <div class="overview-stat ov-blue">
-          <div class="overview-stat-head"><span class="overview-stat-title">Job Order</span><span class="overview-stat-icon">🚚</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Job Order</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
           <div class="overview-stat-value" id="ovMyJoValue">—</div>
           <div class="overview-stat-sub" id="ovMyJoSub">—</div>
         </div>
         <div class="overview-stat ov-gray">
-          <div class="overview-stat-head"><span class="overview-stat-title">Pending Service Reports</span><span class="overview-stat-icon">🧾</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Service Reports</span><span class="overview-stat-icon ov-icon-chip">🧾</span></div>
           <div class="overview-stat-value" id="ovMyReportsValue">—</div>
           <div class="overview-stat-sub" id="ovMyReportsSub">—</div>
         </div>
         <div class="overview-stat ov-amber">
-          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon">💵</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
           <div class="overview-stat-value" id="ovMyReqValue">—</div>
           <div class="overview-stat-sub" id="ovMyReqSub">—</div>
         </div>
         <div class="overview-stat ov-purple">
-          <div class="overview-stat-head"><span class="overview-stat-title">Pending Liquidation</span><span class="overview-stat-icon">🧮</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Liquidation</span><span class="overview-stat-icon ov-icon-chip">🧮</span></div>
           <div class="overview-stat-value" id="ovMyLiqValue">—</div>
           <div class="overview-stat-sub" id="ovMyLiqSub">—</div>
         </div>
         <div class="overview-stat ov-green">
-          <div class="overview-stat-head"><span class="overview-stat-title">Today's Attendance</span><span class="overview-stat-icon">🕒</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Today's Attendance</span><span class="overview-stat-icon ov-icon-chip">🕒</span></div>
           <div class="overview-stat-value" id="ovMyDtrValue">—</div>
           <div class="overview-stat-sub" id="ovMyDtrSub">—</div>
         </div>
         <div class="overview-stat ov-teal">
-          <div class="overview-stat-head"><span class="overview-stat-title">Next Job Order</span><span class="overview-stat-icon">📅</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Next Job Order</span><span class="overview-stat-icon ov-icon-chip">📅</span></div>
           <div class="overview-stat-value" id="ovMyNextJoValue">—</div>
           <div class="overview-stat-sub" id="ovMyNextJoSub">—</div>
         </div>
         <div class="overview-stat ov-blue">
-          <div class="overview-stat-head"><span class="overview-stat-title">Completed This Month</span><span class="overview-stat-icon">✅</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Completed This Month</span><span class="overview-stat-icon ov-icon-chip">✅</span></div>
           <div class="overview-stat-value" id="ovMyDoneValue">—</div>
           <div class="overview-stat-sub" id="ovMyDoneSub">—</div>
         </div>
         <div class="overview-stat ov-red">
-          <div class="overview-stat-head"><span class="overview-stat-title">Job Order Messages</span><span class="overview-stat-icon">💬</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Job Order Messages</span><span class="overview-stat-icon ov-icon-chip">💬</span></div>
           <div class="overview-stat-value" id="ovMyUnreadValue">—</div>
           <div class="overview-stat-sub" id="ovMyUnreadSub">—</div>
         </div>
         <div class="overview-stat ov-amber">
-          <div class="overview-stat-head"><span class="overview-stat-title">Leave Days Used (This Year)</span><span class="overview-stat-icon">🗓️</span></div>
+          <div class="overview-stat-head"><span class="overview-stat-title">Leave Days Used (This Year)</span><span class="overview-stat-icon ov-icon-chip">🗓️</span></div>
           <div class="overview-stat-value" id="ovMyLeaveValue">—</div>
           <div class="overview-stat-sub" id="ovMyLeaveSub">—</div>
         </div>
       </div>
+    </div>
+  </div>
+  <!-- Announcements — technician only. Admin authors these from the
+       sidebar's Administration group (Manage Announcements). -->
+  <div class="card" id="homeAnnouncementsCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head">
+      <span>📣 Announcements</span>
+      <button type="button" id="homeAnnViewAllBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">View All ›</button>
+    </div>
+    <div class="card-body">
+      <div id="homeAnnouncementsList"><div class="empty-state">Loading…</div></div>
     </div>
   </div>
   <div class="card" id="homeOverviewCard" style="display:none; margin-bottom:16px;">
@@ -933,6 +966,27 @@ window.awesCss = {
 
 </main>
 
+<!-- Messages hub — every Job Order thread in one place. -->
+<main id="messagesView" style="display:none; max-width:700px; margin:0 auto; padding:16px;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>💬 Job Order Messages</span></div>
+    <div class="card-body">
+      <div id="messagesHubList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- Documents — a technician's own completed Service Reports. Reuses
+     loadHistory() (see history.js), same as admin's Manage Service Report. -->
+<main id="documentsView" style="display:none; max-width:700px; margin:0 auto; padding:16px;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>📁 My Documents</span></div>
+    <div class="card-body">
+      <div id="documentsList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
 <main id="serviceReportView" style="display:none;">
 
   <div class="seg-tabs" id="srSegTabs">
@@ -1510,6 +1564,38 @@ window.awesCss = {
       <button class="sheet-close" id="closeHistory">&times;</button>
     </div>
     <div id="historyList"><div class="empty-state">No saved reports yet.</div></div>
+  </div>
+</div>
+
+<!-- Announcements: technician "View All" (read-only) -->
+<div class="overlay" id="announcementsViewAllOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Announcements</h3>
+      <button class="sheet-close" id="closeAnnViewAll">&times;</button>
+    </div>
+    <div id="announcementsViewAllList"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Announcements: admin authoring + management -->
+<div class="overlay" id="announcementsAdminOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Manage Announcements</h3>
+      <button class="sheet-close" id="closeAnnAdmin">&times;</button>
+    </div>
+    <div class="field">
+      <label>Title</label>
+      <input type="text" id="annTitleInput" placeholder="e.g. Safety First!" maxlength="200">
+    </div>
+    <div class="field">
+      <label>Message</label>
+      <textarea id="annBodyInput" rows="3" placeholder="Always follow safety protocols and wear proper PPE at all times." maxlength="4000"></textarea>
+    </div>
+    <label class="chk" style="margin-bottom:10px;"><input type="checkbox" id="annPinnedInput"><span>Pin to top</span></label>
+    <button type="button" class="btn btn-primary" id="annPostBtn" style="width:100%; margin-bottom:16px;">Post Announcement</button>
+    <div id="announcementsAdminList"><div class="empty-state">Loading…</div></div>
   </div>
 </div>
 

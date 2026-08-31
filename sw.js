@@ -1,5 +1,5 @@
 // Bumped so the corrected shell replaces the old cache on every installed device.
-const CACHE_NAME = 'awes-sr-v12';
+const CACHE_NAME = 'awes-sr-v13';
 
 // Split into two lists on purpose.
 //

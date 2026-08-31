@@ -162,6 +162,19 @@
       .reduce((sum,r)=> sum+(r.days||0), 0);
     $('ovMyLeaveValue').textContent = String(leaveDaysUsed);
     $('ovMyLeaveSub').textContent = leaveDaysUsed+' approved leave day'+(leaveDaysUsed===1?'':'s')+' taken in '+yearPrefix;
+
+    // The dashboard top bar's greeting + notification bell are shared with
+    // admin (see renderDashboardGreeting/renderHomeOverview) — technicians
+    // get the same greeting, and their bell reflects their own unread Job
+    // Order messages instead of admin's pending-approvals count.
+    renderDashboardGreeting();
+    const notifEl = $('notifBadge');
+    if(notifEl){
+      notifEl.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      notifEl.style.display = unreadCount > 0 ? '' : 'none';
+    }
+    const sidebarBadgeEl = $('sidebarMsgBadge');
+    if(sidebarBadgeEl){ sidebarBadgeEl.style.display = unreadCount>0 ? '' : 'none'; sidebarBadgeEl.textContent = String(unreadCount); }
   }
 
   // ---------- Home screen overview (admin only) ----------
@@ -319,6 +332,100 @@
   $('menuManageUsers').addEventListener('click', ()=> setSidebarActive('menuManageUsers'));
   $('menuManageDropdowns').addEventListener('click', ()=> setSidebarActive('menuManageDropdowns'));
 
+  // ---------- Technician sidebar nav ----------
+  // Same closeMainMenu()/setSidebarActive() convention as the admin nav
+  // above — this just points each item at the technician's own version of
+  // that screen instead of the admin's management view.
+  $('techNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDispatch'); showDispatchView(); });
+  $('techNavServiceReport').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavServiceReport'); showServiceReport(); });
+  $('techNavRequisition').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavRequisition'); showCashAdvanceView(); });
+  $('techNavLiquidation').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('techNavLiquidation');
+    await showCashAdvanceView();
+    if(currentUser && currentUser.role!=='admin') caShowTab('liquidate');
+  });
+  $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
+  $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });
+  $('techNavMessages').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavMessages'); showMessagesView(); });
+  $('techNavDocuments').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDocuments'); showDocumentsView(); });
+  $('techNavSettings').addEventListener('click', ()=>{ closeMainMenu(); showChangePasswordScreen(false); });
+
+  // ---------- Messages hub (every Job Order thread, one screen) ----------
+  async function showMessagesView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('documentsView').style.display = 'none';
+    $('messagesView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Job Order Messages', 'Every thread in one place');
+    window.scrollTo({top:0});
+    await dtRenderMessagesHub();
+  }
+  async function dtRenderMessagesHub(){
+    const list = $('messagesHubList');
+    if(!list) return;
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!currentUser){ list.innerHTML = ''; return; }
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Connect to the internet to see Job Order messages.</div>'; return; }
+    const tickets = currentUser.role==='admin' ? await dtListAll().catch(()=>[]) : await dtListForWorker(currentUser.id).catch(()=>[]);
+    let allMsgs = [];
+    try{
+      const { data, error } = await db.from('dispatch_ticket_messages').select('*').order('created_at', {ascending:false});
+      if(error) throw error;
+      allMsgs = data || [];
+    }catch(e){ console.error('messages hub load failed', describeCloudError(e)); }
+    const byTicket = {};
+    allMsgs.forEach(m=>{ (byTicket[m.ticket_id] = byTicket[m.ticket_id] || []).push(m); });
+    const withMsgs = tickets.filter(t=> byTicket[t.id] && byTicket[t.id].length>0)
+      .sort((a,b)=> new Date(byTicket[b.id][0].created_at) - new Date(byTicket[a.id][0].created_at));
+    if(withMsgs.length===0){ list.innerHTML = '<div class="empty-state">No Job Order messages yet.</div>'; return; }
+    list.innerHTML = withMsgs.map(t=>{
+      const msgs = byTicket[t.id];
+      const last = msgs[0];
+      const lastRead = dtGetLastRead(t.id);
+      const unread = msgs.filter(m=> m.sender_id!==currentUser.id && (!lastRead || new Date(m.created_at)>new Date(lastRead))).length;
+      const preview = last.body.length>70 ? last.body.slice(0,70)+'…' : last.body;
+      return '<div class="dt-msghub-row" data-jo-open="'+escapeHtml(t.id)+'">'+
+        '<div class="dt-msghub-main">'+
+          '<div class="u-name">'+escapeHtml(t.jobOrderNo)+' — '+escapeHtml(t.custName)+'</div>'+
+          '<div class="u-status">'+escapeHtml(last.sender_name)+': '+escapeHtml(preview)+'</div>'+
+        '</div>'+
+        (unread>0 ? '<span class="sidebar-badge">'+unread+'</span>' : '')+
+      '</div>';
+    }).join('');
+  }
+  $('messagesHubList').addEventListener('click', (e)=>{
+    const row = e.target.closest('[data-jo-open]');
+    if(row) dtOpenTicketOverlay(row.dataset.joOpen);
+  });
+
+  // ---------- Documents (a technician's own completed Service Reports) ----------
+  async function showDocumentsView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('My Documents', 'Completed Service Reports');
+    window.scrollTo({top:0});
+    const onlyMe = currentUser && currentUser.role!=='admin' ? currentUser.id : null;
+    await loadHistory('documentsList', 'completed', onlyMe);
+  }
+
   // ---------- Home screen (feature tiles) ----------
   // Admin's homepage reads "Field Operations Portal" / "Management &
   // Administration" instead of the technician's "Technician's Homepage" /
@@ -338,6 +445,8 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
@@ -346,6 +455,7 @@
     renderHomeGreeting();
     renderHomeTechOverview();
     renderHomeOverview();
+    renderHomeAnnouncements();
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------

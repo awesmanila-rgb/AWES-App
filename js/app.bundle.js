@@ -786,10 +786,25 @@
     const isTech = !!(currentUser && currentUser.role!=='admin');
     const isAdmin = !!(currentUser && currentUser.role==='admin');
     // Switches on the desktop/tablet sidebar dashboard shell (see the
-    // admin-sidebar / dashboard-topbar rules in css/app.css) — off for
-    // technician accounts and before login, so their view is unaffected.
+    // admin-sidebar / dashboard-topbar rules in css/app.css) — off before
+    // login, and now shared by both roles (role-tech mirrors role-admin;
+    // the shell layout itself is identical, only its contents differ).
     document.body.classList.toggle('role-admin', isAdmin);
-    if(!isAdmin) document.body.classList.remove('dashboard-active');
+    document.body.classList.toggle('role-tech', isTech);
+    if(!currentUser) document.body.classList.remove('dashboard-active');
+    // Sidebar nav: each role only sees its own group of links (My Work vs.
+    // Operations/Management) — see the #sidebarTechGroup / #sidebarAdminGroup
+    // wrappers in index.html.
+    setVis('sidebarTechGroup', isTech);
+    setVis('sidebarAdminGroup', isAdmin);
+    if(currentUser){
+      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : "Technician's Homepage";
+      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : 'Field digital form';
+      const initial = (currentUser.name||'?').trim().charAt(0).toUpperCase() || '?';
+      const avatarEl = $('sidebarAvatar'); if(avatarEl) avatarEl.textContent = initial;
+      const acctNameEl = $('sidebarAccountName'); if(acctNameEl) acctNameEl.textContent = currentUser.name || '—';
+      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : 'Technician';
+    }
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already
     // never saw the header button; admins can only view/edit existing
@@ -3616,7 +3631,7 @@
 
 
 // ---------- history ----------
-  async function loadHistory(containerId, filter){
+  async function loadHistory(containerId, filter, onlyUserId){
     const list = $(containerId || 'historyList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     let reports = null;
@@ -3633,6 +3648,7 @@
         }
       }catch(e){}
     }
+    if(onlyUserId) reports = reports.filter(d=> d.technicianId===onlyUserId);
     if(filter==='draft') reports = reports.filter(d=> !d.completed);
     else if(filter==='completed') reports = reports.filter(d=> d.completed);
     // filter==='all' (or omitted) keeps everything, unfiltered.
@@ -7041,6 +7057,19 @@
       .reduce((sum,r)=> sum+(r.days||0), 0);
     $('ovMyLeaveValue').textContent = String(leaveDaysUsed);
     $('ovMyLeaveSub').textContent = leaveDaysUsed+' approved leave day'+(leaveDaysUsed===1?'':'s')+' taken in '+yearPrefix;
+
+    // The dashboard top bar's greeting + notification bell are shared with
+    // admin (see renderDashboardGreeting/renderHomeOverview) — technicians
+    // get the same greeting, and their bell reflects their own unread Job
+    // Order messages instead of admin's pending-approvals count.
+    renderDashboardGreeting();
+    const notifEl = $('notifBadge');
+    if(notifEl){
+      notifEl.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      notifEl.style.display = unreadCount > 0 ? '' : 'none';
+    }
+    const sidebarBadgeEl = $('sidebarMsgBadge');
+    if(sidebarBadgeEl){ sidebarBadgeEl.style.display = unreadCount>0 ? '' : 'none'; sidebarBadgeEl.textContent = String(unreadCount); }
   }
 
   // ---------- Home screen overview (admin only) ----------
@@ -7198,6 +7227,100 @@
   $('menuManageUsers').addEventListener('click', ()=> setSidebarActive('menuManageUsers'));
   $('menuManageDropdowns').addEventListener('click', ()=> setSidebarActive('menuManageDropdowns'));
 
+  // ---------- Technician sidebar nav ----------
+  // Same closeMainMenu()/setSidebarActive() convention as the admin nav
+  // above — this just points each item at the technician's own version of
+  // that screen instead of the admin's management view.
+  $('techNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDispatch'); showDispatchView(); });
+  $('techNavServiceReport').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavServiceReport'); showServiceReport(); });
+  $('techNavRequisition').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavRequisition'); showCashAdvanceView(); });
+  $('techNavLiquidation').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('techNavLiquidation');
+    await showCashAdvanceView();
+    if(currentUser && currentUser.role!=='admin') caShowTab('liquidate');
+  });
+  $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
+  $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });
+  $('techNavMessages').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavMessages'); showMessagesView(); });
+  $('techNavDocuments').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDocuments'); showDocumentsView(); });
+  $('techNavSettings').addEventListener('click', ()=>{ closeMainMenu(); showChangePasswordScreen(false); });
+
+  // ---------- Messages hub (every Job Order thread, one screen) ----------
+  async function showMessagesView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('documentsView').style.display = 'none';
+    $('messagesView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Job Order Messages', 'Every thread in one place');
+    window.scrollTo({top:0});
+    await dtRenderMessagesHub();
+  }
+  async function dtRenderMessagesHub(){
+    const list = $('messagesHubList');
+    if(!list) return;
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!currentUser){ list.innerHTML = ''; return; }
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Connect to the internet to see Job Order messages.</div>'; return; }
+    const tickets = currentUser.role==='admin' ? await dtListAll().catch(()=>[]) : await dtListForWorker(currentUser.id).catch(()=>[]);
+    let allMsgs = [];
+    try{
+      const { data, error } = await db.from('dispatch_ticket_messages').select('*').order('created_at', {ascending:false});
+      if(error) throw error;
+      allMsgs = data || [];
+    }catch(e){ console.error('messages hub load failed', describeCloudError(e)); }
+    const byTicket = {};
+    allMsgs.forEach(m=>{ (byTicket[m.ticket_id] = byTicket[m.ticket_id] || []).push(m); });
+    const withMsgs = tickets.filter(t=> byTicket[t.id] && byTicket[t.id].length>0)
+      .sort((a,b)=> new Date(byTicket[b.id][0].created_at) - new Date(byTicket[a.id][0].created_at));
+    if(withMsgs.length===0){ list.innerHTML = '<div class="empty-state">No Job Order messages yet.</div>'; return; }
+    list.innerHTML = withMsgs.map(t=>{
+      const msgs = byTicket[t.id];
+      const last = msgs[0];
+      const lastRead = dtGetLastRead(t.id);
+      const unread = msgs.filter(m=> m.sender_id!==currentUser.id && (!lastRead || new Date(m.created_at)>new Date(lastRead))).length;
+      const preview = last.body.length>70 ? last.body.slice(0,70)+'…' : last.body;
+      return '<div class="dt-msghub-row" data-jo-open="'+escapeHtml(t.id)+'">'+
+        '<div class="dt-msghub-main">'+
+          '<div class="u-name">'+escapeHtml(t.jobOrderNo)+' — '+escapeHtml(t.custName)+'</div>'+
+          '<div class="u-status">'+escapeHtml(last.sender_name)+': '+escapeHtml(preview)+'</div>'+
+        '</div>'+
+        (unread>0 ? '<span class="sidebar-badge">'+unread+'</span>' : '')+
+      '</div>';
+    }).join('');
+  }
+  $('messagesHubList').addEventListener('click', (e)=>{
+    const row = e.target.closest('[data-jo-open]');
+    if(row) dtOpenTicketOverlay(row.dataset.joOpen);
+  });
+
+  // ---------- Documents (a technician's own completed Service Reports) ----------
+  async function showDocumentsView(){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('My Documents', 'Completed Service Reports');
+    window.scrollTo({top:0});
+    const onlyMe = currentUser && currentUser.role!=='admin' ? currentUser.id : null;
+    await loadHistory('documentsList', 'completed', onlyMe);
+  }
+
   // ---------- Home screen (feature tiles) ----------
   // Admin's homepage reads "Field Operations Portal" / "Management &
   // Administration" instead of the technician's "Technician's Homepage" /
@@ -7217,6 +7340,8 @@
     $('leaveView').style.display = 'none';
     $('cashAdvanceView').style.display = 'none';
     $('dispatchView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
@@ -7225,6 +7350,7 @@
     renderHomeGreeting();
     renderHomeTechOverview();
     renderHomeOverview();
+    renderHomeAnnouncements();
     window.scrollTo({top:0});
   }
   // ---------- Service Report: Create New / Saved Draft / Completed / All tabs ----------
@@ -7583,5 +7709,120 @@
     if(trackerRealtimeChannel && db){ try{ db.removeChannel(trackerRealtimeChannel); }catch(e){} }
     trackerRealtimeChannel = null;
   }
+
+
+// ---------- Announcements (table: announcements) ----------
+  // Simple broadcast content: admin writes, everyone reads. No per-user
+  // read-tracking — these are posts, not a conversation to mark unread.
+  function annFmtDate(iso){
+    if(!iso) return '';
+    return new Date(iso).toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
+  }
+  async function annLoadAll(){
+    if(!(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('announcements').select('*')
+        .order('pinned', {ascending:false}).order('created_at', {ascending:false});
+      if(error) throw error;
+      return data || [];
+    }catch(e){ console.error('announcements load failed', describeCloudError(e)); return []; }
+  }
+  function annItemHtml(a){
+    return '<div class="ann-item">'+
+      '<div class="ann-item-head">'+
+        (a.pinned ? '<span class="ann-badge-pinned">Pinned</span>' : '')+
+        '<span class="ann-date">'+annFmtDate(a.created_at)+'</span>'+
+      '</div>'+
+      '<div class="ann-title">'+escapeHtml(a.title)+'</div>'+
+      '<div class="ann-body">'+escapeHtml(a.body)+'</div>'+
+    '</div>';
+  }
+
+  // ---- Technician Dashboard card (top 3) + View All overlay ----
+  async function renderHomeAnnouncements(){
+    const card = $('homeAnnouncementsCard');
+    if(!currentUser || currentUser.role==='admin'){ if(card) card.style.display='none'; return; }
+    if(card) card.style.display = '';
+    const list = $('homeAnnouncementsList');
+    if(!list) return;
+    const all = await annLoadAll();
+    if(all.length===0){ list.innerHTML = '<div class="empty-state">No announcements yet.</div>'; return; }
+    list.innerHTML = all.slice(0,3).map(annItemHtml).join('');
+  }
+  async function annOpenViewAll(){
+    $('announcementsViewAllOverlay').classList.add('open');
+    const list = $('announcementsViewAllList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await annLoadAll();
+    list.innerHTML = all.length===0
+      ? '<div class="empty-state">No announcements yet.</div>'
+      : all.map(annItemHtml).join('');
+  }
+  $('homeAnnViewAllBtn').addEventListener('click', annOpenViewAll);
+  $('closeAnnViewAll').addEventListener('click', ()=> $('announcementsViewAllOverlay').classList.remove('open'));
+  $('announcementsViewAllOverlay').addEventListener('click', (e)=>{
+    if(e.target.id==='announcementsViewAllOverlay') $('announcementsViewAllOverlay').classList.remove('open');
+  });
+
+  // ---- Admin authoring + management ----
+  async function annRenderAdminList(){
+    const list = $('announcementsAdminList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = await annLoadAll();
+    if(all.length===0){ list.innerHTML = '<div class="empty-state">No announcements posted yet.</div>'; return; }
+    list.innerHTML = all.map(a=>
+      '<div class="ann-admin-row">'+
+        '<div>'+
+          (a.pinned ? '<span class="ann-badge-pinned">Pinned</span> ' : '')+
+          '<b>'+escapeHtml(a.title)+'</b>'+
+          '<div class="u-status">'+annFmtDate(a.created_at)+' · '+escapeHtml(a.body.length>80?a.body.slice(0,80)+'…':a.body)+'</div>'+
+        '</div>'+
+        '<button type="button" class="btn" style="color:#B3402D; border-color:#B3402D; flex-shrink:0;" data-ann-delete="'+a.id+'">Delete</button>'+
+      '</div>'
+    ).join('');
+  }
+  $('menuManageAnnouncements').addEventListener('click', async ()=>{
+    closeMainMenu();
+    if(!(await ensureAdminAuthenticated())) return;
+    $('announcementsAdminOverlay').classList.add('open');
+    $('annTitleInput').value = '';
+    $('annBodyInput').value = '';
+    $('annPinnedInput').checked = false;
+    annRenderAdminList();
+  });
+  $('closeAnnAdmin').addEventListener('click', ()=> $('announcementsAdminOverlay').classList.remove('open'));
+  $('announcementsAdminOverlay').addEventListener('click', (e)=>{
+    if(e.target.id==='announcementsAdminOverlay') $('announcementsAdminOverlay').classList.remove('open');
+  });
+  $('annPostBtn').addEventListener('click', async ()=>{
+    const title = $('annTitleInput').value.trim();
+    const body = $('annBodyInput').value.trim();
+    const pinned = $('annPinnedInput').checked;
+    if(!title || !body){ toast('Add a title and message'); return; }
+    if(!currentUser){ toast('Please sign in again'); return; }
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return; }
+    $('annPostBtn').disabled = true;
+    try{
+      const { error } = await db.from('announcements').insert({
+        title, body, pinned, created_by: currentUser.id, created_by_name: currentUser.name
+      });
+      if(error) throw error;
+      $('annTitleInput').value = ''; $('annBodyInput').value = ''; $('annPinnedInput').checked = false;
+      toast('Announcement posted');
+      annRenderAdminList();
+    }catch(e){ console.error('post announcement failed', describeCloudError(e)); toast('Could not post — please try again'); }
+    $('annPostBtn').disabled = false;
+  });
+  $('announcementsAdminList').addEventListener('click', async (e)=>{
+    const btn = e.target.closest('[data-ann-delete]');
+    if(!btn) return;
+    if(!confirm('Delete this announcement?')) return;
+    if(!(await ensureCloud())){ toast('This needs a connection — try again when online'); return; }
+    try{
+      const { error } = await db.from('announcements').delete().eq('id', btn.dataset.annDelete);
+      if(error) throw error;
+      annRenderAdminList();
+    }catch(e){ console.error('delete announcement failed', describeCloudError(e)); toast('Could not delete — please try again'); }
+  });
 
 })();

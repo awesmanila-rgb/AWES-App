@@ -230,10 +230,25 @@
     const isTech = !!(currentUser && currentUser.role!=='admin');
     const isAdmin = !!(currentUser && currentUser.role==='admin');
     // Switches on the desktop/tablet sidebar dashboard shell (see the
-    // admin-sidebar / dashboard-topbar rules in css/app.css) — off for
-    // technician accounts and before login, so their view is unaffected.
+    // admin-sidebar / dashboard-topbar rules in css/app.css) — off before
+    // login, and now shared by both roles (role-tech mirrors role-admin;
+    // the shell layout itself is identical, only its contents differ).
     document.body.classList.toggle('role-admin', isAdmin);
-    if(!isAdmin) document.body.classList.remove('dashboard-active');
+    document.body.classList.toggle('role-tech', isTech);
+    if(!currentUser) document.body.classList.remove('dashboard-active');
+    // Sidebar nav: each role only sees its own group of links (My Work vs.
+    // Operations/Management) — see the #sidebarTechGroup / #sidebarAdminGroup
+    // wrappers in index.html.
+    setVis('sidebarTechGroup', isTech);
+    setVis('sidebarAdminGroup', isAdmin);
+    if(currentUser){
+      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : "Technician's Homepage";
+      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : 'Field digital form';
+      const initial = (currentUser.name||'?').trim().charAt(0).toUpperCase() || '?';
+      const avatarEl = $('sidebarAvatar'); if(avatarEl) avatarEl.textContent = initial;
+      const acctNameEl = $('sidebarAccountName'); if(acctNameEl) acctNameEl.textContent = currentUser.name || '—';
+      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : 'Technician';
+    }
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already
     // never saw the header button; admins can only view/edit existing

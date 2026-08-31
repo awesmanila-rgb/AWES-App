@@ -1,5 +1,5 @@
 // ---------- history ----------
-  async function loadHistory(containerId, filter){
+  async function loadHistory(containerId, filter, onlyUserId){
     const list = $(containerId || 'historyList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     let reports = null;
@@ -16,6 +16,7 @@
         }
       }catch(e){}
     }
+    if(onlyUserId) reports = reports.filter(d=> d.technicianId===onlyUserId);
     if(filter==='draft') reports = reports.filter(d=> !d.completed);
     else if(filter==='completed') reports = reports.filter(d=> d.completed);
     // filter==='all' (or omitted) keeps everything, unfiltered.
