@@ -650,6 +650,90 @@ window.awesCss = {
   </div>
 </div>
 
+<!-- Liquidation: Add Item chooser — first stop after tapping "Liquidate Now"
+     or "+ Add Item". Picking a tab hands off to the matching form modal
+     below; this modal itself holds no fields. -->
+<div class="overlay" id="liqAddItemModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add Item to your liquidation</h3>
+      <button class="sheet-close" id="closeLiqAddItemModal">&times;</button>
+    </div>
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab" id="liqAddItemTabTransport">🚕 Transportation</button>
+      <button type="button" class="seg-tab" id="liqAddItemTabOthers">📄 Others</button>
+    </div>
+  </div>
+</div>
+
+<!-- Liquidation: Others item form (a single receipt — materials, meals,
+     lodging, etc.). -->
+<div class="overlay" id="liqOthersModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add Expense Item</h3>
+      <button class="sheet-close" id="closeLiqOthersModal">&times;</button>
+    </div>
+    <div class="field">
+      <label>Date <span class="req">*</span></label>
+      <input type="date" id="liqOthersDate">
+    </div>
+    <div class="field">
+      <label>Particular <span class="req">*</span></label>
+      <input type="text" id="liqOthersParticular" placeholder="e.g. Materials receipt, meals, lodging">
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Qty</label>
+        <input type="number" min="1" step="1" id="liqOthersQty" value="1">
+      </div>
+      <div class="field">
+        <label>Amount (₱) <span class="req">*</span></label>
+        <input type="number" min="0" step="0.01" id="liqOthersAmount">
+      </div>
+    </div>
+    <div class="field">
+      <label>Attach File <span class="req">*</span></label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="file" accept="image/*,application/pdf" capture="environment" id="liqOthersFile" style="display:none;">
+        <button type="button" class="btn btn-secondary" id="liqOthersAttachBtn" style="flex:1;">📎 Attach Photo of Receipt</button>
+      </div>
+      <div class="leave-note" id="liqOthersFileStatus" style="margin-top:6px;"></div>
+    </div>
+    <button type="button" class="btn btn-primary" id="liqOthersAddItemBtn" style="width:100%; margin-top:6px;">Add Item</button>
+  </div>
+</div>
+
+<!-- Liquidation: Transportation item form — one or more trip legs for fares
+     that rarely come with a single receipt, added as one liquidation item. -->
+<div class="overlay" id="liqTransportModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>🚕 Transportation Expenses</h3>
+      <button class="sheet-close" id="closeLiqTransportModal">&times;</button>
+    </div>
+    <div class="leave-note" style="margin-bottom:10px;">For fares without a single receipt — list every leg, then add the whole table as one liquidation item.</div>
+    <div id="caTransportRowsList"></div>
+    <button type="button" class="btn btn-secondary" id="caTransportAddRowBtn" style="width:100%; margin-top:6px;">+ Add Another</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-weight:700;">
+      <span>Total</span><span id="caTransportTotalDisplay">₱0.00</span>
+    </div>
+    <button type="button" class="btn btn-primary" id="caTransportAddToLiqBtn" style="width:100%; margin-top:10px;">Add Item</button>
+  </div>
+</div>
+
+<!-- Liquidation Form preview — read-only rendering of the itemized form the
+     technician is about to submit. -->
+<div class="overlay" id="liqFormPreviewOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Liquidation Form</h3>
+      <button class="sheet-close" id="closeLiqFormPreview">&times;</button>
+    </div>
+    <div id="liqFormPreviewBody"></div>
+  </div>
+</div>
+
 <!-- Equipment full-detail viewer — opened from the "Equipment (X of Y
      reported)" list on a Dispatch Ticket card, so admin/technicians can see
      every field on one unit (model/serial numbers, refrigerant, scope, its
@@ -859,36 +943,36 @@ window.awesCss = {
                when there's nothing left to edit. -->
           <div id="caLiqReadonlyView" style="display:none;">
             <div id="caLiqReadonlyItems"></div>
+            <button type="button" class="btn btn-secondary" id="caLiqDownloadPdfBtn" style="width:100%; margin-top:12px; display:none;">⬇️ Download PDF Copy</button>
           </div>
 
           <!-- Editable form: shown when nothing has been submitted yet, or
-               a previous submission was disapproved and needs fixing. -->
+               a previous submission was disapproved and needs fixing. Items
+               are added exclusively through the Add Item modal flow below —
+               nothing here is an inline form. -->
           <div id="caLiqEditView" style="display:none;">
-            <div id="caLiqItemsList"></div>
-            <button type="button" class="btn btn-secondary" id="caLiqAddItemBtn" style="width:100%; margin-top:6px;">+ Add Expense Item</button>
 
-            <div style="margin:18px 0; border-top:1px dashed var(--border);"></div>
-
-            <div class="card-head" style="padding:0 0 10px 0;"><span>🚕 Transportation Expenses</span></div>
-            <div class="leave-note" style="margin-bottom:10px;">For fares without a single receipt — list every leg, then add the whole table as one liquidation item.</div>
-            <div id="caTransportRowsList"></div>
-            <button type="button" class="btn btn-secondary" id="caTransportAddRowBtn" style="width:100%; margin-top:6px;">+ Add Another</button>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-weight:700;">
-              <span>Total</span><span id="caTransportTotalDisplay">₱0.00</span>
+            <!-- Before any item has been added: just the entry point. -->
+            <div id="caLiqStartPrompt" style="display:none;">
+              <button type="button" class="btn btn-primary" id="caLiqStartBtn" style="width:100%;">Liquidate Now</button>
             </div>
-            <button type="button" class="btn btn-primary" id="caTransportAddToLiqBtn" style="width:100%; margin-top:10px;">Add to Liquidation</button>
 
-            <div style="margin:18px 0; border-top:1px dashed var(--border);"></div>
+            <!-- Once at least one item exists: the Liquidation Form itself. -->
+            <div id="caLiqFormBuilt" style="display:none;">
+              <div class="card-head" style="padding:0 0 10px 0;"><span>🧾 Liquidation Form</span></div>
+              <div id="caLiqFormTable"></div>
+              <button type="button" class="btn btn-secondary" id="caLiqAddItemBtn" style="width:100%; margin-top:10px;">+ Add Item</button>
 
-            <div class="field">
-              <label>Notes for Admin</label>
-              <textarea id="caLiqNotes" rows="2" placeholder="Optional — anything the admin should know"></textarea>
+              <div style="margin:18px 0; border-top:1px dashed var(--border);"></div>
+
+              <div class="field">
+                <label>Notes for Admin</label>
+                <textarea id="caLiqNotes" rows="2" placeholder="Optional — anything the admin should know"></textarea>
+              </div>
+
+              <button type="button" class="btn btn-secondary" id="caLiqViewFormBtn" style="width:100%; margin-top:6px;">View Liquidation Form</button>
+              <button type="button" class="btn btn-primary" id="caLiqSubmitBtn" style="width:100%; margin-top:10px;">Submit</button>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin:10px 0; font-weight:700; font-size:15px;">
-              <span>Total Liquidated</span><span id="caLiqTotalDisplay">₱0.00</span>
-            </div>
-            <div id="caLiqDiffDisplay" class="leave-note" style="margin-bottom:10px;"></div>
-            <button type="button" class="btn btn-primary" id="caLiqSubmitBtn" style="width:100%;">Submit for Approval</button>
           </div>
         </div>
       </div>

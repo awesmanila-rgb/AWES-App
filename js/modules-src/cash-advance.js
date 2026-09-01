@@ -224,7 +224,16 @@
     if(dot) dot.style.display = 'none';
     return null;
   }
-  $('caGoLiquidateBtn').addEventListener('click', ()=> caShowTab('liquidate'));
+  $('caGoLiquidateBtn').addEventListener('click', async ()=>{
+    caShowTab('liquidate');
+    // If there's nothing to fix from a disapproval, skip straight to the Add
+    // Item modal instead of making the technician tap a second "Liquidate
+    // Now" button once they land on the tab.
+    await caShowLiqTab();
+    if(caLiqItems.length===0 && $('caLiqEditView').style.display !== 'none'){
+      caLiqOpenAddItemModal();
+    }
+  });
 
   // Lets a technician withdraw their own request while it's still awaiting a
   // decision. Once admin approves or disapproves it, this is no longer an
@@ -421,109 +430,105 @@
     });
   }
 
-  function caLiqRenderItems(){
-    const wrap = $('caLiqItemsList');
-    wrap.innerHTML = '';
-    if(caLiqItems.length===0){
-      wrap.innerHTML = '<div class="empty-state">No items yet — add an expense or a transportation entry below.</div>';
-    }
-    caLiqItems.forEach((item)=>{
-      const row = document.createElement('div');
-      row.className = 'card';
-      row.dataset.itemId = item.id;
-      row.style.cssText = 'margin-bottom:10px; box-shadow:none; border:1px solid var(--border);';
-      if(item.type==='transport'){
-        row.innerHTML =
-          '<div class="card-body" style="padding:12px;">'+
-            '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
-              '<div><b>🚕 '+escapeHtml(item.description)+'</b><div class="leave-note">'+item.transportRows.length+' trip(s)</div></div>'+
-              '<div style="text-align:right;"><div style="font-weight:700;">'+caFmtPeso(item.amount)+'</div></div>'+
-            '</div>'+
-            '<div style="display:flex; gap:8px; margin-top:8px;">'+
-              '<button type="button" class="btn btn-secondary" data-act="view" style="flex:1;">View Trips</button>'+
-              '<button type="button" class="btn btn-secondary" data-act="remove" style="flex:1; color:var(--danger);">Remove</button>'+
-            '</div>'+
-          '</div>';
-      }else{
-        const hasAttachment = !!item.attachmentData;
-        row.innerHTML =
-          '<div class="card-body" style="padding:12px;">'+
-            '<div class="field" style="margin-bottom:8px;"><label>Description <span class="req">*</span></label>'+
-              '<input type="text" data-f="description" placeholder="e.g. Materials receipt, meals, lodging" value="'+escapeHtml(item.description||'')+'"></div>'+
-            '<div class="field" style="margin-bottom:8px;"><label>Amount (₱) <span class="req">*</span></label>'+
-              '<input type="number" min="0" step="0.01" data-f="amount" value="'+(item.amount||'')+'"></div>'+
-            '<div style="display:flex; gap:8px; align-items:center;">'+
-              '<input type="file" accept="image/*,application/pdf" capture="environment" data-f="file" style="display:none;">'+
-              '<button type="button" class="btn btn-secondary" data-act="attach" style="flex:1;">📎 '+(hasAttachment ? 'Replace File' : 'Attach File')+'</button>'+
-              '<button type="button" class="btn btn-secondary" data-act="remove" style="color:var(--danger);">Remove</button>'+
-            '</div>'+
-            (hasAttachment
-              ? '<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span class="leave-note">📄 '+escapeHtml(item.attachmentName||'Attached')+'</span><button type="button" class="btn btn-secondary" data-act="view" style="padding:4px 10px; font-size:11px;">View</button></div>'
-              : '<div class="leave-note" style="margin-top:8px; color:var(--danger);">Required — attach a receipt photo or file</div>')+
-          '</div>';
-      }
-      wrap.appendChild(row);
+  // ================= Add Item modal flow =================
+  // Items only ever enter caLiqItems through one of the two form modals
+  // below, opened from the chooser modal. Nothing on the Liquidate tab
+  // itself is an editable inline form anymore.
 
-      if(item.type==='transport'){
-        row.querySelector('[data-act="view"]').addEventListener('click', ()=> openLiquidationAttachment(item));
-        row.querySelector('[data-act="remove"]').addEventListener('click', ()=>{
-          caLiqItems = caLiqItems.filter(i=> i.id!==item.id);
-          caLiqRenderItems(); caLiqUpdateTotals();
-        });
-      }else{
-        row.querySelector('[data-f="description"]').addEventListener('input', (e)=>{ item.description = e.target.value; });
-        row.querySelector('[data-f="amount"]').addEventListener('input', (e)=>{ item.amount = parseFloat(e.target.value)||0; caLiqUpdateTotals(); });
-        const fileInput = row.querySelector('[data-f="file"]');
-        row.querySelector('[data-act="attach"]').addEventListener('click', ()=> fileInput.click());
-        fileInput.addEventListener('change', async ()=>{
-          const file = fileInput.files[0];
-          if(!file) return;
-          try{
-            if(file.type.startsWith('image/')){
-              item.attachmentData = await compressImageToDataURL(file, 1000, 0.6);
-              item.attachmentMime = 'image/jpeg';
-            }else{
-              // Non-image files (e.g. PDF) are stored as-is; keep these small.
-              const dataUrl = await new Promise((resolve, reject)=>{
-                const r = new FileReader();
-                r.onload = ()=> resolve(r.result);
-                r.onerror = ()=> reject(new Error('read failed'));
-                r.readAsDataURL(file);
-              });
-              item.attachmentData = dataUrl;
-              item.attachmentMime = file.type || 'application/octet-stream';
-            }
-            if(caAttachmentSize(item.attachmentData) > CA_ATTACHMENT_MAX_BYTES){
-              item.attachmentData = null; item.attachmentMime = null;
-              toast('That file is too large — take a photo instead of attaching a full-size file');
-              caLiqRenderItems();
-              return;
-            }
-            item.attachmentName = file.name;
-            toast('File attached');
-            caLiqRenderItems();
-          }catch(e){ toast('Could not attach that file'); }
-        });
-        if(hasAttachment){
-          row.querySelector('[data-act="view"]').addEventListener('click', ()=> openLiquidationAttachment(item));
-        }
-      }
-    });
+  function caLiqOpenAddItemModal(){ $('liqAddItemModal').classList.add('open'); }
+  function caLiqCloseAddItemModal(){ $('liqAddItemModal').classList.remove('open'); }
+  $('closeLiqAddItemModal').addEventListener('click', caLiqCloseAddItemModal);
+  $('liqAddItemModal').addEventListener('click', (e)=>{ if(e.target.id==='liqAddItemModal') caLiqCloseAddItemModal(); });
+  $('caLiqStartBtn').addEventListener('click', caLiqOpenAddItemModal);
+  $('caLiqAddItemBtn').addEventListener('click', caLiqOpenAddItemModal);
+
+  // ---- "Others" item form (a single receipt) ----
+  function caLiqOpenOthersModal(){
+    $('liqOthersDate').value = todayISO();
+    $('liqOthersParticular').value = '';
+    $('liqOthersQty').value = '1';
+    $('liqOthersAmount').value = '';
+    caLiqOthersAttachment = null;
+    $('liqOthersFileStatus').textContent = '';
+    caLiqCloseAddItemModal();
+    $('liqOthersModal').classList.add('open');
   }
-  $('caLiqAddItemBtn').addEventListener('click', ()=>{
-    caLiqItems.push({id: caLiqItemId(), type:'item', description:'', amount:0, attachmentName:null, attachmentData:null, attachmentMime:null});
-    caLiqRenderItems();
+  function caLiqCloseOthersModal(){ $('liqOthersModal').classList.remove('open'); }
+  $('liqAddItemTabOthers').addEventListener('click', caLiqOpenOthersModal);
+  $('closeLiqOthersModal').addEventListener('click', caLiqCloseOthersModal);
+  $('liqOthersModal').addEventListener('click', (e)=>{ if(e.target.id==='liqOthersModal') caLiqCloseOthersModal(); });
+
+  let caLiqOthersAttachment = null; // {data, mime, name} for the item currently being built
+  $('liqOthersAttachBtn').addEventListener('click', ()=> $('liqOthersFile').click());
+  $('liqOthersFile').addEventListener('change', async ()=>{
+    const file = $('liqOthersFile').files[0];
+    if(!file) return;
+    try{
+      let dataUrl, mime;
+      if(file.type.startsWith('image/')){
+        dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+        mime = 'image/jpeg';
+      }else{
+        dataUrl = await new Promise((resolve, reject)=>{
+          const r = new FileReader();
+          r.onload = ()=> resolve(r.result);
+          r.onerror = ()=> reject(new Error('read failed'));
+          r.readAsDataURL(file);
+        });
+        mime = file.type || 'application/octet-stream';
+      }
+      if(caAttachmentSize(dataUrl) > CA_ATTACHMENT_MAX_BYTES){
+        toast('That file is too large — take a photo instead of attaching a full-size file');
+        return;
+      }
+      caLiqOthersAttachment = {data: dataUrl, mime, name: file.name};
+      $('liqOthersFileStatus').textContent = '📄 '+file.name;
+    }catch(e){ toast('Could not attach that file'); }
+  });
+  $('liqOthersAddItemBtn').addEventListener('click', ()=>{
+    const date = $('liqOthersDate').value;
+    const description = $('liqOthersParticular').value.trim();
+    const qty = parseInt($('liqOthersQty').value, 10) || 1;
+    const amount = parseFloat($('liqOthersAmount').value) || 0;
+    if(!date){ toast('Set the date'); return; }
+    if(!description){ toast('Enter the particular'); return; }
+    if(qty<1){ toast('Qty must be at least 1'); return; }
+    if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+    if(!caLiqOthersAttachment){ toast('Attach a receipt photo or file'); return; }
+    const newItemId = caLiqItemId();
+    caLiqItems.push({
+      id: newItemId, type:'item', date, description, qty, amount,
+      attachmentName: caLiqOthersAttachment.name,
+      attachmentData: caLiqOthersAttachment.data,
+      attachmentMime: caLiqOthersAttachment.mime
+    });
+    caLiqCloseOthersModal();
+    caLiqRenderForm();
+    toast('Item added');
+    caLiqFlashItem(newItemId);
   });
 
-  // The item list this scrolls to (caLiqItemsList) sits above the
-  // Transportation Expenses / Add Expense Item sections, off-screen from
-  // wherever the technician is filling in a new entry. Without this, adding
-  // an item just clears the form with no visible change nearby — reads as
-  // "nothing happened, my data disappeared" — even though the item list
-  // above did update. Scroll to the new row and flash it so there's a clear,
-  // visible confirmation right where it's easy to miss otherwise.
+  // ---- Transportation item form (one or more trip legs, added as a
+  // single liquidation item) ----
+  function caLiqOpenTransportModal(){
+    caTransportRows = [caTransportRowTemplate()];
+    caTransportRenderRows(); caTransportUpdateTotal();
+    caLiqCloseAddItemModal();
+    $('liqTransportModal').classList.add('open');
+  }
+  function caLiqCloseTransportModal(){ $('liqTransportModal').classList.remove('open'); }
+  $('liqAddItemTabTransport').addEventListener('click', caLiqOpenTransportModal);
+  $('closeLiqTransportModal').addEventListener('click', caLiqCloseTransportModal);
+  $('liqTransportModal').addEventListener('click', (e)=>{ if(e.target.id==='liqTransportModal') caLiqCloseTransportModal(); });
+
+  // The item list this scrolls to sits above the modal trigger, off-screen
+  // from wherever the technician just was. Without this, adding an item just
+  // closes the modal with no visible change nearby — reads as "nothing
+  // happened, my data disappeared" — even though the list above did update.
+  // Scroll to the new row and flash it so there's a clear, visible
+  // confirmation right where it's easy to miss otherwise.
   function caLiqFlashItem(itemId){
-    const row = $('caLiqItemsList').querySelector('[data-item-id="'+itemId+'"]');
+    const row = $('caLiqFormTable').querySelector('[data-item-id="'+itemId+'"]');
     if(!row) return;
     row.scrollIntoView({behavior:'smooth', block:'center'});
     row.style.transition = 'background-color 0.3s';
@@ -531,28 +536,98 @@
     setTimeout(()=>{ row.style.backgroundColor = ''; }, 1400);
   }
 
-  function caLiqUpdateTotals(){
+  // Computes the running totals shown on the Liquidation Form: the sum of
+  // all items, and — once we know the amount given — whether the technician
+  // owes money back (Unreturned Excess C.A.) or is owed money (Accounts
+  // Receivable), plus that same figure phrased as an action.
+  function caLiqComputeTotals(){
     const total = caLiqItems.reduce((s,i)=> s + (Number(i.amount)||0), 0);
-    $('caLiqTotalDisplay').textContent = caFmtPeso(total);
-    if(caLiqActiveRecord){
-      const given = Number(caLiqActiveRecord.amountGiven)||0;
-      const diff = given - total;
-      const diffEl = $('caLiqDiffDisplay');
-      if(Math.abs(diff) < 0.005){
-        diffEl.textContent = 'Fully accounted for.';
-        diffEl.style.color = '';
-      }else if(diff > 0){
-        diffEl.textContent = caFmtPeso(diff)+' unspent — you may need to return this amount.';
-        diffEl.style.color = 'var(--amber, #B8860B)';
-      }else{
-        diffEl.textContent = caFmtPeso(Math.abs(diff))+' over the amount given — note the reason above.';
-        diffEl.style.color = 'var(--danger)';
-      }
-    }
-    return total;
+    const given = caLiqActiveRecord ? (Number(caLiqActiveRecord.amountGiven)||0) : 0;
+    const diff = given - total; // positive: unspent cash advance; negative: technician spent more than given
+    return { total, given, diff };
   }
 
-  // ---- Transportation sub-form ----
+  // Particular text for an item, folding in Qty when it's more than 1 so the
+  // Liquidation Form's single "Particular" column still carries it.
+  function caLiqItemParticular(item){
+    if(item.type==='transport') return item.description;
+    return item.qty && item.qty>1 ? item.description+' (Qty: '+item.qty+')' : item.description;
+  }
+
+  // First date associated with an item, for the Liquidation Form's Date
+  // column — a transportation item can cover several legs on different
+  // dates, so fall back to a range indicator when they differ.
+  function caLiqItemDate(item){
+    if(item.type==='transport'){
+      const dates = Array.from(new Set((item.transportRows||[]).map(r=> r.date).filter(Boolean)));
+      if(dates.length===0) return '—';
+      if(dates.length===1) return leaveFmtDate(dates[0]);
+      dates.sort();
+      return 'Multiple';
+    }
+    return item.date ? leaveFmtDate(item.date) : '—';
+  }
+
+  function caLiqFormRowsHtml(){
+    let html = '<div style="font-size:12px; color:var(--text-muted); display:flex; padding:0 4px 6px; font-weight:700; text-transform:uppercase; letter-spacing:.3px;">'+
+      '<span style="width:28px;">No.</span><span style="flex:1;">Date</span><span style="flex:2;">Particular</span><span style="text-align:right;">Amount</span></div>';
+    caLiqItems.forEach((item, idx)=>{
+      html += '<div class="hist-item" data-item-id="'+item.id+'" data-view-item="'+item.id+'" style="align-items:flex-start;">'+
+        '<div style="display:flex; flex:1; gap:8px; align-items:center;">'+
+          '<span style="width:28px; color:var(--text-muted);">'+(idx+1)+'</span>'+
+          '<span style="flex:1; font-size:12px; color:var(--text-muted);">'+caLiqItemDate(item)+'</span>'+
+          '<span style="flex:2;"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(caLiqItemParticular(item))+'</b></span>'+
+        '</div>'+
+        '<div style="text-align:right; font-weight:700; white-space:nowrap;">'+caFmtPeso(item.amount)+'</div>'+
+        '<button type="button" class="btn btn-secondary" data-act="remove" data-item-id="'+item.id+'" style="margin-left:8px; color:var(--danger); padding:4px 10px; font-size:11px;">✕</button>'+
+      '</div>';
+    });
+    return html;
+  }
+
+  function caLiqTotalsHtml(){
+    const {total, given, diff} = caLiqComputeTotals();
+    const excessLabel = diff >= 0 ? 'Unreturned Excess C.A.' : 'Accounts Receivable';
+    const excessAmount = caFmtPeso(Math.abs(diff));
+    const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
+    return (
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; border-top:1px solid var(--border); font-weight:700;">'+
+        '<span>Total Expenses</span><span>'+caFmtPeso(total)+'</span></div>'+
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; font-size:13px; color:var(--text-muted);">'+
+        '<span>'+excessLabel+'</span><span>'+excessAmount+'</span></div>'+
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; border-top:1px dashed var(--border); font-weight:700; font-size:15px;">'+
+        '<span>'+balanceLabel+'</span><span>'+excessAmount+'</span></div>'+
+      (given ? '<div class="leave-note" style="padding:0 4px;">Cash advance given: '+caFmtPeso(given)+'</div>' : '')
+    );
+  }
+
+  function caLiqRenderForm(){
+    const hasItems = caLiqItems.length>0;
+    $('caLiqStartPrompt').style.display = hasItems ? 'none' : '';
+    $('caLiqFormBuilt').style.display = hasItems ? '' : 'none';
+    if(!hasItems) return;
+    const wrap = $('caLiqFormTable');
+    wrap.innerHTML = caLiqFormRowsHtml() + caLiqTotalsHtml();
+    caLiqItems.forEach(item=>{
+      const row = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      if(row){
+        row.addEventListener('click', (e)=>{
+          if(e.target.closest('[data-act="remove"]')) return;
+          openLiquidationAttachment(item);
+        });
+      }
+      const rmBtn = wrap.querySelector('[data-act="remove"][data-item-id="'+CSS.escape(String(item.id))+'"]');
+      if(rmBtn){
+        rmBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          caLiqItems = caLiqItems.filter(i=> i.id!==item.id);
+          caLiqRenderForm();
+        });
+      }
+    });
+  }
+
+  // ---- Transportation sub-form (rendered inside liqTransportModal) ----
   function caTransportRowTemplate(){
     return {date: todayISO(), mode:'', from:'', to:'', amount:0, purpose:''};
   }
@@ -587,9 +662,9 @@
       // and firing 'change' (see attachCombo in customers.js) — it does NOT
       // fire 'input'. Syncing on 'input' alone left row.mode empty whenever a
       // suggestion was picked by click: the field looked filled in, but
-      // "Add to Liquidation" validation (which reads row.mode, not the DOM)
-      // silently rejected the trip as incomplete. Listen for both so typed
-      // text and picked suggestions are captured the same way.
+      // "Add Item" validation (which reads row.mode, not the DOM) silently
+      // rejected the trip as incomplete. Listen for both so typed text and
+      // picked suggestions are captured the same way.
       const syncMode = (e)=>{ row.mode = e.target.value; };
       modeInput.addEventListener('input', syncMode);
       modeInput.addEventListener('change', syncMode);
@@ -620,12 +695,22 @@
       description: 'Transportation Expenses ('+valid.length+' trip'+(valid.length>1?'s':'')+')',
       amount: total, transportRows: valid
     });
-    caTransportRows = [caTransportRowTemplate()];
-    caTransportRenderRows(); caTransportUpdateTotal();
-    caLiqRenderItems(); caLiqUpdateTotals();
-    toast('Added to liquidation');
+    caLiqCloseTransportModal();
+    caLiqRenderForm();
+    toast('Item added');
     caLiqFlashItem(newItemId);
   });
+
+  // ---- View Liquidation Form (read-only preview of the form above) ----
+  function caLiqOpenFormPreview(){
+    $('liqFormPreviewBody').innerHTML =
+      (caLiqActiveRecord ? '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(caLiqActiveRecord.amountGiven)+' given on '+leaveFmtDate(caLiqActiveRecord.dateGiven)+'</div>' : '')+
+      caLiqFormRowsHtml() + caLiqTotalsHtml();
+    $('liqFormPreviewOverlay').classList.add('open');
+  }
+  $('caLiqViewFormBtn').addEventListener('click', caLiqOpenFormPreview);
+  $('closeLiqFormPreview').addEventListener('click', ()=> $('liqFormPreviewOverlay').classList.remove('open'));
+  $('liqFormPreviewOverlay').addEventListener('click', (e)=>{ if(e.target.id==='liqFormPreviewOverlay') $('liqFormPreviewOverlay').classList.remove('open'); });
 
   function openLiquidationAttachment(item){
     if(item.type==='transport'){
@@ -712,20 +797,132 @@
   function caLiqRenderReadonly(record){
     const wrap = $('caLiqReadonlyItems');
     const liq = record.liquidation;
+    const given = Number(record.amountGiven)||0;
+    const total = Number(liq.totalAmount)||0;
+    const diff = given - total;
+    const excessLabel = diff >= 0 ? 'Unreturned Excess C.A.' : 'Accounts Receivable';
+    const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
     let html = '<div class="leave-comment" style="margin-bottom:10px;">'+caLiquidationStatusPill(liq)+
-      '<div style="margin-top:6px;">Total liquidated: <b>'+caFmtPeso(liq.totalAmount)+'</b> of '+caFmtPeso(record.amountGiven)+' given</div>'+
       (liq.comment ? '<div style="margin-top:6px;"><b>Notes</b> '+escapeHtml(liq.comment)+'</div>' : '')+
-      '</div>';
-    (liq.items||[]).forEach(item=>{
+      '</div>'+
+      '<div style="font-size:12px; color:var(--text-muted); display:flex; padding:0 4px 6px; font-weight:700; text-transform:uppercase; letter-spacing:.3px;">'+
+        '<span style="width:28px;">No.</span><span style="flex:1;">Date</span><span style="flex:2;">Particular</span><span style="text-align:right;">Amount</span></div>';
+    (liq.items||[]).forEach((item, idx)=>{
       html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+escapeHtml(item.id)+'">'+
-        '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(item.description)+'</b>'+
-        '<span>'+caFmtPeso(item.amount)+'</span></div></div>';
+        '<div style="display:flex; flex:1; gap:8px; align-items:center;">'+
+          '<span style="width:28px; color:var(--text-muted);">'+(idx+1)+'</span>'+
+          '<span style="flex:1; font-size:12px; color:var(--text-muted);">'+caLiqItemDate(item)+'</span>'+
+          '<span style="flex:2;"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(caLiqItemParticular(item))+'</b></span>'+
+        '</div>'+
+        '<span style="font-weight:700; white-space:nowrap;">'+caFmtPeso(item.amount)+'</span></div>';
     });
+    html +=
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; border-top:1px solid var(--border); font-weight:700;">'+
+        '<span>Total Expenses</span><span>'+caFmtPeso(total)+'</span></div>'+
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; font-size:13px; color:var(--text-muted);">'+
+        '<span>'+excessLabel+'</span><span>'+caFmtPeso(Math.abs(diff))+'</span></div>'+
+      '<div style="display:flex; justify-content:space-between; padding:8px 4px; border-top:1px dashed var(--border); font-weight:700; font-size:15px;">'+
+        '<span>'+balanceLabel+'</span><span>'+caFmtPeso(Math.abs(diff))+'</span></div>'+
+      '<div class="leave-note" style="padding:0 4px;">Cash advance given: '+caFmtPeso(given)+'</div>';
     wrap.innerHTML = html;
     (liq.items||[]).forEach(item=>{
       const el = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
       if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: record.id})));
     });
+
+    const dlBtn = $('caLiqDownloadPdfBtn');
+    if(liq.status==='approved'){
+      dlBtn.style.display = '';
+      dlBtn.onclick = ()=> caDownloadLiquidationPdf(record);
+      // Auto-save a PDF copy the first time the technician sees the approval,
+      // so they end up with a record of it without having to remember to tap
+      // the button. Guarded per-record so it only fires once.
+      caMaybeAutoSaveLiquidationPdf(record);
+    }else{
+      dlBtn.style.display = 'none';
+      dlBtn.onclick = null;
+    }
+  }
+
+  // ---- Liquidation PDF (approved copy — informational, not re-editable) ----
+  async function caBuildLiquidationPdf(record){
+    const liq = record.liquidation;
+    await loadAwesScript('jspdf', awesLibs.jspdf);
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p','pt','a4');
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    let y = 44;
+    const headerH = 90;
+    doc.setFillColor(21,77,52);
+    doc.rect(0,0,pageW,headerH,'F');
+    try{ doc.addImage(AWES_LOGO_B64,'PNG', margin, 14, 108, 36); }catch(e){}
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold'); doc.setFontSize(13);
+    doc.text('LIQUIDATION FORM', pageW-margin, 32, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text('Approved '+(liq.decidedAt ? leaveFmtWhen(liq.decidedAt) : ''), pageW-margin, 46, {align:'right'});
+    doc.setTextColor(0,0,0);
+    y = headerH + 24;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Technician: '+(record.userName||'—'), margin, y); y += 14;
+    doc.text('Cash Advance: '+caFmtPeso(record.amountGiven)+' given on '+(leaveFmtDate(record.dateGiven)||'—'), margin, y); y += 14;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    const purposeLines = doc.splitTextToSize('Purpose: '+(record.purpose||'—'), pageW-margin*2);
+    doc.text(purposeLines, margin, y); y += purposeLines.length*11 + 10;
+
+    const rows = (liq.items||[]).map((item, idx)=> [String(idx+1), caLiqItemDate(item), caLiqItemParticular(item), caFmtPeso(item.amount)]);
+    await loadAwesScript('autotable', awesLibs.autotable);
+    doc.autoTable({
+      startY: y,
+      head: [['Item No.','Date','Particular','Amount']],
+      body: rows,
+      margin: {left: margin, right: margin},
+      styles: {fontSize: 9},
+      headStyles: {fillColor:[31,122,80]},
+      columnStyles: {0:{cellWidth:40}, 3:{halign:'right', cellWidth:80}}
+    });
+    y = doc.lastAutoTable.finalY + 16;
+
+    const given = Number(record.amountGiven)||0;
+    const total = Number(liq.totalAmount)||0;
+    const diff = given - total;
+    const excessLabel = diff >= 0 ? 'Unreturned Excess C.A.' : 'Accounts Receivable';
+    const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Total Expenses', margin, y); doc.text(caFmtPeso(total), pageW-margin, y, {align:'right'}); y+=16;
+    doc.setFont('helvetica','normal');
+    doc.text(excessLabel, margin, y); doc.text(caFmtPeso(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=16;
+    doc.setFont('helvetica','bold');
+    doc.text(balanceLabel, margin, y); doc.text(caFmtPeso(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=20;
+
+    if(liq.comment){
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Notes', margin, y); y+=12;
+      doc.setFont('helvetica','normal');
+      const noteLines = doc.splitTextToSize(liq.comment, pageW-margin*2);
+      doc.text(noteLines, margin, y); y += noteLines.length*11 + 8;
+    }
+
+    doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(120,120,120);
+    doc.text('System-generated copy — this document cannot be edited.', margin, 800);
+    return doc;
+  }
+  async function caDownloadLiquidationPdf(record){
+    try{
+      const doc = await caBuildLiquidationPdf(record);
+      await shareOrDownloadPdf(doc, 'Liquidation-'+(record.id||'form')+'.pdf');
+    }catch(e){ console.error('liquidation pdf failed', e); toast('Could not generate the PDF'); }
+  }
+  async function caMaybeAutoSaveLiquidationPdf(record){
+    const flagKey = 'liqpdf:'+record.id;
+    try{
+      await window.storage.get(flagKey, false);
+      return; // already saved once
+    }catch(e){ /* not set yet — fall through and save */ }
+    try{
+      await caDownloadLiquidationPdf(record);
+      await window.storage.set(flagKey, '1', false);
+    }catch(e){ console.error('auto-save liquidation pdf failed', e); }
   }
 
   async function caShowLiqTab(){
@@ -767,10 +964,7 @@
         caLiqItems = [];
         $('caLiqNotes').value = '';
       }
-      caTransportRows = [caTransportRowTemplate()];
-      caLiqRenderItems();
-      caTransportRenderRows(); caTransportUpdateTotal();
-      caLiqUpdateTotals();
+      caLiqRenderForm();
     }else{
       caLiqRenderReadonly(active);
     }
@@ -781,6 +975,7 @@
     if(caLiqItems.length===0){ toast('Add at least one item'); return; }
     for(const item of caLiqItems){
       if(item.type==='transport') continue;
+      if(!item.date){ toast('Every item needs a date'); return; }
       if(!item.description || !item.description.trim()){ toast('Every item needs a description'); return; }
       if(!item.amount || item.amount<=0){ toast('Every item needs a valid amount'); return; }
       if(!item.attachmentData){ toast('Attach a file for every item — "'+item.description+'" is missing one'); return; }
@@ -800,7 +995,7 @@
       toast('These receipts total too much data — remove or retake a few and submit again');
       return;
     }
-    const totalAmount = caLiqUpdateTotals();
+    const totalAmount = caLiqComputeTotals().total;
     const notes = $('caLiqNotes').value.trim();
     // Fetch just this one record rather than pulling the entire table down.
     const rec = await caGetRequest(caLiqActiveRecord.id);
@@ -941,7 +1136,7 @@
     let html = '<div class="field"><label>Items</label></div>';
     liq.items.forEach(item=>{
       html += '<div class="hist-item" style="cursor:pointer;" data-view-item="'+item.id+'">'+
-        '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(item.description)+'</b>'+
+        '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(caLiqItemParticular(item))+'</b>'+
         '<span>'+caFmtPeso(item.amount)+'</span></div></div>';
     });
     html += '<div style="display:flex; justify-content:space-between; font-weight:700; margin:8px 0;"><span>Total</span><span>'+caFmtPeso(liq.totalAmount)+' of '+caFmtPeso(r.amountGiven)+' given</span></div>';
