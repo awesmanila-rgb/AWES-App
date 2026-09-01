@@ -6846,7 +6846,16 @@
       el.querySelector('[data-f="date"]').addEventListener('input', (e)=>{ row.date = e.target.value; });
       const modeInput = el.querySelector('[data-f="mode"]');
       attachCombo(modeInput, 'transportMode');
-      modeInput.addEventListener('input', (e)=>{ row.mode = e.target.value; });
+      // The combo suggestion panel fills the input by setting .value directly
+      // and firing 'change' (see attachCombo in customers.js) — it does NOT
+      // fire 'input'. Syncing on 'input' alone left row.mode empty whenever a
+      // suggestion was picked by click: the field looked filled in, but
+      // "Add to Liquidation" validation (which reads row.mode, not the DOM)
+      // silently rejected the trip as incomplete. Listen for both so typed
+      // text and picked suggestions are captured the same way.
+      const syncMode = (e)=>{ row.mode = e.target.value; };
+      modeInput.addEventListener('input', syncMode);
+      modeInput.addEventListener('change', syncMode);
       el.querySelector('[data-f="from"]').addEventListener('input', (e)=>{ row.from = e.target.value; });
       el.querySelector('[data-f="to"]').addEventListener('input', (e)=>{ row.to = e.target.value; });
       el.querySelector('[data-f="amount"]').addEventListener('input', (e)=>{ row.amount = parseFloat(e.target.value)||0; caTransportUpdateTotal(); });
