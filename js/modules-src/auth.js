@@ -169,40 +169,48 @@
 
   let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
-  // ---------- Admin idle timeout ----------
-  // Admin only, by design: a shared/unattended device left signed in as
-  // Admin is the risky case (Manage Users, approvals, password changes).
-  // Technician sessions are unaffected and keep persisting indefinitely, same
-  // as before. Implemented as "last activity timestamp + periodic check"
+  // ---------- Idle timeout — Admin 15 minutes, Technician 1 hour ----------
+  // A shared/unattended device left signed in is the risk being guarded
+  // against; Admin gets a much shorter window because of its far more
+  // sensitive surface (Manage Users, approvals, password changes, dropdown
+  // list editing). Implemented as "last activity timestamp + periodic check"
   // rather than clearTimeout/setTimeout on every event — mousemove alone can
   // fire dozens of times a second, and resetting a real timer that often is
   // wasted work for no behavioral difference.
-  const ADMIN_IDLE_MS = 15 * 60 * 1000;      // 15 minutes
-  const ADMIN_IDLE_CHECK_MS = 15 * 1000;     // how often we check the clock
-  let lastAdminActivity = Date.now();
-  let adminIdleInterval = null;
+  //
+  // This is the ONLY thing that signs anyone out automatically. Reloading or
+  // refreshing the page never does — see getVerifiedSession/checkLoginGate
+  // below, which restore the saved session from cache whenever the cloud
+  // can't be reached to re-verify it (e.g. a brief signal drop on a field
+  // connection), instead of treating "couldn't check" as "log them out".
+  const IDLE_MS = { admin: 15 * 60 * 1000, tech: 60 * 60 * 1000 };
+  const IDLE_CHECK_MS = 15 * 1000;     // how often we check the clock
+  let lastActivity = Date.now();
+  let idleInterval = null;
 
-  function markAdminActivity(){
-    if(currentUser && currentUser.role==='admin') lastAdminActivity = Date.now();
+  function markActivity(){
+    if(currentUser) lastActivity = Date.now();
   }
   ['mousemove','mousedown','keydown','touchstart','scroll','wheel'].forEach(evt=>{
-    document.addEventListener(evt, markAdminActivity, {passive:true});
+    document.addEventListener(evt, markActivity, {passive:true});
   });
 
-  function startAdminIdleWatch(){
-    lastAdminActivity = Date.now();
-    if(adminIdleInterval) clearInterval(adminIdleInterval);
-    adminIdleInterval = setInterval(async ()=>{
-      if(!currentUser || currentUser.role!=='admin'){ stopAdminIdleWatch(); return; }
-      if(Date.now() - lastAdminActivity >= ADMIN_IDLE_MS){
-        stopAdminIdleWatch();
+  function startIdleWatch(){
+    lastActivity = Date.now();
+    if(idleInterval) clearInterval(idleInterval);
+    idleInterval = setInterval(async ()=>{
+      if(!currentUser){ stopIdleWatch(); return; }
+      const role = currentUser.role;
+      const limitMs = IDLE_MS[role] || IDLE_MS.tech;
+      if(Date.now() - lastActivity >= limitMs){
+        stopIdleWatch();
         await doLogout();
-        toast('Signed out after 15 minutes of inactivity');
+        toast(role==='admin' ? 'Signed out after 15 minutes of inactivity' : 'Signed out after 1 hour of inactivity');
       }
-    }, ADMIN_IDLE_CHECK_MS);
+    }, IDLE_CHECK_MS);
   }
-  function stopAdminIdleWatch(){
-    if(adminIdleInterval){ clearInterval(adminIdleInterval); adminIdleInterval = null; }
+  function stopIdleWatch(){
+    if(idleInterval){ clearInterval(idleInterval); idleInterval = null; }
   }
 
   function updateUserBadge(){
@@ -484,11 +492,25 @@
   // approvals, dropdown-list editing). Now the identity has to come back from
   // Supabase Auth, and "admin" specifically has to match the admin account's
   // email on the server-issued JWT.
+  //
+  // Returns one of three things, and callers must treat them differently:
+  //   {id,email,role}  a verified session was found — trust it fully.
+  //   false             the cloud IS reachable and Auth explicitly reports no
+  //                     active session (truly signed out, or the token
+  //                     expired/was revoked) — any saved local session is
+  //                     stale and should be dropped.
+  //   null              could NOT be checked right now (cloud unreachable,
+  //                     still connecting, or a transient error). This must
+  //                     NOT be treated the same as false/"no session" — doing
+  //                     so would sign someone out on every ordinary page
+  //                     reload/refresh that happens to land during a brief
+  //                     signal drop on a field connection.
   async function getVerifiedSession(){
     if(!(await ensureCloud())) return null;
     try{
       const { data, error } = await db.auth.getSession();
-      if(error || !data || !data.session || !data.session.user) return null;
+      if(error) return null; // couldn't check — unknown, not "none"
+      if(!data || !data.session || !data.session.user) return false; // genuinely no session
       const user = data.session.user;
       const email = (user.email||'').toLowerCase();
       return {
@@ -503,9 +525,10 @@
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem('current-user')||'null'); }catch(e){}
     const verified = await getVerifiedSession();
-    // A stored session that Supabase no longer recognises is stale (expired or
-    // forged). Drop it rather than honouring it.
-    if(saved && !verified){
+    // A stored session that Supabase positively confirms is gone (expired or
+    // forged) is stale — drop it. A stored session we simply couldn't check
+    // right now (verified===null) is kept as-is; see getVerifiedSession above.
+    if(saved && verified===false){
       localStorage.removeItem('current-user');
       currentUser = null;
       saved = null;
@@ -520,34 +543,61 @@
       enterApp();
       return;
     }
-    // Claimed admin but the verified session is a technician: refuse the upgrade.
+    // Claimed admin locally. Admin is the one role that never restores from
+    // cache alone — its far more sensitive surface means every reload has to
+    // re-confirm identity against the server, network permitting. If we
+    // simply couldn't check (offline), ask to sign in again rather than
+    // either granting or silently revoking admin access based on a guess.
     if(saved && saved.role==='admin'){
-      localStorage.removeItem('current-user');
-      currentUser = null;
-      await showLoginScreen('Please sign in again.');
+      if(verified===null){
+        await showLoginScreen('Reconnecting — please sign in again to continue as Admin.');
+      }else{
+        localStorage.removeItem('current-user');
+        currentUser = null;
+        await showLoginScreen('Please sign in again.');
+      }
       return;
     }
     if(saved && verified && saved.id !== verified.id){
-      // Stored identity disagrees with the signed-in account. Trust the server.
+      // Stored identity disagrees with a session we actually verified. Trust the server.
       saved = {id: verified.id};
     }
     if(saved){
-      const fresh = await cloudGetUser(saved.id);
+      // When the cloud is reachable, refresh this technician's record so
+      // admin-side changes (deactivation, restrictions) take effect. When it
+      // isn't (verified===null), fall back to the cached copy rather than
+      // forcing a login screen on a simple reload/refresh while offline —
+      // technicians are exactly the ones most likely to hit a brief signal
+      // drop out in the field.
+      const fresh = verified ? await cloudGetUser(saved.id) : null;
       if(fresh && fresh.active!==false){
         currentUser = {id:fresh.id, name:fresh.name, role:'tech', restrictions: fresh.restrictions||{}, mustChangePassword: !!fresh.mustChangePassword};
+        localStorage.setItem('current-user', JSON.stringify(currentUser));
         updateUserBadge();
         applyUserRestrictions();
         $('loginOverlay').classList.remove('open');
         if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
-      enterApp();
+        enterApp();
         return;
       }
-      localStorage.removeItem('current-user');
-      currentUser = null;
       if(fresh && fresh.active===false){
+        localStorage.removeItem('current-user');
+        currentUser = null;
         await showLoginScreen('Your access was deactivated. Ask your admin, or sign in as someone else.');
         return;
       }
+      if(!verified){
+        currentUser = {id:saved.id, name:saved.name, role:'tech', restrictions: saved.restrictions||{}, mustChangePassword: !!saved.mustChangePassword};
+        updateUserBadge();
+        applyUserRestrictions();
+        $('loginOverlay').classList.remove('open');
+        enterApp();
+        return;
+      }
+      // Verified fine, but the profile lookup itself failed/returned nothing
+      // usable — don't guess, fall through to the login screen.
+      localStorage.removeItem('current-user');
+      currentUser = null;
     }
     await showLoginScreen();
   }
@@ -576,7 +626,7 @@
 
   async function doLogout(){
     if(currentUser && currentUser.role==='admin') exitAdminModeUI();
-    stopAdminIdleWatch();
+    stopIdleWatch();
     trackerStopBroadcasting();
     trackerAdminTeardown();
     currentUser = null;
