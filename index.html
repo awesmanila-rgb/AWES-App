@@ -1508,6 +1508,37 @@ window.awesCss = {
   </div>
 </main>
 
+<!-- Customer History — full page (admin-only), reached via the "History"
+     action on a customer card in Manage Customers. Two states within this
+     one page: the equipment list (customer details + every equipment record
+     on file) and, once an equipment record is tapped, that unit's full
+     service-report history. -->
+<main id="customerHistoryView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="custHistEquipListCard">
+    <div class="card-head"><span>🗂️ Customer History</span></div>
+    <div class="card-body">
+      <button class="btn btn-secondary" id="custHistBackToListBtn" type="button" style="margin-bottom:12px;">← Back to Customers</button>
+      <div id="custHistDetails" style="margin-bottom:14px;"></div>
+      <div style="font-size:12px; font-weight:700; margin-bottom:4px;">Equipment on File</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">Tap a unit to see its full service history.</p>
+      <div id="custHistEquipList"></div>
+    </div>
+  </div>
+  <div class="card" id="custHistServiceCard" style="display:none;">
+    <div class="card-head"><span>🧾 Service History</span></div>
+    <div class="card-body">
+      <button class="btn btn-secondary" id="custHistBackToEquipBtn" type="button" style="margin-bottom:12px;">← Back to Equipment</button>
+      <div id="custHistEquipSummary" style="margin-bottom:14px;"></div>
+      <div class="attendance-table-wrap">
+        <table class="attendance-table">
+          <thead><tr><th>Services Done</th><th>Date</th><th>SR No.</th><th>View Service Report</th></tr></thead>
+          <tbody id="custHistServiceTableBody"><tr><td colspan="4"><div class="empty-state">Loading…</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
 <!-- Equipment full-detail overlay (Manage Equipment List → View All) — tapping
      a row opens this clean label/value view instead of an inline accordion,
      matching the same layout used by the Dispatch Ticket equipment detail

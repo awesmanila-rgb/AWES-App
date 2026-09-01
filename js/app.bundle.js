@@ -2453,6 +2453,7 @@
           '<div class="cust-detail-row"><b>Email:</b> '+escapeHtml(c.email||'—')+'</div>'+
           '<div class="user-card-actions">'+
             '<button data-act="edit" class="primary">Edit</button>'+
+            '<button data-act="history">History</button>'+
             '<button data-act="remove" class="danger">Delete</button>'+
           '</div>'+
         '</div>';
@@ -2467,6 +2468,7 @@
         e.currentTarget.classList.toggle('open', panel.classList.contains('open'));
       });
       card.querySelector('[data-act="edit"]').addEventListener('click', (e)=>{ e.stopPropagation(); startEditCustomer(c); });
+      card.querySelector('[data-act="history"]').addEventListener('click', (e)=>{ e.stopPropagation(); showCustomerHistoryView(c); });
       card.querySelector('[data-act="remove"]').addEventListener('click', async (e)=>{
         e.stopPropagation();
         if(!confirm('Remove '+c.name+' from the customer list? This does not affect past reports.')) return;
@@ -2522,6 +2524,124 @@
         else toast('Could not remove');
       });
       body.appendChild(card);
+    });
+  }
+
+  // ---------- Customer History (admin-only, full page) — reached via the
+  // "History" action on a customer card above. Two states within the same
+  // page, same drill-down convention as the DTR attendance table: the
+  // equipment-list card (customer details + every equipment record on
+  // file) and the service-history card for whichever equipment was tapped. ----------
+  let custHistCustomer = null;   // the customer this page is currently showing
+  let custHistEquipment = null;  // the equipment currently drilled into, or null
+  async function openCustomerHistoryPage(c){
+    custHistCustomer = c;
+    custHistEquipment = null;
+    const d = $('custHistDetails');
+    d.innerHTML =
+      '<div class="cust-detail-row"><b>'+escapeHtml(c.name)+'</b></div>'+
+      '<div class="cust-detail-row"><b>Address:</b> '+escapeHtml(c.address||'—')+'</div>'+
+      '<div class="cust-detail-row"><b>Contact No.:</b> '+escapeHtml(c.contactNo||'—')+'</div>'+
+      '<div class="cust-detail-row"><b>Contact Person:</b> '+escapeHtml(c.contactPerson||'—')+'</div>'+
+      '<div class="cust-detail-row"><b>Email:</b> '+escapeHtml(c.email||'—')+'</div>';
+    custHistShowEquipList();
+    await renderCustHistEquipList(c);
+  }
+  function custHistShowEquipList(){
+    custHistEquipment = null;
+    $('custHistServiceCard').style.display = 'none';
+    $('custHistEquipListCard').style.display = '';
+    window.scrollTo({top:0});
+  }
+  async function renderCustHistEquipList(c){
+    const body = $('custHistEquipList');
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    await loadCustomerEquipment(c.id);
+    body.innerHTML = '';
+    if(currentEquipmentCache.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No equipment recorded yet for this customer.';
+      body.appendChild(empty);
+      return;
+    }
+    currentEquipmentCache.forEach(e=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      card.innerHTML =
+        '<div class="user-card-head" data-act="open" style="cursor:pointer;"><div>'+
+          '<div class="u-name">'+escapeHtml(summary)+'</div>'+
+          '<div class="u-status">'+escapeHtml(serials||'No serials on file')+'</div>'+
+        '</div><span class="card-caret">›</span></div>';
+      card.querySelector('[data-act="open"]').addEventListener('click', ()=> custHistShowServiceHistory(c, e));
+      body.appendChild(card);
+    });
+  }
+  // A report is treated as belonging to a piece of equipment when it was
+  // filed under the same customer name and every equipment field on the
+  // report matches that equipment record exactly — the same identity check
+  // cloudAddCustomerEquipment() uses to avoid creating duplicate equipment
+  // records in the first place, so "same equipment" means the same thing in
+  // both places.
+  function reportMatchesEquipment(report, custName, equip){
+    if((report.custName||'').trim().toLowerCase() !== (custName||'').trim().toLowerCase()) return false;
+    return EQUIP_FIELD_KEYS.every(k=> (report[k]||'') === (equip[k]||''));
+  }
+  async function custHistShowServiceHistory(c, equip){
+    custHistEquipment = equip;
+    $('custHistEquipListCard').style.display = 'none';
+    $('custHistServiceCard').style.display = '';
+    window.scrollTo({top:0});
+    const summary = [equip.equipType, equip.brand, equip.coolCap, equip.mountType, equip.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+    const serials = [equip.serialCU && ('CU: '+equip.serialCU), equip.serialFCU && ('FCU: '+equip.serialFCU)].filter(Boolean).join('  ');
+    $('custHistEquipSummary').innerHTML =
+      '<div class="cust-detail-row"><b>'+escapeHtml(c.name)+' — '+escapeHtml(summary)+'</b></div>'+
+      (serials ? '<div class="cust-detail-row">'+escapeHtml(serials)+'</div>' : '');
+    const body = $('custHistServiceTableBody');
+    body.innerHTML = '<tr><td colspan="4"><div class="empty-state">Loading…</div></td></tr>';
+    let reports = null;
+    if(await ensureCloud()) reports = await cloudListReports();
+    if(reports===null){
+      reports = [];
+      try{
+        const res = await window.storage.list('report:', false);
+        const keys = (res && res.keys) ? res.keys : [];
+        for(const key of keys){
+          try{ const item = await window.storage.get(key, false); reports.push(JSON.parse(item.value)); }catch(e){}
+        }
+      }catch(e){}
+    }
+    const matches = reports.filter(r=> r.completed && reportMatchesEquipment(r, c.name, equip))
+      .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+    body.innerHTML = '';
+    if(matches.length===0){
+      body.innerHTML = '<tr><td colspan="4"><div class="empty-state">No completed service reports for this equipment yet.</div></td></tr>';
+      return;
+    }
+    matches.forEach(d=>{
+      const svcArr = Array.isArray(d.servicesDone) ? d.servicesDone : (d.servicesDone ? [d.servicesDone] : []);
+      const svcText = svcArr.length ? svcArr.join('; ') : '—';
+      const row = document.createElement('tr');
+      row.innerHTML =
+        '<td>'+escapeHtml(svcText)+'</td>'+
+        '<td>'+escapeHtml(fmtDate(d.date)||'—')+'</td>'+
+        '<td>'+escapeHtml(d.srNo||'—')+'</td>'+
+        '<td><button type="button" class="att-view-btn" data-act="view">View</button></td>';
+      row.querySelector('[data-act="view"]').addEventListener('click', async ()=>{
+        try{
+          const doc = await buildPdf(d);
+          $('previewOverlay').querySelector('h3').textContent = d.custName ? d.custName : 'Report';
+          $('previewOkBtn').textContent = 'Close';
+          $('previewOverlay').classList.add('open');
+          await renderPdfPreview(doc);
+        }catch(err){
+          console.error('view report failed', err);
+          toast('Could not open this report');
+        }
+      });
+      body.appendChild(row);
     });
   }
 
@@ -6072,6 +6192,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -6105,6 +6226,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -7177,6 +7299,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('cashAdvanceView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -7213,6 +7336,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -7259,6 +7383,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7289,6 +7414,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7296,6 +7422,35 @@
     window.scrollTo({top:0});
     await openCustomersManagerPage();
   }
+
+  // ---------- Customer History — full page (admin-only), reached via the
+  // "History" action on a customer card in Manage Customers. Lands on the
+  // customer's details plus every equipment record on file; tapping an
+  // equipment record drills into that unit's full service-report history
+  // (same drill-down pattern as the DTR attendance table above). ----------
+  async function showCustomerHistoryView(c){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Customer History', c.name);
+    window.scrollTo({top:0});
+    await openCustomerHistoryPage(c);
+  }
+  $('custHistBackToListBtn').addEventListener('click', ()=> showCustomersManagerView());
+  $('custHistBackToEquipBtn').addEventListener('click', ()=> custHistShowEquipList());
 
   // ---------- Manage Service Reports — full page (admin-only), reached via
   // the "Service Reports" sidebar nav item. Was previously the "Saved
@@ -7314,6 +7469,7 @@
     $('serviceReportsManagerView').style.display = '';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -7691,6 +7847,7 @@
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('messagesView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -7784,6 +7941,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
@@ -7851,6 +8009,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');

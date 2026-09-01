@@ -1336,6 +1336,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -1369,6 +1370,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';

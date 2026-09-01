@@ -16,6 +16,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -62,6 +63,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -92,6 +94,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -99,6 +102,35 @@
     window.scrollTo({top:0});
     await openCustomersManagerPage();
   }
+
+  // ---------- Customer History — full page (admin-only), reached via the
+  // "History" action on a customer card in Manage Customers. Lands on the
+  // customer's details plus every equipment record on file; tapping an
+  // equipment record drills into that unit's full service-report history
+  // (same drill-down pattern as the DTR attendance table above). ----------
+  async function showCustomerHistoryView(c){
+    document.body.classList.remove('dashboard-active');
+    $('homeScreen').style.display = 'none';
+    $('serviceReportView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = '';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = '';
+    setHeaderTitle('Customer History', c.name);
+    window.scrollTo({top:0});
+    await openCustomerHistoryPage(c);
+  }
+  $('custHistBackToListBtn').addEventListener('click', ()=> showCustomersManagerView());
+  $('custHistBackToEquipBtn').addEventListener('click', ()=> custHistShowEquipList());
 
   // ---------- Manage Service Reports — full page (admin-only), reached via
   // the "Service Reports" sidebar nav item. Was previously the "Saved
@@ -117,6 +149,7 @@
     $('serviceReportsManagerView').style.display = '';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -494,6 +527,7 @@
     $('customersManagerView').style.display = 'none';
     $('serviceReportsManagerView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('messagesView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -587,6 +621,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
@@ -654,6 +689,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');
