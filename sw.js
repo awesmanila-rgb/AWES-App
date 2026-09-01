@@ -1,5 +1,8 @@
-// Bumped so the corrected shell replaces the old cache on every installed device.
-const CACHE_NAME = 'awes-sr-v13';
+// Bumped again (v14) purely to force every installed device to drop its old
+// cache and re-fetch app.bundle.js fresh — the uuid-generation fix landed in
+// app.bundle.js without a matching cache-name bump, so devices that already
+// had a service worker installed had no forced trigger to refresh it.
+const CACHE_NAME = 'awes-sr-v14';
 
 // Split into two lists on purpose.
 //
