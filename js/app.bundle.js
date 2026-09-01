@@ -8059,13 +8059,16 @@
     }catch(e){ console.error('announcements load failed', describeCloudError(e)); return []; }
   }
   function annItemHtml(a){
+    const body = a.body || '';
+    const isLong = body.length > 220 || (body.match(/\n/g)||[]).length >= 3;
     return '<div class="ann-item">'+
       '<div class="ann-item-head">'+
         (a.pinned ? '<span class="ann-badge-pinned">Pinned</span>' : '')+
         '<span class="ann-date">'+annFmtDate(a.created_at)+'</span>'+
       '</div>'+
       '<div class="ann-title">'+escapeHtml(a.title)+'</div>'+
-      '<div class="ann-body">'+escapeHtml(a.body)+'</div>'+
+      '<div class="ann-body'+(isLong?' ann-clamped':'')+'">'+escapeHtml(body)+'</div>'+
+      (isLong ? '<button type="button" class="ann-toggle" data-ann-toggle>Read more</button>' : '')+
     '</div>';
   }
 
@@ -8094,6 +8097,23 @@
   $('announcementsViewAllOverlay').addEventListener('click', (e)=>{
     if(e.target.id==='announcementsViewAllOverlay') $('announcementsViewAllOverlay').classList.remove('open');
   });
+
+  // Expand/collapse a single announcement's body — delegated so it works
+  // both on the Home dashboard card and inside the View All overlay.
+  function annBindToggle(containerId){
+    const el = $(containerId);
+    if(!el) return;
+    el.addEventListener('click', (e)=>{
+      const btn = e.target.closest('[data-ann-toggle]');
+      if(!btn) return;
+      const body = btn.previousElementSibling;
+      if(!body || !body.classList.contains('ann-body')) return;
+      const collapsed = body.classList.toggle('ann-clamped');
+      btn.textContent = collapsed ? 'Read more' : 'Show less';
+    });
+  }
+  annBindToggle('homeAnnouncementsList');
+  annBindToggle('announcementsViewAllList');
 
   // ---- Admin authoring + management ----
   async function annRenderAdminList(){
