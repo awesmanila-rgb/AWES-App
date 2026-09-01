@@ -42,27 +42,13 @@
       // state (not the current tab) so it's also correct on the "All" tab,
       // which mixes drafts and completed reports in one list.
       const isDraft = !d.completed;
-      // Batch-sign only applies to the technician's own "Saved Draft Reports"
-      // list (srHistoryList, draft filter) — not the admin's cross-technician
-      // Manage Service Reports page, and not to already-completed reports.
-      const inBatchMode = srBatchMode && containerId==='srHistoryList' && filter==='draft' && isDraft;
-      const otherCustomer = inBatchMode && srBatchCustomerName!==null &&
-        (d.custName||'').trim().toLowerCase() !== srBatchCustomerName.trim().toLowerCase();
       row.innerHTML =
         '<div class="hist-info"><b>'+escapeHtml(d.custName||'Untitled')+'</b>'+
         '<span>'+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+' · '+(d.completed?'Completed':'Draft')+'</span></div>'+
-        (inBatchMode
-          ? '<div class="hist-actions"><label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">'+
-              '<input type="checkbox" data-batch-check'+(otherCustomer?' disabled':'')+(srBatchSelected.has(d.srNo)?' checked':'')+'> Select</label></div>'
-          : (isDraft
-              ? '<div class="hist-actions"><button data-act="continue">Continue</button><button data-act="delete" class="danger">Delete</button></div>'
-              : '<div class="hist-actions"><button data-act="view">View</button><button data-act="share">Share</button></div>'));
-      row.dataset.srNo = d.srNo || '';
-      row.dataset.custName = d.custName || '';
-      if(otherCustomer) row.style.opacity = '.4';
-      if(inBatchMode){
-        row.querySelector('[data-batch-check]').addEventListener('change', (e)=> srBatchToggleSelect(d, e.target.checked));
-      }else if(isDraft){
+        (isDraft
+          ? '<div class="hist-actions"><button data-act="continue">Continue</button><button data-act="delete" class="danger">Delete</button></div>'
+          : '<div class="hist-actions"><button data-act="view">View</button><button data-act="share">Share</button></div>');
+      if(isDraft){
         // "Continue" reopens the draft in the form so the technician can
         // finish filling it out and submit it — same underlying action as
         // opening a report, just labeled for what a draft actually needs next.
@@ -130,155 +116,6 @@
       list.appendChild(row);
     });
   }
-
-  // ---------- Batch-sign multiple drafts for one customer ----------
-  // Lets a technician pick several Saved Draft reports that all belong to
-  // the same customer and capture one customer + technician signature that
-  // gets applied to every one of them at once, instead of the customer
-  // having to sign each report separately (e.g. one visit, five units).
-  let srBatchMode = false;
-  const srBatchSelected = new Map(); // srNo -> full report data object
-  let srBatchCustomerName = null;    // locks selection to a single customer
-  let batchSigCustomerPad = null, batchSigTechPad = null;
-
-  function srBatchUpdateBar(){
-    const n = srBatchSelected.size;
-    $('srBatchSignBtn').disabled = n===0;
-    $('srBatchSignBtn').textContent = n>0 ? ('Sign '+n+' Selected') : 'Sign Selected';
-  }
-  // Updates checkbox disabled-state and row dimming for whichever rows are
-  // already rendered, without re-fetching the list — a full loadHistory()
-  // refetch on every single checkbox click would be slow and cause the list
-  // to visibly flicker/reload after each tap.
-  function srBatchRefreshRowStates(){
-    Array.from($('srHistoryList').children).forEach(row=>{
-      const cb = row.querySelector('[data-batch-check]');
-      if(!cb) return;
-      const custName = row.dataset.custName || '';
-      const locked = srBatchCustomerName!==null && !cb.checked &&
-        custName.trim().toLowerCase() !== srBatchCustomerName.trim().toLowerCase();
-      cb.disabled = locked;
-      row.style.opacity = locked ? '.4' : '';
-    });
-  }
-  function srBatchToggleSelect(d, checked){
-    if(checked){
-      srBatchSelected.set(d.srNo, d);
-      if(srBatchCustomerName===null) srBatchCustomerName = d.custName||'';
-    }else{
-      srBatchSelected.delete(d.srNo);
-      if(srBatchSelected.size===0) srBatchCustomerName = null;
-    }
-    srBatchUpdateBar();
-    srBatchRefreshRowStates();
-  }
-  $('srBatchSignToggleBtn').addEventListener('click', ()=>{
-    srBatchMode = true;
-    srBatchSelected.clear();
-    srBatchCustomerName = null;
-    $('srBatchBar').style.display = 'flex';
-    srBatchUpdateBar();
-    loadHistory('srHistoryList', 'draft');
-  });
-  $('srBatchCancelBtn').addEventListener('click', ()=>{
-    srBatchMode = false;
-    srBatchSelected.clear();
-    srBatchCustomerName = null;
-    $('srBatchBar').style.display = 'none';
-    loadHistory('srHistoryList', 'draft');
-  });
-
-  async function ensureBatchSigPads(){
-    if(batchSigCustomerPad && batchSigTechPad) return;
-    await ensureSignaturePads(); // lazy-loads the SignaturePad library itself
-    batchSigCustomerPad = setupSigPad('batchSigCustomer','batchSigCustomerPh');
-    batchSigTechPad = setupSigPad('batchSigTech','batchSigTechPh');
-  }
-  $('batchClearCustomerBtn').addEventListener('click', ()=>{
-    if(batchSigCustomerPad) batchSigCustomerPad.clear();
-    $('batchSigCustomerPh').style.display = 'flex';
-  });
-  $('batchClearTechBtn').addEventListener('click', ()=>{
-    if(batchSigTechPad) batchSigTechPad.clear();
-    $('batchSigTechPh').style.display = 'flex';
-  });
-  $('batchSignCloseBtn').addEventListener('click', ()=> $('batchSignOverlay').classList.remove('open'));
-
-  $('srBatchSignBtn').addEventListener('click', async ()=>{
-    if(srBatchSelected.size===0) return;
-    await ensureBatchSigPads();
-    if(batchSigCustomerPad) batchSigCustomerPad.clear();
-    if(batchSigTechPad) batchSigTechPad.clear();
-    $('batchSigCustomerPh').style.display = 'flex';
-    $('batchSigTechPh').style.display = 'flex';
-    $('batchCustPrintedName').value = '';
-    $('batchTechName').value = (currentUser ? currentUser.name : '') || '';
-    $('batchSignTitle').textContent = 'Sign for '+(srBatchCustomerName||'Customer');
-    $('batchSignList').innerHTML = Array.from(srBatchSelected.values())
-      .map(d=> '• '+escapeHtml(d.srNo||'')+' · '+escapeHtml(d.date||'')+(d.equipType?' · '+escapeHtml(d.equipType):''))
-      .join('<br>');
-    $('batchSignOverlay').classList.add('open');
-  });
-
-  // Builds the merged record for one selected draft, applying the batch
-  // signature/printed-name fields on top of whatever was already saved.
-  // A pad left blank leaves that report's existing field untouched, so
-  // signing only the customer side (say) never wipes a tech signature a
-  // report already had from being edited individually.
-  function srBatchMergeData(d, custSig, custName, techSig, techName, completed){
-    const merged = Object.assign({}, d);
-    if(custSig){ merged.sigCustomer = custSig; merged.custPrintedName = custName || d.custPrintedName; }
-    if(techSig){ merged.sigTech = techSig; merged.techName = techName || d.techName; }
-    if(completed) merged.completed = true;
-    return merged;
-  }
-
-  async function srBatchRunSave(completeAndSend){
-    if(!batchSigCustomerPad || batchSigCustomerPad.isEmpty()){ toast('Please have the customer sign first'); return; }
-    const btn = completeAndSend ? $('batchGenSendBtn') : $('batchSaveDraftBtn');
-    const originalLabel = btn.textContent;
-    btn.disabled = true; btn.textContent = completeAndSend ? 'Sending…' : 'Saving…';
-    try{
-      const custSig = await downscaleDataUrl(batchSigCustomerPad.toDataURL('image/png'), 400);
-      const custName = $('batchCustPrintedName').value.trim();
-      const techSig = (batchSigTechPad && !batchSigTechPad.isEmpty()) ? await downscaleDataUrl(batchSigTechPad.toDataURL('image/png'), 400) : null;
-      const techName = $('batchTechName').value.trim();
-      let failCount = 0, emailedCount = 0;
-      for(const d of srBatchSelected.values()){
-        const merged = srBatchMergeData(d, custSig, custName, techSig, techName, completeAndSend);
-        const res = await saveReport(d.srNo, merged);
-        if(res===SAVE_FAILED){ failCount++; continue; }
-        // Best-effort — a dispatch-ticket-linked draft only carries that
-        // linkage in the live form session (srCurrentTicketId/srCurrentEquipId),
-        // not on the saved record itself, so batch mode can't currently write
-        // back "reported" progress to the originating ticket. The technician
-        // can still finish that from the ticket normally if needed.
-        if(completeAndSend){
-          try{
-            const doc = await buildPdf(merged);
-            const filename = (d.srNo||'service-report')+'.pdf';
-            if(emailConfigured()){
-              const emailResult = await sendEmailWithPdf(doc, merged, filename);
-              if(emailResult.ok) emailedCount++;
-            }
-          }catch(e){ console.error('batch PDF/email failed for '+d.srNo, e); }
-        }
-      }
-      $('batchSignOverlay').classList.remove('open');
-      $('srBatchCancelBtn').click();
-      if(failCount>0) toast((srBatchSelected.size-failCount)+' saved, '+failCount+' failed — check your connection and retry those');
-      else if(completeAndSend) toast(emailConfigured() ? (emailedCount+' report(s) emailed to the customer') : 'All selected reports completed — share each from history');
-      else toast('Signature saved to all selected drafts');
-    }catch(e){
-      console.error('batch sign save failed', e);
-      toast('Something went wrong saving the batch signature');
-    }finally{
-      btn.disabled = false; btn.textContent = originalLabel;
-    }
-  }
-  $('batchSaveDraftBtn').addEventListener('click', ()=> srBatchRunSave(false));
-  $('batchGenSendBtn').addEventListener('click', ()=> srBatchRunSave(true));
-
   async function openReport(d){
     showServiceReport();
     resetForm();
@@ -815,6 +652,16 @@
     if(res===SAVE_QUEUED) return label+' (saved on this device \u2014 it will sync when you are online)';
     return 'Could not save \u2014 please try again';
   }
+  // Whether this technician is currently "on the clock" per today's DTR —
+  // gates the live location tracker so it only runs between a time-in and
+  // its matching time-out (regular shift or overtime), not just because the
+  // app happens to be open.
+  function dtrIsOnClock(rec){
+    if(!rec || !rec.timeIn) return false;
+    if(!rec.timeOut) return true;                    // regular shift still running
+    if(rec.otTimeIn && !rec.otTimeOut) return true;   // overtime shift running
+    return false;
+  }
   async function dtrDoTimeIn(){
     if(!currentUser || currentUser.role==='admin') return;
     const allowed = await dtrEnsureDeviceAllowed(currentUser.id);
@@ -832,6 +679,10 @@
       timeIn: now, timeInLoc: loc
     });
     const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    // Location sharing starts here, not at sign-in — see dtrIsOnClock().
+    // A device-only queued save still counts: the phone knows locally that
+    // this technician just clocked in, even before it reaches the cloud.
+    if(res !== SAVE_FAILED) trackerStartBroadcasting();
     toast(dtrSaveToast(res, 'Timed in at '+dtrFmtTime(now)));
     await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
@@ -851,6 +702,9 @@
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { timeOut: now, timeOutLoc: loc });
     const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    // Regular shift ends here — stop broadcasting unless overtime picks
+    // straight back up (that's handled by dtrDoOtTimeIn instead).
+    if(res !== SAVE_FAILED) trackerStopBroadcasting();
     toast(dtrSaveToast(res, 'Timed out at '+dtrFmtTime(now)));
     await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
@@ -873,6 +727,7 @@
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeIn: now, otTimeInLoc: loc });
     const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    if(res !== SAVE_FAILED) trackerStartBroadcasting();
     toast(dtrSaveToast(res, 'Overtime timed in at '+dtrFmtTime(now)));
     await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();
@@ -892,6 +747,7 @@
     const now = new Date().toISOString();
     const rec = Object.assign({}, existing, { otTimeOut: now, otTimeOutLoc: loc });
     const res = await dtrSaveDay(currentUser.id, dateISO, rec);
+    if(res !== SAVE_FAILED) trackerStopBroadcasting();
     toast(dtrSaveToast(res, 'Overtime timed out at '+dtrFmtTime(now)));
     await dtrRenderTodayStatus(res===SAVE_FAILED ? undefined : rec);
     await dtrRenderHistory();

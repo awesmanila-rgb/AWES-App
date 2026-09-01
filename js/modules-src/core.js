@@ -520,7 +520,8 @@
   // Human-readable labels for each outbox "kind" — used only in the list below.
   const OUTBOX_KIND_LABELS = {
     'report': 'Service Report', 'dtr': 'DTR', 'leave': 'Leave Request',
-    'cash-advance': 'Cash Advance', 'dispatch': 'Dispatch Ticket'
+    'cash-advance': 'Cash Advance', 'dispatch': 'Dispatch Ticket',
+    'geo': 'Location Point'
   };
   async function renderPendingSyncList(){
     const listEl = $('pendingSyncList');

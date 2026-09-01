@@ -1,13 +1,17 @@
 // ---------- Real-time technician location tracker (table: technician_locations) ----------
   // Two halves living in one module:
-  //   1. Technician side — while signed in as a technician, the device pushes
-  //      its own position (never anyone else's; RLS ties every write to
-  //      auth.uid()). Starts on login, stops on logout. Nothing is tracked
-  //      before sign-in or after Logout.
+  //   1. Technician side — while timed in (regular shift or overtime — see
+  //      dtrIsOnClock() in history.js), the device pushes its own position
+  //      (never anyone else's; RLS ties every write to auth.uid()). Starts on
+  //      DTR Time In / OT Time In, stops on DTR Time Out / OT Time Out, and
+  //      always stops on logout as a backstop. Nothing is tracked before
+  //      time-in, between a regular time-out and an overtime time-in, or
+  //      after the day's final time-out.
   //   2. Admin side — a live map on the Home → Overview screen showing every
   //      technician currently sharing a position, refreshed by Supabase
   //      Realtime the instant a row changes, with a 20s poll as a fallback
-  //      for a flaky connection.
+  //      for a flaky connection. Tapping a technician's name also draws
+  //      their movement trail for the day from technician_location_history.
 
   // ---- Technician: broadcast my position ----
   let trackerWatchId = null;
@@ -30,25 +34,54 @@
     // watcher left running past a role change should never write as someone
     // it no longer is.
     if(!currentUser || currentUser.role !== 'tech') return;
-    if(!(await ensureCloud())) return;
     const now = Date.now();
     const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
     const moved = trackerHaversineMeters(trackerLastSentPos, here);
     if(now - trackerLastSentAt < TRACKER_MIN_INTERVAL_MS && moved < TRACKER_MIN_MOVE_METERS) return;
     trackerLastSentAt = now;
     trackerLastSentPos = here;
-    try{
-      const { error } = await db.from('technician_locations').upsert({
-        technician_id: currentUser.id,
-        lat: here.lat, lng: here.lng,
-        accuracy: pos.coords.accuracy != null ? pos.coords.accuracy : null,
-        heading: (pos.coords.heading == null || isNaN(pos.coords.heading)) ? null : pos.coords.heading,
-        speed: (pos.coords.speed == null || isNaN(pos.coords.speed)) ? null : pos.coords.speed,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'technician_id' });
-      if(error) throw error;
-    }catch(e){ console.error('tracker push failed', describeCloudError(e)); }
+
+    const point = {
+      technician_id: currentUser.id,
+      lat: here.lat, lng: here.lng,
+      accuracy: pos.coords.accuracy != null ? pos.coords.accuracy : null,
+      heading: (pos.coords.heading == null || isNaN(pos.coords.heading)) ? null : pos.coords.heading,
+      speed: (pos.coords.speed == null || isNaN(pos.coords.speed)) ? null : pos.coords.speed,
+      recorded_at: new Date(now).toISOString()
+    };
+
+    if(await ensureCloud()){
+      try{ await trackerWritePoint(point); return; }
+      catch(e){ console.error('tracker push failed, queuing instead', describeCloudError(e)); }
+    }
+    // No signal (or the write above failed): queue it instead of dropping it.
+    // `recorded_at` is the phone's own clock at capture time and travels
+    // with the point, so once this reaches the server the admin's trail
+    // shows where the technician actually was, not just when the phone
+    // next caught a signal.
+    await outboxQueue('geo', currentUser.id+'|'+point.recorded_at, point);
+    updateOutboxBadge();
   }
+
+  // Shared by the live (online) path above and the outbox replay below —
+  // writes one point to both the append-only trail and the "latest
+  // position" row the live dot reads from.
+  async function trackerWritePoint(point){
+    const { error: histErr } = await db.from('technician_location_history').insert(point);
+    if(histErr) throw histErr;
+    const { error: posErr } = await db.from('technician_locations').upsert({
+      technician_id: point.technician_id,
+      lat: point.lat, lng: point.lng,
+      accuracy: point.accuracy, heading: point.heading, speed: point.speed,
+      updated_at: point.recorded_at
+    }, { onConflict: 'technician_id' });
+    if(posErr) throw posErr;
+  }
+  // Outbox replays items oldest-first (see outboxList), so when a batch of
+  // queued points flushes, the last one applied is genuinely the most
+  // recent — the "latest position" row ends up correct without any extra
+  // bookkeeping here.
+  registerOutboxHandler('geo', async (key, payload)=>{ await trackerWritePoint(payload); });
 
   function trackerStartBroadcasting(){
     if(!navigator.geolocation || trackerWatchId != null) return; // already running, or no browser support
@@ -59,7 +92,7 @@
     );
     // One-time heads up — the browser's own permission prompt is the real
     // consent step; this just explains what it's for.
-    toast('📍 Location sharing is on while you\'re signed in');
+    toast('📍 Location sharing is on while you\'re timed in');
   }
   function trackerStopBroadcasting(){
     if(trackerWatchId != null && navigator.geolocation){ navigator.geolocation.clearWatch(trackerWatchId); }
@@ -74,6 +107,66 @@
   let trackerRealtimeChannel = null;
   let trackerPollTimer = null;
   let trackerHasFitBounds = false;
+
+  // ---- Admin: movement trail for one selected technician at a time ----
+  // (drawing every technician's trail at once on a small phone map is just
+  // noise; picking one from the list is enough to answer "where did they
+  // actually go", and switching technicians is one tap away.)
+  let trackerTrailTid = null;
+  let trackerTrailLayer = null;
+
+  async function trackerLoadHistory(technicianId, sinceIso){
+    if(!(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('technician_location_history')
+        .select('lat,lng,recorded_at')
+        .eq('technician_id', technicianId)
+        .gte('recorded_at', sinceIso)
+        .order('recorded_at', { ascending: true });
+      if(error) throw error;
+      return data || [];
+    }catch(e){ console.error('tracker history load failed', describeCloudError(e)); return []; }
+  }
+
+  function trackerTodayStartIso(){
+    // Local midnight, not UTC midnight — same reasoning as todayISO() in
+    // core.js: a technician's "today" is their own calendar day.
+    const d = new Date();
+    d.setHours(0,0,0,0);
+    return d.toISOString();
+  }
+
+  async function trackerShowTrail(technicianId, name){
+    if(!trackerMap || !window.L) return;
+    trackerTrailTid = technicianId;
+    trackerHighlightActiveRow();
+    const points = await trackerLoadHistory(technicianId, trackerTodayStartIso());
+    if(trackerTrailTid !== technicianId) return; // admin switched selection mid-fetch
+    if(trackerTrailLayer){ trackerMap.removeLayer(trackerTrailLayer); trackerTrailLayer = null; }
+    if(points.length < 2){
+      toast(points.length ? 'Not enough points yet to draw a path for '+name : 'No movement recorded yet today for '+name);
+      return;
+    }
+    trackerTrailLayer = window.L.polyline(points.map(p=>[p.lat,p.lng]), {
+      color: '#2A6FDB', weight: 3, opacity: 0.75
+    }).addTo(trackerMap);
+    trackerMap.fitBounds(trackerTrailLayer.getBounds().pad(0.2), { maxZoom: 16 });
+  }
+
+  function trackerHideTrail(){
+    trackerTrailTid = null;
+    if(trackerTrailLayer && trackerMap){ trackerMap.removeLayer(trackerTrailLayer); }
+    trackerTrailLayer = null;
+    trackerHighlightActiveRow();
+  }
+
+  function trackerHighlightActiveRow(){
+    const list = $('trackerList');
+    if(!list) return;
+    $$('.tracker-list-item', list).forEach(el=>{
+      el.classList.toggle('active', el.dataset.tid === trackerTrailTid);
+    });
+  }
 
   const TRACKER_DOT = { live: '#1F7A50', idle: '#B9791F', stale: '#8A8F8A' };
 
@@ -139,16 +232,20 @@
     list.innerHTML = sorted.map(r=>{
       const name = (usersById[r.technician_id] && usersById[r.technician_id].name) || 'Unknown technician';
       const status = trackerFreshness(r.updated_at);
-      return '<div class="tracker-list-item" data-tid="'+escapeHtml(r.technician_id)+'">'+
+      return '<div class="tracker-list-item" data-tid="'+escapeHtml(r.technician_id)+'" data-name="'+escapeHtml(name)+'">'+
         '<span class="tracker-dot" style="background:'+TRACKER_DOT[status]+'"></span>'+
         '<span class="tracker-list-name">'+escapeHtml(name)+'</span>'+
         '<span class="tracker-list-time">'+trackerFmtAgo(r.updated_at)+'</span>'+
       '</div>';
     }).join('');
+    trackerHighlightActiveRow();
     $$('.tracker-list-item', list).forEach(el=>{
       el.addEventListener('click', ()=>{
         const marker = trackerMarkers[el.dataset.tid];
         if(marker && trackerMap){ trackerMap.setView(marker.getLatLng(), 16); marker.openPopup(); }
+        // Tap the same technician again to hide their path; tap another to switch to it.
+        if(trackerTrailTid === el.dataset.tid) trackerHideTrail();
+        else trackerShowTrail(el.dataset.tid, el.dataset.name);
       });
     });
   }
@@ -192,6 +289,18 @@
     const countEl = $('trackerCount');
     if(countEl) countEl.textContent = rows.length + (rows.length===1 ? ' sharing' : ' sharing');
     trackerRenderList(rows, usersById);
+
+    // Keep a selected technician's path current as new points come in,
+    // without re-fitting the map every cycle (that would fight the admin
+    // zooming/panning to inspect the trail).
+    if(trackerTrailTid && seen.has(trackerTrailTid)){
+      const points = await trackerLoadHistory(trackerTrailTid, trackerTodayStartIso());
+      if(trackerTrailTid && points.length >= 2){
+        const latlngs = points.map(p=>[p.lat,p.lng]);
+        if(trackerTrailLayer) trackerTrailLayer.setLatLngs(latlngs);
+        else trackerTrailLayer = window.L.polyline(latlngs, { color: '#2A6FDB', weight: 3, opacity: 0.75 }).addTo(trackerMap);
+      }
+    }
 
     // Only auto-fit the very first time markers appear, so the admin panning
     // or zooming manually afterward isn't fought on every refresh cycle.
@@ -250,4 +359,6 @@
     if(trackerPollTimer){ clearInterval(trackerPollTimer); trackerPollTimer = null; }
     if(trackerRealtimeChannel && db){ try{ db.removeChannel(trackerRealtimeChannel); }catch(e){} }
     trackerRealtimeChannel = null;
+    trackerTrailTid = null;
+    trackerTrailLayer = null; // the map instance itself is torn down with the view; nothing to remove it from
   }
