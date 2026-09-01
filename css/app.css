@@ -342,6 +342,7 @@
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
     border-top:1px solid var(--border); padding:10px 16px; display:flex; gap:10px;
     z-index:30; box-shadow:0 -2px 8px rgba(0,0,0,.06);
+    max-width:900px; margin:0 auto; box-sizing:border-box;
   }
   .btn{
     flex:1; padding:13px; border-radius:9px; font-size:14px; font-weight:700; border:none; cursor:pointer;
@@ -637,6 +638,13 @@
     body.role-admin header.app-top .brand-mark, body.role-tech header.app-top .brand-mark{ display:none; }
     body.role-admin header.app-top #homeBtn, body.role-tech header.app-top #homeBtn{ display:none !important; }
     body.role-admin header.app-top #userLogoutBtn, body.role-tech header.app-top #userLogoutBtn{ display:none !important; }
+
+    /* The footer action bar (Save Draft / Generate & Share Report, etc.) is
+       position:fixed to the viewport, so on desktop it would otherwise
+       stretch edge-to-edge underneath the permanent sidebar too. Shift its
+       left edge past the sidebar so it only spans — and centers within —
+       the main content column, matching main's own max-width:900px. */
+    body.role-admin .footer-bar, body.role-tech .footer-bar{ left:264px; }
   }
 
   .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:4px 6px 18px; }
