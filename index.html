@@ -1394,10 +1394,18 @@ window.awesCss = {
 
   <!-- View History (inline, mirrors the "Saved Reports" overlay list) -->
   <div class="card" id="srHistoryPanel" style="display:none;">
-    <div class="card-head"><span id="srHistoryPanelTitle">Saved Reports</span></div>
+    <div class="card-head">
+      <span id="srHistoryPanelTitle">Saved Reports</span>
+      <button type="button" id="srBatchSignToggleBtn" style="display:none; font-size:11px; padding:5px 9px; border-radius:6px; border:1px solid rgba(255,255,255,.4); background:none; color:#fff; cursor:pointer;">Select to Sign Together</button>
+    </div>
     <div class="card-body">
       <div id="srHistoryList"><div class="empty-state">Loading…</div></div>
     </div>
+  </div>
+
+  <div class="footer-bar" id="srBatchBar" style="display:none;">
+    <button class="btn btn-secondary" id="srBatchCancelBtn" type="button">Cancel</button>
+    <button class="btn btn-primary" id="srBatchSignBtn" type="button" disabled>Sign Selected</button>
   </div>
 
 </main>
@@ -1429,6 +1437,58 @@ window.awesCss = {
     </div>
     <div style="padding-top:12px;">
       <button class="btn btn-primary" id="previewOkBtn" style="width:100%;" type="button">Looks Good — Continue to Signatures</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch-sign multiple saved drafts for one customer with a single
+     customer + technician signature (Saved Draft Reports list → "Select to
+     Sign Together"). -->
+<div class="overlay" id="batchSignOverlay" style="align-items:stretch;">
+  <div class="sheet" style="max-height:96vh; height:96vh; display:flex; flex-direction:column; border-radius:0;">
+    <div class="sheet-head">
+      <h3 id="batchSignTitle">Sign for Customer</h3>
+      <button class="sheet-close" id="batchSignCloseBtn">&times;</button>
+    </div>
+    <div style="flex:1; overflow-y:auto;">
+      <div class="leave-note" style="margin-bottom:12px;">This signature will be applied to every report listed below.</div>
+      <div id="batchSignList" style="margin-bottom:16px; font-size:13px; color:var(--text-muted);"></div>
+
+      <div class="field">
+        <label>Customer Signature</label>
+        <div class="sig-box">
+          <div class="sig-canvas-wrap">
+            <canvas class="sigpad" id="batchSigCustomer"></canvas>
+            <div class="sig-placeholder" id="batchSigCustomerPh">Sign with finger or stylus</div>
+          </div>
+          <div class="sig-tools">
+            <button type="button" id="batchClearCustomerBtn">Clear</button>
+          </div>
+        </div>
+        <div style="margin-top:8px;">
+          <input type="text" id="batchCustPrintedName" placeholder="Printed name">
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:16px;">
+        <label>Technician Signature</label>
+        <div class="sig-box">
+          <div class="sig-canvas-wrap">
+            <canvas class="sigpad" id="batchSigTech"></canvas>
+            <div class="sig-placeholder" id="batchSigTechPh">Sign with finger or stylus</div>
+          </div>
+          <div class="sig-tools">
+            <button type="button" id="batchClearTechBtn">Clear</button>
+          </div>
+        </div>
+        <div style="margin-top:8px;">
+          <input type="text" id="batchTechName" placeholder="Technician name">
+        </div>
+      </div>
+    </div>
+    <div style="padding-top:12px; display:flex; gap:8px;">
+      <button class="btn btn-secondary" id="batchSaveDraftBtn" style="flex:1;" type="button">Save Draft</button>
+      <button class="btn btn-primary" id="batchGenSendBtn" style="flex:1;" type="button">Generate &amp; Send</button>
     </div>
   </div>
 </div>
@@ -1503,37 +1563,6 @@ window.awesCss = {
           decommissioned/duplicate unit.
         </p>
         <div id="customerEquipmentList"></div>
-      </div>
-    </div>
-  </div>
-</main>
-
-<!-- Customer History — full page (admin-only), reached via the "History"
-     action on a customer card in Manage Customers. Two states within this
-     one page: the equipment list (customer details + every equipment record
-     on file) and, once an equipment record is tapped, that unit's full
-     service-report history. -->
-<main id="customerHistoryView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
-  <div class="card" id="custHistEquipListCard">
-    <div class="card-head"><span>🗂️ Customer History</span></div>
-    <div class="card-body">
-      <button class="btn btn-secondary" id="custHistBackToListBtn" type="button" style="margin-bottom:12px;">← Back to Customers</button>
-      <div id="custHistDetails" style="margin-bottom:14px;"></div>
-      <div style="font-size:12px; font-weight:700; margin-bottom:4px;">Equipment on File</div>
-      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">Tap a unit to see its full service history.</p>
-      <div id="custHistEquipList"></div>
-    </div>
-  </div>
-  <div class="card" id="custHistServiceCard" style="display:none;">
-    <div class="card-head"><span>🧾 Service History</span></div>
-    <div class="card-body">
-      <button class="btn btn-secondary" id="custHistBackToEquipBtn" type="button" style="margin-bottom:12px;">← Back to Equipment</button>
-      <div id="custHistEquipSummary" style="margin-bottom:14px;"></div>
-      <div class="attendance-table-wrap">
-        <table class="attendance-table">
-          <thead><tr><th>Services Done</th><th>Date</th><th>SR No.</th><th>View Service Report</th></tr></thead>
-          <tbody id="custHistServiceTableBody"><tr><td colspan="4"><div class="empty-state">Loading…</div></td></tr></tbody>
-        </table>
       </div>
     </div>
   </div>
