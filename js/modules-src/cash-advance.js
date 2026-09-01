@@ -430,6 +430,7 @@
     caLiqItems.forEach((item)=>{
       const row = document.createElement('div');
       row.className = 'card';
+      row.dataset.itemId = item.id;
       row.style.cssText = 'margin-bottom:10px; box-shadow:none; border:1px solid var(--border);';
       if(item.type==='transport'){
         row.innerHTML =
@@ -514,6 +515,22 @@
     caLiqRenderItems();
   });
 
+  // The item list this scrolls to (caLiqItemsList) sits above the
+  // Transportation Expenses / Add Expense Item sections, off-screen from
+  // wherever the technician is filling in a new entry. Without this, adding
+  // an item just clears the form with no visible change nearby — reads as
+  // "nothing happened, my data disappeared" — even though the item list
+  // above did update. Scroll to the new row and flash it so there's a clear,
+  // visible confirmation right where it's easy to miss otherwise.
+  function caLiqFlashItem(itemId){
+    const row = $('caLiqItemsList').querySelector('[data-item-id="'+itemId+'"]');
+    if(!row) return;
+    row.scrollIntoView({behavior:'smooth', block:'center'});
+    row.style.transition = 'background-color 0.3s';
+    row.style.backgroundColor = '#DFF3E3';
+    setTimeout(()=>{ row.style.backgroundColor = ''; }, 1400);
+  }
+
   function caLiqUpdateTotals(){
     const total = caLiqItems.reduce((s,i)=> s + (Number(i.amount)||0), 0);
     $('caLiqTotalDisplay').textContent = caFmtPeso(total);
@@ -597,8 +614,9 @@
     const valid = caTransportRows.filter(r=> r.date && r.mode && r.from && r.to && r.amount>0);
     if(valid.length===0){ toast('Fill in at least one complete trip (date, mode, from, to, amount)'); return; }
     const total = valid.reduce((s,r)=> s + (Number(r.amount)||0), 0);
+    const newItemId = caLiqItemId();
     caLiqItems.push({
-      id: caLiqItemId(), type:'transport',
+      id: newItemId, type:'transport',
       description: 'Transportation Expenses ('+valid.length+' trip'+(valid.length>1?'s':'')+')',
       amount: total, transportRows: valid
     });
@@ -606,6 +624,7 @@
     caTransportRenderRows(); caTransportUpdateTotal();
     caLiqRenderItems(); caLiqUpdateTotals();
     toast('Added to liquidation');
+    caLiqFlashItem(newItemId);
   });
 
   function openLiquidationAttachment(item){
