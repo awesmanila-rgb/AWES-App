@@ -1175,7 +1175,10 @@
     const msgs = await dtLoadMessages(dtOverlayTicket.id);
     dtRenderMessages(msgs);
     // Viewing the thread marks everything in it read up to this point.
-    if(msgs.length>0) dtMarkRead(dtOverlayTicket.id, msgs[msgs.length-1].created_at);
+    if(msgs.length>0){
+      dtMarkRead(dtOverlayTicket.id, msgs[msgs.length-1].created_at);
+      refreshUnreadMsgBadges();
+    }
   }
   // Dashboard tile: how many messages across ALL of my tickets arrived after
   // I last opened that specific ticket's thread, from someone other than me.

@@ -5911,7 +5911,10 @@
     const msgs = await dtLoadMessages(dtOverlayTicket.id);
     dtRenderMessages(msgs);
     // Viewing the thread marks everything in it read up to this point.
-    if(msgs.length>0) dtMarkRead(dtOverlayTicket.id, msgs[msgs.length-1].created_at);
+    if(msgs.length>0){
+      dtMarkRead(dtOverlayTicket.id, msgs[msgs.length-1].created_at);
+      refreshUnreadMsgBadges();
+    }
   }
   // Dashboard tile: how many messages across ALL of my tickets arrived after
   // I last opened that specific ticket's thread, from someone other than me.
@@ -7360,6 +7363,22 @@
     }
     const sidebarBadgeEl = $('sidebarMsgBadge');
     if(sidebarBadgeEl){ sidebarBadgeEl.style.display = unreadCount>0 ? '' : 'none'; sidebarBadgeEl.textContent = String(unreadCount); }
+  }
+
+  // Lightweight badge refresh — called right after a message thread is
+  // marked read (see dtRefreshMessages/dtOpenTicketOverlay in dispatch.js)
+  // so the sidebar/bell badges drop immediately instead of waiting for the
+  // next full Home overview render.
+  async function refreshUnreadMsgBadges(){
+    if(!currentUser) return;
+    const unreadCount = await dtCountUnreadMessages().catch(()=>0);
+    const sidebarBadgeEl = $('sidebarMsgBadge');
+    if(sidebarBadgeEl){ sidebarBadgeEl.style.display = unreadCount>0 ? '' : 'none'; sidebarBadgeEl.textContent = String(unreadCount); }
+    const notifEl = $('notifBadge');
+    if(notifEl && currentUser.role!=='admin'){
+      notifEl.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      notifEl.style.display = unreadCount > 0 ? '' : 'none';
+    }
   }
 
   // ---------- Home screen overview (admin only) ----------
