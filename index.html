@@ -368,6 +368,32 @@ window.awesCss = {
       </div>
     </div>
   </div>
+  <!-- Admin-only: compact month view of dispatch tickets by scheduled date,
+       same rendering engine as the full calendar under Dispatch > Calendar
+       (dtCalRender in dispatch.js, populated here from the tickets already
+       fetched by renderHomeOverview so no extra query is made). -->
+  <div class="card" id="homeScheduleCalendarCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head">
+      <span>📅 Schedule Calendar</span>
+      <button type="button" id="homeCalViewAllBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">Full Calendar ›</button>
+    </div>
+    <div class="card-body">
+      <div class="cal-toolbar">
+        <div class="cal-nav">
+          <button type="button" class="cal-nav-btn" id="homeCalPrevBtn" aria-label="Previous month">‹</button>
+          <div class="cal-month-label" id="homeCalMonthLabel">—</div>
+          <button type="button" class="cal-nav-btn" id="homeCalNextBtn" aria-label="Next month">›</button>
+        </div>
+        <button type="button" class="btn" id="homeCalTodayBtn">Today</button>
+      </div>
+      <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+      <div class="cal-grid cal-compact" id="homeCalGrid"><div class="empty-state">Loading…</div></div>
+      <div class="cal-day-detail">
+        <div class="cal-day-detail-head" id="homeCalDayDetailHead">Select a date to view scheduled jobs.</div>
+        <div id="homeCalDayList"></div>
+      </div>
+    </div>
+  </div>
   <!-- Admin-only: live map of every technician currently signed in and sharing
        a GPS position (tracker.js), plus a lightweight recent-activity feed
        drawn from cash advances, leave requests and dispatch tickets. Both
@@ -904,6 +930,7 @@ window.awesCss = {
     <div class="seg-tabs">
       <button type="button" class="seg-tab active" id="dtTabNew">New Ticket</button>
       <button type="button" class="seg-tab" id="dtTabAll">All Tickets</button>
+      <button type="button" class="seg-tab" id="dtTabCalendar">Calendar</button>
     </div>
 
     <div class="card" id="dtNewCard">
@@ -1013,6 +1040,37 @@ window.awesCss = {
           <button type="button" data-filter="all">All</button>
         </div>
         <div id="dtAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Schedule Calendar tab — month view of every dispatch ticket by its
+         scheduled date, so admin can see field jobs at a glance instead of
+         scrolling the All Tickets list. Same rendering engine (dtCalRender
+         in dispatch.js) also drives the compact widget on the dashboard. -->
+    <div class="card" id="dtCalendarCard" style="display:none;">
+      <div class="card-head"><span>📅 Schedule Calendar</span></div>
+      <div class="card-body">
+        <div class="cal-toolbar">
+          <div class="cal-nav">
+            <button type="button" class="cal-nav-btn" id="dtCalPrevBtn" aria-label="Previous month">‹</button>
+            <div class="cal-month-label" id="dtCalMonthLabel">—</div>
+            <button type="button" class="cal-nav-btn" id="dtCalNextBtn" aria-label="Next month">›</button>
+          </div>
+          <button type="button" class="btn" id="dtCalTodayBtn">Today</button>
+        </div>
+        <div class="cal-legend">
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-open"></span>Open</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-ack"></span>Acknowledged</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-done"></span>Completed</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-expired"></span>Expired</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-closed"></span>Closed</span>
+        </div>
+        <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+        <div class="cal-grid" id="dtCalGrid"><div class="empty-state">Loading…</div></div>
+        <div class="cal-day-detail">
+          <div class="cal-day-detail-head" id="dtCalDayDetailHead">Select a date to view scheduled jobs.</div>
+          <div id="dtCalDayList"></div>
+        </div>
       </div>
     </div>
   </div>

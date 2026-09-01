@@ -298,6 +298,8 @@
       if(trackerCard) trackerCard.style.display = 'none';
       const actCard = $('homeActivityCard');
       if(actCard) actCard.style.display = 'none';
+      const calCard = $('homeScheduleCalendarCard');
+      if(calCard) calCard.style.display = 'none';
       return;
     }
     card.style.display = '';
@@ -369,7 +371,22 @@
     trackerAdminInit();
     const actCard = $('homeActivityCard');
     if(actCard){ actCard.style.display = ''; renderRecentActivity(cashAdvances, leaves, tickets); }
+
+    // Schedule Calendar widget — reuses the tickets already fetched above,
+    // via the shared engine in dispatch.js (dtCalRender), so no extra query.
+    const calCard = $('homeScheduleCalendarCard');
+    if(calCard){ calCard.style.display = ''; dtHomeCalTicketsCache = tickets || []; dtCalRender('homeCal', dtHomeCalTicketsCache); }
   }
+  let dtHomeCalTicketsCache = [];
+  $('homeCalPrevBtn').addEventListener('click', ()=>{ dtCalPrev('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalNextBtn').addEventListener('click', ()=>{ dtCalNext('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalTodayBtn').addEventListener('click', ()=>{ dtCalGoToday('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalDayList').addEventListener('click', dtHandleEquipRowClick);
+  $('homeCalViewAllBtn').addEventListener('click', ()=>{
+    closeMainMenu();
+    setSidebarActive('sbNavDispatch');
+    showDispatchView('calendar');
+  });
 
   // ---------- Dashboard top bar greeting (admin only) ----------
   function renderDashboardGreeting(){

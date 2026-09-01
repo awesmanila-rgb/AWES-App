@@ -5596,12 +5596,17 @@
   function dtShowAdminTab(which){
     $('dtTabNew').classList.toggle('active', which==='new');
     $('dtTabAll').classList.toggle('active', which==='all');
+    $('dtTabCalendar').classList.toggle('active', which==='calendar');
     $('dtNewCard').style.display = which==='new' ? '' : 'none';
     $('dtAllCard').style.display = which==='all' ? '' : 'none';
-    if(which==='new') dtResetForm(); else dtRenderAdminList();
+    $('dtCalendarCard').style.display = which==='calendar' ? '' : 'none';
+    if(which==='new') dtResetForm();
+    else if(which==='calendar') dtRenderCalendarTab();
+    else dtRenderAdminList();
   }
   $('dtTabNew').addEventListener('click', ()=> dtShowAdminTab('new'));
   $('dtTabAll').addEventListener('click', ()=> dtShowAdminTab('all'));
+  $('dtTabCalendar').addEventListener('click', ()=> dtShowAdminTab('calendar'));
 
   let dtTechFilter = 'open';
   async function dtRenderTechList(){
@@ -5961,7 +5966,101 @@
     if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); dtSendMessage(); }
   });
 
-  async function showDispatchView(){
+  // ---------- Schedule Calendar ----------
+  // One rendering engine, used both by the Dispatch > Calendar tab (full
+  // size, admin-only) and the compact widget on the admin dashboard. Each
+  // caller passes its own id "prefix" (e.g. "dtCal" or "homeCal") matching
+  // <prefix>Grid / <prefix>MonthLabel / <prefix>DayDetailHead / <prefix>DayList
+  // in the HTML, plus the ticket list to draw from — the dashboard widget
+  // reuses the tickets renderHomeOverview() already fetched rather than
+  // querying again. State (which month/day is showing) is kept per prefix
+  // so the two widgets can be on different months at once.
+  const DT_CAL_STATUS_COLORS = { open:'#B9791F', acknowledged:'#1F7A50', completed:'#154D34', expired:'#B3402D', closed:'#8A9089' };
+  const dtCalStates = {};
+  function dtCalState(prefix){
+    if(!dtCalStates[prefix]){
+      const n = new Date();
+      dtCalStates[prefix] = { year: n.getFullYear(), month: n.getMonth(), selected: todayISO() };
+    }
+    return dtCalStates[prefix];
+  }
+  function dtCalPrev(prefix){ const s=dtCalState(prefix); s.month--; if(s.month<0){ s.month=11; s.year--; } }
+  function dtCalNext(prefix){ const s=dtCalState(prefix); s.month++; if(s.month>11){ s.month=0; s.year++; } }
+  function dtCalGoToday(prefix){ const s=dtCalState(prefix); const n=new Date(); s.year=n.getFullYear(); s.month=n.getMonth(); s.selected=todayISO(); }
+  function dtBuildTicketsByDate(tickets){
+    const map = {};
+    (tickets||[]).forEach(r=>{ if(r.date) (map[r.date] = map[r.date] || []).push(r); });
+    return map;
+  }
+  function dtCalRenderDayList(prefix, tickets){
+    const state = dtCalState(prefix);
+    const headEl = $(prefix+'DayDetailHead');
+    const listEl = $(prefix+'DayList');
+    if(!listEl) return;
+    const items = dtBuildTicketsByDate(tickets)[state.selected] || [];
+    if(headEl) headEl.textContent = leaveFmtDate(state.selected) + (items.length ? ' \u00b7 '+items.length+' scheduled' : '');
+    items.forEach(r=> dtLastTicketsById[r.id] = r);
+    if(items.length===0){ listEl.innerHTML = '<div class="empty-state">No dispatch tickets scheduled this day.</div>'; return; }
+    listEl.innerHTML = '';
+    items.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      card.innerHTML = dtCardHtml(r, true);
+      listEl.appendChild(card);
+    });
+  }
+  function dtCalRender(prefix, tickets){
+    const grid = $(prefix+'Grid');
+    if(!grid) return;
+    const state = dtCalState(prefix);
+    const byDate = dtBuildTicketsByDate(tickets);
+    const y = state.year, m = state.month;
+    const labelEl = $(prefix+'MonthLabel');
+    if(labelEl) labelEl.textContent = new Date(y,m,1).toLocaleDateString('en-US',{month:'long', year:'numeric'});
+    const firstDow = new Date(y,m,1).getDay();
+    const daysInMonth = new Date(y,m+1,0).getDate();
+    const daysInPrevMonth = new Date(y,m,0).getDate();
+    const today = todayISO();
+    const cells = [];
+    for(let i=0;i<firstDow;i++) cells.push({ label: daysInPrevMonth-firstDow+1+i, otherMonth:true });
+    for(let d=1; d<=daysInMonth; d++){
+      cells.push({ dateStr: y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'), label:d, otherMonth:false });
+    }
+    let trailing = 1;
+    while(cells.length % 7 !== 0){ cells.push({ label: trailing++, otherMonth:true }); }
+    grid.innerHTML = cells.map(c=>{
+      if(c.otherMonth) return '<div class="cal-cell cal-cell-muted"><span class="cal-cell-num">'+c.label+'</span></div>';
+      const dayTickets = byDate[c.dateStr] || [];
+      const statuses = {};
+      dayTickets.forEach(t=> statuses[dtEffectiveStatus(t)] = true);
+      const dots = Object.keys(statuses).slice(0,4)
+        .map(s=> '<span class="cal-dot" style="background:'+(DT_CAL_STATUS_COLORS[s]||'#8A9089')+'"></span>').join('');
+      const isToday = c.dateStr===today, isSelected = c.dateStr===state.selected;
+      return '<button type="button" class="cal-cell'+(isToday?' cal-cell-today':'')+(isSelected?' cal-cell-selected':'')+'" data-date="'+c.dateStr+'">'+
+        '<span class="cal-cell-num">'+c.label+'</span>'+
+        (dayTickets.length ? '<span class="cal-cell-dots">'+dots+'</span><span class="cal-cell-count">'+dayTickets.length+'</span>' : '')+
+        '</button>';
+    }).join('');
+    grid.querySelectorAll('.cal-cell[data-date]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        state.selected = btn.dataset.date;
+        dtCalRender(prefix, tickets);
+      });
+    });
+    dtCalRenderDayList(prefix, tickets);
+  }
+  $('dtCalPrevBtn').addEventListener('click', ()=>{ dtCalPrev('dtCal'); dtCalRender('dtCal', dtCalTicketsCache); });
+  $('dtCalNextBtn').addEventListener('click', ()=>{ dtCalNext('dtCal'); dtCalRender('dtCal', dtCalTicketsCache); });
+  $('dtCalTodayBtn').addEventListener('click', ()=>{ dtCalGoToday('dtCal'); dtCalRender('dtCal', dtCalTicketsCache); });
+  $('dtCalDayList').addEventListener('click', dtHandleEquipRowClick);
+  let dtCalTicketsCache = [];
+  async function dtRenderCalendarTab(){
+    $('dtCalGrid').innerHTML = '<div class="empty-state">Loading…</div>';
+    dtCalTicketsCache = await dtListAll();
+    dtCalRender('dtCal', dtCalTicketsCache);
+  }
+
+  async function showDispatchView(initialTab){
     document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
     $('serviceReportView').style.display = 'none';
@@ -5986,7 +6085,7 @@
     if(currentUser && currentUser.role==='admin'){
       $('dispatchTechArea').style.display = 'none';
       $('dispatchAdminArea').style.display = '';
-      dtShowAdminTab('new');
+      dtShowAdminTab(initialTab || 'new');
     }else{
       $('dispatchAdminArea').style.display = 'none';
       $('dispatchTechArea').style.display = '';
@@ -7396,6 +7495,8 @@
       if(trackerCard) trackerCard.style.display = 'none';
       const actCard = $('homeActivityCard');
       if(actCard) actCard.style.display = 'none';
+      const calCard = $('homeScheduleCalendarCard');
+      if(calCard) calCard.style.display = 'none';
       return;
     }
     card.style.display = '';
@@ -7467,7 +7568,22 @@
     trackerAdminInit();
     const actCard = $('homeActivityCard');
     if(actCard){ actCard.style.display = ''; renderRecentActivity(cashAdvances, leaves, tickets); }
+
+    // Schedule Calendar widget — reuses the tickets already fetched above,
+    // via the shared engine in dispatch.js (dtCalRender), so no extra query.
+    const calCard = $('homeScheduleCalendarCard');
+    if(calCard){ calCard.style.display = ''; dtHomeCalTicketsCache = tickets || []; dtCalRender('homeCal', dtHomeCalTicketsCache); }
   }
+  let dtHomeCalTicketsCache = [];
+  $('homeCalPrevBtn').addEventListener('click', ()=>{ dtCalPrev('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalNextBtn').addEventListener('click', ()=>{ dtCalNext('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalTodayBtn').addEventListener('click', ()=>{ dtCalGoToday('homeCal'); dtCalRender('homeCal', dtHomeCalTicketsCache); });
+  $('homeCalDayList').addEventListener('click', dtHandleEquipRowClick);
+  $('homeCalViewAllBtn').addEventListener('click', ()=>{
+    closeMainMenu();
+    setSidebarActive('sbNavDispatch');
+    showDispatchView('calendar');
+  });
 
   // ---------- Dashboard top bar greeting (admin only) ----------
   function renderDashboardGreeting(){
