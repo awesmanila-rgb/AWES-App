@@ -241,6 +241,31 @@
       return true;
     }catch(e){ console.error('cloud save report failed', describeCloudError(e)); return false; }
   }
+  // Reports store the customer's name as free text captured at filing time,
+  // not a reference to the customers row — so renaming a customer in Manage
+  // Customers leaves every past report under the old name, and they silently
+  // drop out of that customer's History tab (its equipment-history match is
+  // keyed on name). Called from the customer-edit save handler whenever the
+  // name actually changes, so renames stay self-healing instead of quietly
+  // orphaning history. Matches case/whitespace-insensitively client-side
+  // (rather than via .ilike, which would misfire on names containing SQL
+  // wildcard characters like % or _) and returns how many rows were updated.
+  async function cloudRenameReportsCustomer(oldName, newName){
+    if(!(await ensureCloud())) return 0;
+    const target = (oldName||'').trim().toLowerCase();
+    if(!target) return 0;
+    try{
+      const { data, error } = await db.from('service_reports').select('sr_no, cust_name');
+      if(error) throw error;
+      const srNos = (data||[])
+        .filter(r=> (r.cust_name||'').trim().toLowerCase() === target)
+        .map(r=> r.sr_no);
+      if(srNos.length===0) return 0;
+      const { error: updErr } = await db.from('service_reports').update({ cust_name: newName }).in('sr_no', srNos);
+      if(updErr) throw updErr;
+      return srNos.length;
+    }catch(e){ console.error('rename reports customer failed', describeCloudError(e)); return 0; }
+  }
   async function cloudDeleteReport(srNo){
     if(!(await ensureCloud())) return false;
     try{

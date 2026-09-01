@@ -663,18 +663,26 @@
     };
     $('saveCustomerBtn').disabled = true;
     try{
+      let renamedCount = 0;
       if(editingId){
+        const existing = customersCache.find(x=> String(x.id)===String(editingId));
+        const oldName = existing ? existing.name : '';
         const { error } = await db.from('customers').update({
           name: payload.name, address: payload.address, contact_no: payload.contactNo,
           contact_person: payload.contactPerson, email: payload.email, updated_at: new Date().toISOString()
         }).eq('id', editingId);
         if(error){ toast('Could not save: '+error.message); return; }
+        // Carry every past report filed under the old name forward to the new
+        // one, so this customer's History stays complete after a rename.
+        if(oldName && oldName.trim().toLowerCase() !== name.toLowerCase()){
+          renamedCount = await cloudRenameReportsCustomer(oldName, name);
+        }
       }else{
         await cloudUpsertCustomer(payload);
       }
       await loadCustomers();
       resetCustomerForm();
-      toast('Saved '+name);
+      toast(renamedCount>0 ? ('Saved '+name+' — updated '+renamedCount+' past report(s) to the new name') : ('Saved '+name));
       renderCustomersList($('customerSearch').value);
     } finally { $('saveCustomerBtn').disabled = false; }
   });
