@@ -113,6 +113,7 @@
   .status-done{background:var(--green-light); color:var(--green-dark);}
   .status-rejected{background:#F7E2DC; color:var(--danger);}
   .status-given{background:#DCEEFB; color:#1D5A8C;}
+  .status-cancelled{background:#E9E9E9; color:#666;}
 
   main{max-width:900px; margin:0 auto; padding:16px;}
 

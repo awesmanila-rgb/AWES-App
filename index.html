@@ -766,15 +766,15 @@ window.awesCss = {
       <button type="button" class="seg-tab" id="caTabHistory">My Requests</button>
     </div>
 
-    <!-- Shown instead of the request form whenever a previous cash advance
-         is still awaiting liquidation. -->
+    <!-- Shown instead of the request form whenever the technician already has
+         a pending request awaiting admin approval, or a previous cash advance
+         still awaiting liquidation. -->
     <div class="card" id="caBlockedCard" style="display:none;">
       <div class="card-body">
-        <div class="dtr-banner dtr-banner-warn" style="display:block;">
-          ⚠️ You cannot request a new cash advance at the moment. Click "Liquidate Now" to settle your existing cash advance first.
-        </div>
+        <div class="dtr-banner dtr-banner-warn" style="display:block;" id="caBlockedBanner"></div>
         <div id="caBlockedSummary" style="margin-top:12px;"></div>
         <button type="button" class="btn btn-primary" id="caGoLiquidateBtn" style="width:100%; margin-top:12px;">Liquidate Now</button>
+        <button type="button" class="btn btn-secondary" id="caCancelRequestBtn" style="width:100%; margin-top:12px; color:var(--danger);">Cancel Request</button>
       </div>
     </div>
 

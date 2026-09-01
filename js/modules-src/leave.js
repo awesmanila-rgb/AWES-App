@@ -107,6 +107,7 @@
   function leaveStatusPill(status){
     if(status==='approved') return '<span class="status-pill status-done">Approved</span>';
     if(status==='disapproved') return '<span class="status-pill status-rejected">Disapproved</span>';
+    if(status==='cancelled') return '<span class="status-pill status-cancelled">Cancelled</span>';
     return '<span class="status-pill status-draft">Pending</span>';
   }
   function leaveCalcDays(){

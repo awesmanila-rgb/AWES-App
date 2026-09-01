@@ -4554,6 +4554,7 @@
   function leaveStatusPill(status){
     if(status==='approved') return '<span class="status-pill status-done">Approved</span>';
     if(status==='disapproved') return '<span class="status-pill status-rejected">Disapproved</span>';
+    if(status==='cancelled') return '<span class="status-pill status-cancelled">Cancelled</span>';
     return '<span class="status-pill status-draft">Pending</span>';
   }
   function leaveCalcDays(){
@@ -6182,35 +6183,122 @@
     outstanding.sort((a,b)=> (b.disbursedAt||'').localeCompare(a.disbursedAt||''));
     return outstanding[0] || null;
   }
+  // A request the technician filed that admin hasn't decided on yet. While one
+  // of these exists, a second "New Request" would let a technician stack up
+  // multiple asks before admin even sees the first one.
+  async function caFindPendingRequest(userId){
+    const all = await caListForUser(userId, {full:true});
+    const pending = all.filter(r=> r.status==='pending');
+    pending.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
+    return pending[0] || null;
+  }
 
-  // Toggles the New Request form vs. the "please liquidate first" reminder.
-  // Called whenever the Cash Advance page is opened and whenever the New
-  // Request tab is shown, so the block can never be bypassed by navigating
-  // away and back.
+  // Tracks whichever record is currently shown in the blocked card, so the
+  // Cancel Request button knows what to cancel without a second lookup.
+  let caBlockedPendingRecord = null;
+
+  // Toggles the New Request form vs. the blocked-state reminder. Called
+  // whenever the Cash Advance page is opened and whenever the New Request tab
+  // is shown, so the block can never be bypassed by navigating away and back.
   async function caCheckBlockedState(){
     if(!currentUser || currentUser.role==='admin') return null;
-    const active = await caFindActiveLiquidationRecord(currentUser.id);
     const dot = $('caLiqTabDot');
-    if(active){
+    caBlockedPendingRecord = null;
+
+    // A disbursed-but-unliquidated advance takes priority: it's further along
+    // than a pending request can ever be (pending requests are never disbursed).
+    const activeLiq = await caFindActiveLiquidationRecord(currentUser.id);
+    if(activeLiq){
       $('caFormCard').style.display = 'none';
       $('caBlockedCard').style.display = '';
-      const needsSubmit = !active.liquidation || active.liquidation.status==='disapproved';
+      const needsSubmit = !activeLiq.liquidation || activeLiq.liquidation.status==='disapproved';
+      $('caBlockedBanner').textContent = needsSubmit
+        ? 'Your cash advance request was approved. Submit your liquidation before submitting a new cash advance request.'
+        : 'Your liquidation has been submitted. Wait for admin approval before submitting a new cash advance request.';
       $('caBlockedSummary').innerHTML =
         '<div class="leave-comment"><b>You Cannot Request a New Cash Advance at the Moment</b>'+
         (needsSubmit ? 'Needs liquidation — ' : 'Awaiting admin approval — ')+
-        caFmtPeso(active.amountGiven)+' given on '+leaveFmtDate(active.dateGiven)+' — '+escapeHtml(active.purpose)+'</div>'+
-        (active.liquidation && active.liquidation.status==='disapproved' && active.liquidation.comment
-          ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(active.liquidation.comment)+'</div>' : '');
+        caFmtPeso(activeLiq.amountGiven)+' given on '+leaveFmtDate(activeLiq.dateGiven)+' — '+escapeHtml(activeLiq.purpose)+'</div>'+
+        (activeLiq.liquidation && activeLiq.liquidation.status==='disapproved' && activeLiq.liquidation.comment
+          ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(activeLiq.liquidation.comment)+'</div>' : '');
       $('caGoLiquidateBtn').style.display = needsSubmit ? '' : 'none';
+      $('caCancelRequestBtn').style.display = 'none';
       if(dot) dot.style.display = needsSubmit ? '' : 'none';
-    }else{
-      $('caFormCard').style.display = '';
-      $('caBlockedCard').style.display = 'none';
-      if(dot) dot.style.display = 'none';
+      return activeLiq;
     }
-    return active;
+
+    const pending = await caFindPendingRequest(currentUser.id);
+    if(pending){
+      caBlockedPendingRecord = pending;
+      $('caFormCard').style.display = 'none';
+      $('caBlockedCard').style.display = '';
+      $('caBlockedBanner').textContent = 'You have a cash advance request awaiting admin approval. Wait for approval, or cancel the request to submit a new one.';
+      $('caBlockedSummary').innerHTML =
+        '<div class="leave-comment"><b>Awaiting Admin Approval</b>'+
+        caFmtPeso(pending.amount)+' requested on '+leaveFmtWhen(pending.submittedAt)+' — '+escapeHtml(pending.purpose)+'</div>';
+      $('caGoLiquidateBtn').style.display = 'none';
+      $('caCancelRequestBtn').style.display = '';
+      if(dot) dot.style.display = 'none';
+      return pending;
+    }
+
+    $('caFormCard').style.display = '';
+    $('caBlockedCard').style.display = 'none';
+    if(dot) dot.style.display = 'none';
+    return null;
   }
   $('caGoLiquidateBtn').addEventListener('click', ()=> caShowTab('liquidate'));
+
+  // Lets a technician withdraw their own request while it's still awaiting a
+  // decision. Once admin approves or disapproves it, this is no longer an
+  // option — the guarded update below (status='pending') is what actually
+  // enforces that, not just the UI.
+  async function caCancelRequest(id){
+    if(!currentUser || currentUser.role==='admin') return;
+    if(!confirm('Cancel this cash advance request? This cannot be undone.')) return;
+    const btn = $('caCancelRequestBtn');
+    if(btn) btn.disabled = true;
+    if(!(await ensureCloud())){
+      toast('This needs a connection — try again when online');
+      if(btn) btn.disabled = false;
+      return;
+    }
+    try{
+      const rec = await caGetRequest(id);
+      if(!rec || rec.userId !== currentUser.id){ toast('Request not found'); return; }
+      if(rec.status !== 'pending'){
+        toast(rec.status==='approved'
+          ? 'This was already approved — it can no longer be cancelled'
+          : 'This request was already decided');
+        return;
+      }
+      const merged = Object.assign({}, rec, {
+        status: 'cancelled',
+        decidedAt: new Date().toISOString(),
+        decidedBy: currentUser.name ? (currentUser.name+' (cancelled)') : 'Cancelled by technician'
+      });
+      const { data: rows, error } = await db.from('cash_advance_requests')
+        .update({ status: 'cancelled', data: merged })
+        .eq('id', id).eq('status', 'pending')
+        .select('id');
+      if(error) throw error;
+      if(!rows || !rows.length){
+        toast('This request was just decided by admin — refreshing');
+      }else{
+        toast('Request cancelled');
+      }
+    }catch(e){
+      console.error('cash advance cancel failed', describeCloudError(e));
+      toast('Could not cancel — please try again');
+    }finally{
+      if(btn) btn.disabled = false;
+      caCheckBlockedState();
+      caRenderHistory();
+    }
+  }
+  $('caCancelRequestBtn').addEventListener('click', ()=>{
+    if(caBlockedPendingRecord) caCancelRequest(caBlockedPendingRecord.id);
+  });
 
   async function caSubmit(){
     if(!currentUser || currentUser.role==='admin') return;
@@ -6218,6 +6306,8 @@
     // prevent this, but this guards against stale UI state.
     const active = await caFindActiveLiquidationRecord(currentUser.id);
     if(active){ toast('Liquidate your existing cash advance first'); caCheckBlockedState(); return; }
+    const pending = await caFindPendingRequest(currentUser.id);
+    if(pending){ toast('You already have a cash advance request awaiting approval'); caCheckBlockedState(); return; }
     const amount = parseFloat($('caAmount').value);
     const purpose = $('caPurpose').value.trim();
     const project = $('caProject').value.trim();
@@ -6776,17 +6866,18 @@
         disbursedSummary+
         liqSummary+
         '<div class="user-card-actions">'+
-          '<button data-act="review" class="primary">'+(r.status==='pending' ? 'Review' : 'Change Decision')+'</button>'+
+          (r.status==='cancelled' ? '' : '<button data-act="review" class="primary">'+(r.status==='pending' ? 'Review' : 'Change Decision')+'</button>')+
           (r.status==='approved' ? '<button data-act="disburse-toggle">'+(r.disbursed ? 'Edit Disbursement' : 'Record Disbursement')+'</button>' : '')+
           (r.liquidation ? '<button data-act="liq-toggle">'+(r.liquidation.status==='pending' ? 'Review Liquidation' : 'View Liquidation')+'</button>' : '')+
         '</div>'+
+        (r.status==='cancelled' ? '' :
         '<div class="user-edit-panel" data-panel="decision">'+
           '<div class="field"><label>Comment (visible to the technician)</label><textarea data-f="comment" rows="2" placeholder="Optional for approval, recommended for disapproval">'+escapeHtml(r.comment||'')+'</textarea></div>'+
           '<div class="edit-save-row">'+
             '<button class="cancel-btn" data-act="disapprove" type="button" style="color:var(--danger); border-color:#F1C4BC;">Disapprove</button>'+
             '<button class="save-btn" data-act="approve" type="button">Approve</button>'+
           '</div>'+
-        '</div>'+
+        '</div>')+
         (r.status==='approved' ?
           '<div class="user-edit-panel" data-panel="disbursement">'+
             '<div class="grid2">'+
@@ -6803,12 +6894,15 @@
       const disbursePanel = card.querySelector('[data-panel="disbursement"]');
       const liqPanel = card.querySelector('[data-panel="liquidation"]');
       const allPanels = [decisionPanel, disbursePanel, liqPanel].filter(Boolean);
-      card.querySelector('[data-act="review"]').addEventListener('click', ()=>{
-        allPanels.forEach(p=>{ if(p!==decisionPanel) p.classList.remove('open'); });
-        decisionPanel.classList.toggle('open');
-      });
-      card.querySelector('[data-act="approve"]').addEventListener('click', ()=> caDecide(r.id, 'approved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
-      card.querySelector('[data-act="disapprove"]').addEventListener('click', ()=> caDecide(r.id, 'disapproved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
+      const reviewBtn = card.querySelector('[data-act="review"]');
+      if(reviewBtn && decisionPanel){
+        reviewBtn.addEventListener('click', ()=>{
+          allPanels.forEach(p=>{ if(p!==decisionPanel) p.classList.remove('open'); });
+          decisionPanel.classList.toggle('open');
+        });
+        card.querySelector('[data-act="approve"]').addEventListener('click', ()=> caDecide(r.id, 'approved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
+        card.querySelector('[data-act="disapprove"]').addEventListener('click', ()=> caDecide(r.id, 'disapproved', decisionPanel.querySelector('[data-f="comment"]').value.trim()));
+      }
       const disburseToggleBtn = card.querySelector('[data-act="disburse-toggle"]');
       if(disburseToggleBtn){
         disburseToggleBtn.addEventListener('click', ()=>{
