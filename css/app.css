@@ -865,3 +865,41 @@
     .cal-cell{ min-height:36px; padding:4px 3px 3px; }
     .cal-cell-num{ font-size:11px; }
   }
+
+  /* ---- Liquidation Form preview (voucher-style, read-only) ---- */
+  .ca-liq-preview-head{
+    background:var(--green-light);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    margin-bottom:16px;
+  }
+  .ca-liq-preview-eyebrow{
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
+    color:var(--green-dark); margin-bottom:4px;
+  }
+  .ca-liq-preview-amount{ font-size:15px; color:var(--text); }
+  .ca-liq-preview-amount b{ color:var(--green-dark); }
+  .ca-liq-preview-table{ width:100%; border-collapse:collapse; margin-bottom:2px; }
+  .ca-liq-preview-table thead th{
+    text-align:left; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--text-muted); padding:0 6px 8px; border-bottom:2px solid var(--green-dark);
+  }
+  .ca-liq-preview-table thead th.num{ width:28px; }
+  .ca-liq-preview-table thead th.amt{ text-align:right; width:88px; }
+  .ca-liq-preview-table tbody td{
+    padding:10px 6px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:top;
+  }
+  .ca-liq-preview-table tbody tr:nth-child(even){ background:rgba(21,77,52,.025); }
+  .ca-liq-preview-table td.num{ color:var(--text-muted); }
+  .ca-liq-preview-table td.date{ color:var(--text-muted); white-space:nowrap; font-size:12px; }
+  .ca-liq-preview-table td.amt{ text-align:right; font-weight:700; white-space:nowrap; }
+  .ca-liq-preview-totals{ margin-top:6px; }
+  .ca-liq-preview-totals .row{ display:flex; justify-content:space-between; padding:7px 6px; font-size:13px; }
+  .ca-liq-preview-totals .row.subtotal{ font-weight:700; border-top:1px solid var(--border); }
+  .ca-liq-preview-totals .row.muted{ color:var(--text-muted); }
+  .ca-liq-preview-totals .row.balance{
+    font-weight:700; font-size:15.5px; color:var(--green-dark);
+    background:var(--green-light); border-radius:8px; margin-top:2px;
+  }
+  .ca-liq-preview-footnote{ font-size:12px; color:var(--text-muted); padding:8px 6px 0; text-align:right; }

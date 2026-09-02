@@ -211,10 +211,10 @@
         $('caBlockedCard').style.display = '';
         $('caBlockedBanner').textContent = needsSubmit
           ? 'Your cash advance request was approved. Submit your liquidation before submitting a new cash advance request.'
-          : 'Your liquidation has been submitted. Wait for admin approval before submitting a new cash advance request.';
+          : 'Liquidation has been submitted for review and approval.';
         $('caBlockedSummary').innerHTML =
           '<div class="leave-comment"><b>You Cannot Request a New Cash Advance at the Moment</b>'+
-          (needsSubmit ? 'Needs liquidation — ' : 'Awaiting admin approval — ')+
+          (needsSubmit ? 'Needs liquidation — ' : 'Liquidation submitted for review and approval — ')+
           caFmtPeso(activeLiq.amountGiven)+' given on '+leaveFmtDate(activeLiq.dateGiven)+' — '+escapeHtml(activeLiq.purpose)+'</div>'+
           (activeLiq.liquidation && activeLiq.liquidation.status==='disapproved' && activeLiq.liquidation.comment
             ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(activeLiq.liquidation.comment)+'</div>' : '');
@@ -762,10 +762,47 @@
   });
 
   // ---- View Liquidation Form (read-only preview of the form above) ----
+  // A dedicated renderer (rather than reusing caLiqFormRowsHtml/caLiqTotalsHtml,
+  // which the editable in-page form also depends on) so this can look like an
+  // actual voucher/receipt document — proper table, header block, boxed
+  // totals — without touching the editable form's layout.
+  function caLiqPreviewHtml(){
+    const {total, given, diff} = caLiqComputeTotals();
+    const excessLabel = diff >= 0 ? 'Unreturned Excess C.A.' : 'Accounts Receivable';
+    const excessAmount = caFmtPeso(Math.abs(diff));
+    const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
+    let rows = '';
+    caLiqItems.forEach((item, idx)=>{
+      rows +=
+        '<tr>'+
+          '<td class="num">'+(idx+1)+'</td>'+
+          '<td class="date">'+caLiqItemDate(item)+'</td>'+
+          '<td class="particular">'+(item.type==='transport'?'🚕 ':'📄 ')+'<b>'+escapeHtml(caLiqItemParticular(item))+'</b></td>'+
+          '<td class="amt">'+caFmtPeso(item.amount)+'</td>'+
+        '</tr>';
+    });
+    return (
+      (caLiqActiveRecord ?
+        '<div class="ca-liq-preview-head">'+
+          '<div class="ca-liq-preview-eyebrow">Cash Advance</div>'+
+          '<div class="ca-liq-preview-amount"><b>'+caFmtPeso(caLiqActiveRecord.amountGiven)+'</b> given on '+leaveFmtDate(caLiqActiveRecord.dateGiven)+'</div>'+
+        '</div>'
+        : '')+
+      '<table class="ca-liq-preview-table">'+
+        '<thead><tr><th class="num">No.</th><th>Date</th><th>Particular</th><th class="amt">Amount</th></tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table>'+
+      '<div class="ca-liq-preview-totals">'+
+        '<div class="row subtotal"><span>Total Expenses</span><span>'+caFmtPeso(total)+'</span></div>'+
+        '<div class="row muted"><span>'+excessLabel+'</span><span>'+excessAmount+'</span></div>'+
+        '<div class="row balance"><span>'+balanceLabel+'</span><span>'+excessAmount+'</span></div>'+
+      '</div>'+
+      (given ? '<div class="ca-liq-preview-footnote">Cash advance given: '+caFmtPeso(given)+'</div>' : '')
+    );
+  }
   function caLiqOpenFormPreview(){
     $('liqFormPreviewBody').innerHTML =
-      (caLiqActiveRecord ? '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(caLiqActiveRecord.amountGiven)+' given on '+leaveFmtDate(caLiqActiveRecord.dateGiven)+'</div>' : '')+
-      caLiqFormRowsHtml(false) + caLiqTotalsHtml()+
+      caLiqPreviewHtml()+
       '<button type="button" class="btn btn-primary" id="liqFormPreviewSubmitBtn" style="width:100%; margin-top:14px;">Submit</button>';
     $('liqFormPreviewOverlay').classList.add('open');
     $('liqFormPreviewSubmitBtn').addEventListener('click', ()=>{
