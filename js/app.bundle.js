@@ -6531,6 +6531,11 @@
   // Tracks whichever record is currently shown in the blocked card, so the
   // Cancel Request button knows what to cancel without a second lookup.
   let caBlockedPendingRecord = null;
+  let caActiveTab = 'new'; // tracks which of New/Liquidate/History is showing, so an
+                           // in-flight caCheckBlockedState() call (a network round trip)
+                           // that resolves after the technician has already switched
+                           // tabs can tell it's stale and skip touching the DOM instead
+                           // of re-showing the reminder card on top of whatever's there.
 
   // Toggles the New Request form vs. the blocked-state reminder. Called
   // whenever the Cash Advance page is opened and whenever the New Request tab
@@ -6543,43 +6548,54 @@
     // A disbursed-but-unliquidated advance takes priority: it's further along
     // than a pending request can ever be (pending requests are never disbursed).
     const activeLiq = await caFindActiveLiquidationRecord(currentUser.id);
+    // The technician may have already switched to another tab while that
+    // network round trip was in flight. Only the dot indicator (small,
+    // tab-independent) is safe to update from a stale call — the reminder
+    // card itself must not reappear on top of whatever tab is now showing.
+    const stillOnNewTab = caActiveTab==='new';
     if(activeLiq){
-      $('caFormCard').style.display = 'none';
-      $('caBlockedCard').style.display = '';
       const needsSubmit = !activeLiq.liquidation || activeLiq.liquidation.status==='disapproved';
-      $('caBlockedBanner').textContent = needsSubmit
-        ? 'Your cash advance request was approved. Submit your liquidation before submitting a new cash advance request.'
-        : 'Your liquidation has been submitted. Wait for admin approval before submitting a new cash advance request.';
-      $('caBlockedSummary').innerHTML =
-        '<div class="leave-comment"><b>You Cannot Request a New Cash Advance at the Moment</b>'+
-        (needsSubmit ? 'Needs liquidation — ' : 'Awaiting admin approval — ')+
-        caFmtPeso(activeLiq.amountGiven)+' given on '+leaveFmtDate(activeLiq.dateGiven)+' — '+escapeHtml(activeLiq.purpose)+'</div>'+
-        (activeLiq.liquidation && activeLiq.liquidation.status==='disapproved' && activeLiq.liquidation.comment
-          ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(activeLiq.liquidation.comment)+'</div>' : '');
-      $('caGoLiquidateBtn').style.display = needsSubmit ? '' : 'none';
-      $('caCancelRequestBtn').style.display = 'none';
       if(dot) dot.style.display = needsSubmit ? '' : 'none';
+      if(stillOnNewTab){
+        $('caFormCard').style.display = 'none';
+        $('caBlockedCard').style.display = '';
+        $('caBlockedBanner').textContent = needsSubmit
+          ? 'Your cash advance request was approved. Submit your liquidation before submitting a new cash advance request.'
+          : 'Your liquidation has been submitted. Wait for admin approval before submitting a new cash advance request.';
+        $('caBlockedSummary').innerHTML =
+          '<div class="leave-comment"><b>You Cannot Request a New Cash Advance at the Moment</b>'+
+          (needsSubmit ? 'Needs liquidation — ' : 'Awaiting admin approval — ')+
+          caFmtPeso(activeLiq.amountGiven)+' given on '+leaveFmtDate(activeLiq.dateGiven)+' — '+escapeHtml(activeLiq.purpose)+'</div>'+
+          (activeLiq.liquidation && activeLiq.liquidation.status==='disapproved' && activeLiq.liquidation.comment
+            ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(activeLiq.liquidation.comment)+'</div>' : '');
+        $('caGoLiquidateBtn').style.display = needsSubmit ? '' : 'none';
+        $('caCancelRequestBtn').style.display = 'none';
+      }
       return activeLiq;
     }
 
     const pending = await caFindPendingRequest(currentUser.id);
+    const stillOnNewTab2 = caActiveTab==='new';
     if(pending){
       caBlockedPendingRecord = pending;
-      $('caFormCard').style.display = 'none';
-      $('caBlockedCard').style.display = '';
-      $('caBlockedBanner').textContent = 'You have a cash advance request awaiting admin approval. Wait for approval, or cancel the request to submit a new one.';
-      $('caBlockedSummary').innerHTML =
-        '<div class="leave-comment"><b>Awaiting Admin Approval</b>'+
-        caFmtPeso(pending.amount)+' requested on '+leaveFmtWhen(pending.submittedAt)+' — '+escapeHtml(pending.purpose)+'</div>';
-      $('caGoLiquidateBtn').style.display = 'none';
-      $('caCancelRequestBtn').style.display = '';
       if(dot) dot.style.display = 'none';
+      if(stillOnNewTab2){
+        $('caFormCard').style.display = 'none';
+        $('caBlockedCard').style.display = '';
+        $('caBlockedBanner').textContent = 'You have a cash advance request awaiting admin approval. Wait for approval, or cancel the request to submit a new one.';
+        $('caBlockedSummary').innerHTML =
+          '<div class="leave-comment"><b>Awaiting Admin Approval</b>'+
+          caFmtPeso(pending.amount)+' requested on '+leaveFmtWhen(pending.submittedAt)+' — '+escapeHtml(pending.purpose)+'</div>';
+        $('caGoLiquidateBtn').style.display = 'none';
+        $('caCancelRequestBtn').style.display = '';
+      }
       return pending;
     }
 
+    if(dot) dot.style.display = 'none';
+    if(!stillOnNewTab2) return null;
     $('caFormCard').style.display = '';
     $('caBlockedCard').style.display = 'none';
-    if(dot) dot.style.display = 'none';
     return null;
   }
   $('caGoLiquidateBtn').addEventListener('click', ()=> caShowTab('liquidate'));
@@ -6730,6 +6746,7 @@
   }
 
   function caShowTab(which){
+    caActiveTab = which;
     $('caTabNew').classList.toggle('active', which==='new');
     $('caTabLiquidate').classList.toggle('active', which==='liquidate');
     $('caTabHistory').classList.toggle('active', which==='history');
