@@ -952,12 +952,15 @@ window.awesCss = {
                nothing here is an inline form. -->
           <div id="caLiqEditView" style="display:none;">
 
-            <!-- Once at least one item exists: the Liquidation Form itself.
-                 Before that, nothing renders here at all — arriving on this
-                 tab with nothing submitted yet opens the Add Item modal
-                 directly (see caShowLiqTab), instead of showing a duplicate
-                 "Liquidate Now" button/summary that just repeats the
-                 reminder card above. -->
+            <!-- Before any item is added: an explicit entry point. The
+                 modal only opens when this is tapped — never automatically
+                 on arrival, which felt like the page popping something up
+                 on its own before the technician had done anything. -->
+            <div id="caLiqStartPrompt" style="display:none;">
+              <button type="button" class="btn btn-primary" id="caLiqStartBtn" style="width:100%;">+ Add Item</button>
+            </div>
+
+            <!-- Once at least one item exists: the Liquidation Form itself. -->
             <div id="caLiqFormBuilt" style="display:none;">
               <div class="card-head" style="padding:0 0 10px 0;"><span>🧾 Liquidation Form</span></div>
               <div id="caLiqFormTable"></div>

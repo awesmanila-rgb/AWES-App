@@ -6789,6 +6789,7 @@
   $('closeLiqAddItemModal').addEventListener('click', caLiqCloseAddItemModal);
   $('liqAddItemModal').addEventListener('click', (e)=>{ if(e.target.id==='liqAddItemModal') caLiqCloseAddItemModal(); });
   $('caLiqAddItemBtn').addEventListener('click', caLiqOpenAddItemModal);
+  $('caLiqStartBtn').addEventListener('click', caLiqOpenAddItemModal);
 
   // ---- "Others" item form (a single receipt) ----
   function caLiqOpenOthersModal(){
@@ -6951,6 +6952,7 @@
 
   function caLiqRenderForm(){
     const hasItems = caLiqItems.length>0;
+    $('caLiqStartPrompt').style.display = hasItems ? 'none' : '';
     $('caLiqFormBuilt').style.display = hasItems ? '' : 'none';
     if(!hasItems) return;
     const wrap = $('caLiqFormTable');
@@ -7289,14 +7291,8 @@
     $('caLiquidateEmpty').style.display = 'none';
     $('caLiquidateActive').style.display = '';
 
-    // A liquidation that's never been started yet duplicates the reminder
-    // card the technician just came from (same amount/date/purpose, same
-    // "Liquidate Now" action) — skip repeating it here. Once there's
-    // something to show (a disapproval to fix, or items already added) the
-    // summary earns its place again.
-    const isFreshStart = !active.liquidation;
-    $('caLiquidateSummary').style.display = isFreshStart ? 'none' : '';
-    $('caLiquidateSummary').innerHTML = isFreshStart ? '' :
+    $('caLiquidateSummary').style.display = '';
+    $('caLiquidateSummary').innerHTML =
       '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(active.amountGiven)+' given on '+leaveFmtDate(active.dateGiven)+
       ' — '+escapeHtml(active.purpose)+(active.project ? ' ('+escapeHtml(active.project)+')' : '')+'</div>';
 
@@ -7325,10 +7321,6 @@
         $('caLiqNotes').value = '';
       }
       caLiqRenderForm();
-      // Nothing submitted yet, and no disapproval to review — skip straight
-      // to the Add Item modal instead of leaving the technician on a blank
-      // card with no visible next step.
-      if(isFreshStart) caLiqOpenAddItemModal();
     }else{
       caLiqRenderReadonly(active);
     }
