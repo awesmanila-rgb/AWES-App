@@ -6916,18 +6916,18 @@
     return item.date ? leaveFmtDate(item.date) : '—';
   }
 
-  function caLiqFormRowsHtml(){
+  function caLiqFormRowsHtml(editable){
     let html = '<div style="font-size:12px; color:var(--text-muted); display:flex; padding:0 4px 6px; font-weight:700; text-transform:uppercase; letter-spacing:.3px;">'+
-      '<span style="width:28px;">No.</span><span style="flex:1;">Date</span><span style="flex:2;">Particular</span><span style="text-align:right;">Amount</span></div>';
+      '<span style="width:28px;">No.</span><span style="flex:1;">Date</span><span style="flex:2;">Particular</span><span style="text-align:right; min-width:70px;">Amount</span></div>';
     caLiqItems.forEach((item, idx)=>{
       html += '<div class="hist-item" data-item-id="'+item.id+'" data-view-item="'+item.id+'" style="align-items:flex-start;">'+
-        '<div style="display:flex; flex:1; gap:8px; align-items:center;">'+
+        '<div style="display:flex; flex:1; gap:8px; align-items:center; min-width:0;">'+
           '<span style="width:28px; color:var(--text-muted);">'+(idx+1)+'</span>'+
           '<span style="flex:1; font-size:12px; color:var(--text-muted);">'+caLiqItemDate(item)+'</span>'+
           '<span style="flex:2;"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(caLiqItemParticular(item))+'</b></span>'+
         '</div>'+
-        '<div style="text-align:right; font-weight:700; white-space:nowrap;">'+caFmtPeso(item.amount)+'</div>'+
-        '<button type="button" class="btn btn-secondary" data-act="remove" data-item-id="'+item.id+'" style="margin-left:8px; color:var(--danger); padding:4px 10px; font-size:11px;">✕</button>'+
+        '<div style="text-align:right; font-weight:700; white-space:nowrap; min-width:70px;">'+caFmtPeso(item.amount)+'</div>'+
+        (editable ? '<button type="button" class="btn btn-secondary" data-act="remove" data-item-id="'+item.id+'" style="flex:0 0 auto; width:auto; margin-left:8px; color:var(--danger); padding:4px 10px; font-size:11px;">✕</button>' : '')+
       '</div>';
     });
     return html;
@@ -6954,7 +6954,7 @@
     $('caLiqFormBuilt').style.display = hasItems ? '' : 'none';
     if(!hasItems) return;
     const wrap = $('caLiqFormTable');
-    wrap.innerHTML = caLiqFormRowsHtml() + caLiqTotalsHtml();
+    wrap.innerHTML = caLiqFormRowsHtml(true) + caLiqTotalsHtml();
     caLiqItems.forEach(item=>{
       const row = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
       if(row){
@@ -7052,8 +7052,13 @@
   function caLiqOpenFormPreview(){
     $('liqFormPreviewBody').innerHTML =
       (caLiqActiveRecord ? '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(caLiqActiveRecord.amountGiven)+' given on '+leaveFmtDate(caLiqActiveRecord.dateGiven)+'</div>' : '')+
-      caLiqFormRowsHtml() + caLiqTotalsHtml();
+      caLiqFormRowsHtml(false) + caLiqTotalsHtml()+
+      '<button type="button" class="btn btn-primary" id="liqFormPreviewSubmitBtn" style="width:100%; margin-top:14px;">Submit</button>';
     $('liqFormPreviewOverlay').classList.add('open');
+    $('liqFormPreviewSubmitBtn').addEventListener('click', ()=>{
+      $('liqFormPreviewOverlay').classList.remove('open');
+      caSubmitLiquidation();
+    });
   }
   $('caLiqViewFormBtn').addEventListener('click', caLiqOpenFormPreview);
   $('closeLiqFormPreview').addEventListener('click', ()=> $('liqFormPreviewOverlay').classList.remove('open'));
