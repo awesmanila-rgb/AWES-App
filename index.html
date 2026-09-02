@@ -952,12 +952,12 @@ window.awesCss = {
                nothing here is an inline form. -->
           <div id="caLiqEditView" style="display:none;">
 
-            <!-- Before any item has been added: just the entry point. -->
-            <div id="caLiqStartPrompt" style="display:none;">
-              <button type="button" class="btn btn-primary" id="caLiqStartBtn" style="width:100%;">Liquidate Now</button>
-            </div>
-
-            <!-- Once at least one item exists: the Liquidation Form itself. -->
+            <!-- Once at least one item exists: the Liquidation Form itself.
+                 Before that, nothing renders here at all — arriving on this
+                 tab with nothing submitted yet opens the Add Item modal
+                 directly (see caShowLiqTab), instead of showing a duplicate
+                 "Liquidate Now" button/summary that just repeats the
+                 reminder card above. -->
             <div id="caLiqFormBuilt" style="display:none;">
               <div class="card-head" style="padding:0 0 10px 0;"><span>🧾 Liquidation Form</span></div>
               <div id="caLiqFormTable"></div>
@@ -995,7 +995,7 @@ window.awesCss = {
           <button type="button" data-filter="pending" class="active">Pending</button>
           <button type="button" data-filter="approved">Approved</button>
           <button type="button" data-filter="given">Given</button>
-          <button type="button" data-filter="toReviewLiq">To Review Liquidation</button>
+          <button type="button" data-filter="toReviewLiq">To Review Liquidation <span id="caToReviewLiqBadge" class="status-pill status-rejected" style="display:none; margin-left:4px;">0</span></button>
           <button type="button" data-filter="disapproved">Disapproved</button>
           <button type="button" data-filter="all">All</button>
         </div>

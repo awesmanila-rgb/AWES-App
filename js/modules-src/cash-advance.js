@@ -136,6 +136,14 @@
     const v = Number(n)||0;
     return '₱'+v.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
   }
+  // jsPDF's built-in fonts (Helvetica etc.) only cover Latin-1 — the actual
+  // ₱ glyph isn't in that character set, so text containing it renders as a
+  // blank box or breaks the layout entirely. Every amount printed to PDF
+  // uses this "PHP " prefix instead of caFmtPeso's ₱ symbol.
+  function caFmtPesoPdf(n){
+    const v = Number(n)||0;
+    return 'PHP '+v.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
 
   function caResetForm(){
     $('caAmount').value = '';
@@ -224,16 +232,7 @@
     if(dot) dot.style.display = 'none';
     return null;
   }
-  $('caGoLiquidateBtn').addEventListener('click', async ()=>{
-    caShowTab('liquidate');
-    // If there's nothing to fix from a disapproval, skip straight to the Add
-    // Item modal instead of making the technician tap a second "Liquidate
-    // Now" button once they land on the tab.
-    await caShowLiqTab();
-    if(caLiqItems.length===0 && $('caLiqEditView').style.display !== 'none'){
-      caLiqOpenAddItemModal();
-    }
-  });
+  $('caGoLiquidateBtn').addEventListener('click', ()=> caShowTab('liquidate'));
 
   // Lets a technician withdraw their own request while it's still awaiting a
   // decision. Once admin approves or disapproves it, this is no longer an
@@ -439,7 +438,6 @@
   function caLiqCloseAddItemModal(){ $('liqAddItemModal').classList.remove('open'); }
   $('closeLiqAddItemModal').addEventListener('click', caLiqCloseAddItemModal);
   $('liqAddItemModal').addEventListener('click', (e)=>{ if(e.target.id==='liqAddItemModal') caLiqCloseAddItemModal(); });
-  $('caLiqStartBtn').addEventListener('click', caLiqOpenAddItemModal);
   $('caLiqAddItemBtn').addEventListener('click', caLiqOpenAddItemModal);
 
   // ---- "Others" item form (a single receipt) ----
@@ -603,7 +601,6 @@
 
   function caLiqRenderForm(){
     const hasItems = caLiqItems.length>0;
-    $('caLiqStartPrompt').style.display = hasItems ? 'none' : '';
     $('caLiqFormBuilt').style.display = hasItems ? '' : 'none';
     if(!hasItems) return;
     const wrap = $('caLiqFormTable');
@@ -866,12 +863,12 @@
     y = headerH + 24;
     doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text('Technician: '+(record.userName||'—'), margin, y); y += 14;
-    doc.text('Cash Advance: '+caFmtPeso(record.amountGiven)+' given on '+(leaveFmtDate(record.dateGiven)||'—'), margin, y); y += 14;
+    doc.text('Cash Advance: '+caFmtPesoPdf(record.amountGiven)+' given on '+(leaveFmtDate(record.dateGiven)||'—'), margin, y); y += 14;
     doc.setFont('helvetica','normal'); doc.setFontSize(9);
     const purposeLines = doc.splitTextToSize('Purpose: '+(record.purpose||'—'), pageW-margin*2);
     doc.text(purposeLines, margin, y); y += purposeLines.length*11 + 10;
 
-    const rows = (liq.items||[]).map((item, idx)=> [String(idx+1), caLiqItemDate(item), caLiqItemParticular(item), caFmtPeso(item.amount)]);
+    const rows = (liq.items||[]).map((item, idx)=> [String(idx+1), caLiqItemDate(item), caLiqItemParticular(item), caFmtPesoPdf(item.amount)]);
     await loadAwesScript('autotable', awesLibs.autotable);
     doc.autoTable({
       startY: y,
@@ -890,11 +887,11 @@
     const excessLabel = diff >= 0 ? 'Unreturned Excess C.A.' : 'Accounts Receivable';
     const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
     doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.text('Total Expenses', margin, y); doc.text(caFmtPeso(total), pageW-margin, y, {align:'right'}); y+=16;
+    doc.text('Total Expenses', margin, y); doc.text(caFmtPesoPdf(total), pageW-margin, y, {align:'right'}); y+=16;
     doc.setFont('helvetica','normal');
-    doc.text(excessLabel, margin, y); doc.text(caFmtPeso(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=16;
+    doc.text(excessLabel, margin, y); doc.text(caFmtPesoPdf(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=16;
     doc.setFont('helvetica','bold');
-    doc.text(balanceLabel, margin, y); doc.text(caFmtPeso(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=20;
+    doc.text(balanceLabel, margin, y); doc.text(caFmtPesoPdf(Math.abs(diff)), pageW-margin, y, {align:'right'}); y+=20;
 
     if(liq.comment){
       doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Notes', margin, y); y+=12;
@@ -916,9 +913,9 @@
   async function caMaybeAutoSaveLiquidationPdf(record){
     const flagKey = 'liqpdf:'+record.id;
     try{
-      await window.storage.get(flagKey, false);
-      return; // already saved once
-    }catch(e){ /* not set yet — fall through and save */ }
+      const existing = await window.storage.get(flagKey, false);
+      if(existing) return; // already saved once
+    }catch(e){ /* treat a lookup error the same as "not set yet" */ }
     try{
       await caDownloadLiquidationPdf(record);
       await window.storage.set(flagKey, '1', false);
@@ -936,7 +933,15 @@
     }
     $('caLiquidateEmpty').style.display = 'none';
     $('caLiquidateActive').style.display = '';
-    $('caLiquidateSummary').innerHTML =
+
+    // A liquidation that's never been started yet duplicates the reminder
+    // card the technician just came from (same amount/date/purpose, same
+    // "Liquidate Now" action) — skip repeating it here. Once there's
+    // something to show (a disapproval to fix, or items already added) the
+    // summary earns its place again.
+    const isFreshStart = !active.liquidation;
+    $('caLiquidateSummary').style.display = isFreshStart ? 'none' : '';
+    $('caLiquidateSummary').innerHTML = isFreshStart ? '' :
       '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(active.amountGiven)+' given on '+leaveFmtDate(active.dateGiven)+
       ' — '+escapeHtml(active.purpose)+(active.project ? ' ('+escapeHtml(active.project)+')' : '')+'</div>';
 
@@ -965,6 +970,10 @@
         $('caLiqNotes').value = '';
       }
       caLiqRenderForm();
+      // Nothing submitted yet, and no disapproval to review — skip straight
+      // to the Add Item modal instead of leaving the technician on a blank
+      // card with no visible next step.
+      if(isFreshStart) caLiqOpenAddItemModal();
     }else{
       caLiqRenderReadonly(active);
     }
@@ -1017,7 +1026,12 @@
     toast(res===SAVE_CLOUD
       ? 'Liquidation submitted for approval'
       : 'Saved on this device — it will be submitted once you have a connection');
-    caShowTab('history');
+    // Land back on the Liquidate tab (not History) so the technician sees
+    // the readonly confirmation — Pending pill, full itemized form, totals —
+    // right away. Jumping to History instead only shows a small status pill
+    // with no items, which reads as "it just disappeared" even though the
+    // submission went through.
+    caShowTab('liquidate');
   }
   $('caLiqSubmitBtn').addEventListener('click', caSubmitLiquidation);
 
@@ -1027,6 +1041,14 @@
     const list = $('caAdminList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await caListAll();
+    // Surface this count regardless of which filter tab is currently active —
+    // liquidations pending review sit behind a separate tab from the default
+    // "Pending" (request-approval) view, so without a badge they're easy for
+    // admin to miss entirely.
+    const toReviewCount = all.filter(r=> r.liquidation && r.liquidation.status==='pending').length;
+    const badge = $('caToReviewLiqBadge');
+    badge.textContent = String(toReviewCount);
+    badge.style.display = toReviewCount>0 ? '' : 'none';
     let items;
     if(caAdminFilter==='all') items = all;
     else if(caAdminFilter==='given') items = all.filter(r=> r.disbursed);
