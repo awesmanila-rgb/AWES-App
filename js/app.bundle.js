@@ -7291,8 +7291,13 @@
     $('caLiquidateEmpty').style.display = 'none';
     $('caLiquidateActive').style.display = '';
 
-    $('caLiquidateSummary').style.display = '';
-    $('caLiquidateSummary').innerHTML =
+    // A liquidation that's never been started yet duplicates the reminder
+    // card the technician just came from (same amount/date/purpose) — skip
+    // repeating it here. Once there's something to show (a disapproval to
+    // fix, or a submission to review) the summary earns its place again.
+    const isFreshStart = !active.liquidation;
+    $('caLiquidateSummary').style.display = isFreshStart ? 'none' : '';
+    $('caLiquidateSummary').innerHTML = isFreshStart ? '' :
       '<div class="leave-comment"><b>Cash Advance</b>'+caFmtPeso(active.amountGiven)+' given on '+leaveFmtDate(active.dateGiven)+
       ' — '+escapeHtml(active.purpose)+(active.project ? ' ('+escapeHtml(active.project)+')' : '')+'</div>';
 
