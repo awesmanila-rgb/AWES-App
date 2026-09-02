@@ -419,6 +419,47 @@
 
   function caLiqItemId(){ return 'li_'+Date.now()+'_'+Math.floor(Math.random()*10000); }
 
+  // ---- Local draft auto-save ----
+  // Everything the technician builds up (items, receipt photos, notes) used
+  // to live only in the caLiqItems variable above — nothing was persisted
+  // until the final Submit tap. A killed/backgrounded PWA tab, an accidental
+  // navigation, or a connectivity blip before that tap lost the whole
+  // in-progress liquidation with no warning and no way to recover it. This
+  // mirrors it to on-device storage as the technician works, so it survives
+  // all of that and can be restored the next time they open this tab.
+  function caLiqDraftKey(recordId){
+    return 'caLiqDraft:'+((currentUser && currentUser.id) || 'anon')+':'+recordId;
+  }
+  let caLiqDraftSaveTimer = null;
+  function caLiqSaveDraft(){
+    if(!caLiqActiveRecord) return;
+    // Debounced so fast typing in the notes field doesn't hammer storage.
+    clearTimeout(caLiqDraftSaveTimer);
+    const recordId = caLiqActiveRecord.id;
+    caLiqDraftSaveTimer = setTimeout(async ()=>{
+      try{
+        const notesEl = $('caLiqNotes');
+        const draft = {items: caLiqItems, notes: notesEl ? notesEl.value : '', savedAt: new Date().toISOString()};
+        await window.storage.set(caLiqDraftKey(recordId), JSON.stringify(draft), false);
+      }catch(e){
+        // Best-effort only — e.g. device storage full. Don't block the
+        // technician's editing over it, but don't stay silent either.
+        console.error('liquidation draft save failed', e);
+      }
+    }, 300);
+  }
+  async function caLiqLoadDraft(recordId){
+    try{
+      const res = await window.storage.get(caLiqDraftKey(recordId), false);
+      if(!res || !res.value) return null;
+      const draft = JSON.parse(res.value);
+      return (draft && Array.isArray(draft.items)) ? draft : null;
+    }catch(e){ return null; }
+  }
+  async function caLiqClearDraft(recordId){
+    try{ await window.storage.delete(caLiqDraftKey(recordId), false); }catch(e){ /* nothing to clean up */ }
+  }
+
   // Downscales & compresses an image file before storing it as base64, to
   // keep receipt photos from a phone camera small enough to save reliably.
   function compressImageToDataURL(file, maxDim, quality){
@@ -520,6 +561,7 @@
     });
     caLiqCloseOthersModal();
     caLiqRenderForm();
+    caLiqSaveDraft();
     toast('Item added');
     caLiqFlashItem(newItemId);
   });
@@ -638,6 +680,7 @@
           e.stopPropagation();
           caLiqItems = caLiqItems.filter(i=> i.id!==item.id);
           caLiqRenderForm();
+          caLiqSaveDraft();
         });
       }
     });
@@ -713,6 +756,7 @@
     });
     caLiqCloseTransportModal();
     caLiqRenderForm();
+    caLiqSaveDraft();
     toast('Item added');
     caLiqFlashItem(newItemId);
   });
@@ -989,12 +1033,26 @@
         banner.textContent = 'Disapproved — '+(active.liquidation.comment || 'please review and resubmit.');
         $('caLiqEditView').prepend(banner);
       }else{
-        caLiqItems = [];
-        $('caLiqNotes').value = '';
+        // Before starting blank, check for a local draft from an interrupted
+        // previous attempt (tab killed, app backgrounded, lost connection
+        // right before Submit, etc.) and offer it back instead of losing it.
+        const draft = await caLiqLoadDraft(active.id);
+        if(draft && draft.items.length>0){
+          caLiqItems = draft.items.map(i=> Object.assign({}, i));
+          $('caLiqNotes').value = draft.notes || '';
+          toast('Restored your in-progress liquidation draft');
+        }else{
+          caLiqItems = [];
+          $('caLiqNotes').value = '';
+        }
       }
       caLiqRenderForm();
     }else{
       caLiqRenderReadonly(active);
+      // A liquidation now exists on the server for this record, so any local
+      // draft left over from building it is stale — clear it so it doesn't
+      // resurface on a future disapproval/resubmit cycle for this record.
+      caLiqClearDraft(active.id);
     }
   }
 
@@ -1039,20 +1097,36 @@
       }
     });
     $('caLiqSubmitBtn').disabled = true;
-    const res = await caSaveRequest(rec.id, updated);
-    $('caLiqSubmitBtn').disabled = false;
-    if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
-    toast(res===SAVE_CLOUD
-      ? 'Liquidation submitted for approval'
-      : 'Saved on this device — it will be submitted once you have a connection');
-    // Land back on the Liquidate tab (not History) so the technician sees
-    // the readonly confirmation — Pending pill, full itemized form, totals —
-    // right away. Jumping to History instead only shows a small status pill
-    // with no items, which reads as "it just disappeared" even though the
-    // submission went through.
-    caShowTab('liquidate');
+    try{
+      const res = await caSaveRequest(rec.id, updated);
+      if(res===SAVE_FAILED){ toast('Could not submit — check your connection'); return; }
+      toast(res===SAVE_CLOUD
+        ? 'Liquidation submitted for approval'
+        : 'Saved on this device — it will be submitted once you have a connection');
+      // Both SAVE_CLOUD and SAVE_QUEUED mean the liquidation is now recorded
+      // (cloud, or the outbox which retries on its own) — the local editing
+      // draft has served its purpose and would only cause confusion if it
+      // resurfaced later, so clear it.
+      await caLiqClearDraft(rec.id);
+      // Land back on the Liquidate tab (not History) so the technician sees
+      // the readonly confirmation — Pending pill, full itemized form, totals —
+      // right away. Jumping to History instead only shows a small status pill
+      // with no items, which reads as "it just disappeared" even though the
+      // submission went through.
+      caShowTab('liquidate');
+    }catch(e){
+      // Anything unexpected here (a thrown error rather than a handled
+      // SAVE_FAILED) used to fail silently with the button stuck disabled
+      // and nothing saved. The draft above still has everything, so this is
+      // now a "try again" rather than a lost liquidation.
+      console.error('liquidation submit threw', e);
+      toast('Something went wrong submitting — your items are saved as a draft, please try again');
+    }finally{
+      $('caLiqSubmitBtn').disabled = false;
+    }
   }
   $('caLiqSubmitBtn').addEventListener('click', caSubmitLiquidation);
+  $('caLiqNotes').addEventListener('input', caLiqSaveDraft);
 
   // ================= Admin: review requests, disbursement, liquidation =================
   let caAdminFilter = 'pending';
