@@ -167,6 +167,82 @@ window.awesCss = {
     </div>
   </div>
   <nav class="sidebar-nav">
+<div id="sidebarCustomerGroup" style="display:none;">
+  <div class="sidebar-section-label">My Account</div>
+  <button type="button" class="sidebar-link active" id="custNavHome"><span class="menu-ico">🏠</span>Home</button>
+  <button type="button" class="sidebar-link" id="custNavEquipment"><span class="menu-ico">❄️</span>Equipment</button>
+  <button type="button" class="sidebar-link" id="custNavReports"><span class="menu-ico">📄</span>Service Reports</button>
+  <button type="button" class="sidebar-link" id="custNavRequests"><span class="menu-ico">🛠️</span>Service Requests</button>
+  <button type="button" class="sidebar-link" id="custNavAccount"><span class="menu-ico">👤</span>Account</button>
+</div>
+<div id="customerHomeScreen" class="home-screen" style="display:none;">
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>👋 Welcome Back</span></div>
+    <div class="card-body">
+      <div>Hi <b id="cpGreetingName">there</b> — here's the status of your equipment and recent service activity.</div>
+    </div>
+  </div>
+
+  <!-- Stat strip -->
+  <div class="cp-stat-grid">
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpStatUnits">—</div>
+      <div class="cp-stat-label">Units enrolled</div>
+    </div>
+    <div class="cp-stat-card cp-stat-flag">
+      <div class="cp-stat-num" id="cpStatFlagged">—</div>
+      <div class="cp-stat-label">Need attention</div>
+    </div>
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpStatOpenReports">—</div>
+      <div class="cp-stat-label">Reports in progress</div>
+    </div>
+  </div>
+
+  <!-- Alert banner — hidden by JS when nothing is flagged -->
+  <div class="cp-alert-banner" id="cpAlertBanner" style="display:none;">
+    <div class="cp-alert-dot"></div>
+    <div>
+      <b>Equipment flagged at last visit</b>
+      <span id="cpAlertText"></span>
+    </div>
+  </div>
+
+  <!-- Equipment -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>❄️ Your Equipment</span></div>
+    <div class="card-body">
+      <div class="cp-equip-grid" id="cpEquipGrid">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent service reports -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head">
+      <span>📄 Recent Service Reports</span>
+      <button type="button" id="cpViewAllReportsBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">View All ›</button>
+    </div>
+    <div class="card-body">
+      <div id="cpReportsList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Request service -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:700; font-size:14px;">Something not running right?</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">Submit a request and we'll get a technician assigned.</div>
+      </div>
+      <button type="button" id="cpRequestServiceBtn" class="btn-primary">＋ Request Service</button>
+    </div>
+  </div>
+
+</div>
+
     <button type="button" class="sidebar-link active" id="sbNavDashboard"><span class="menu-ico">🏠</span>Dashboard</button>
 
     <!-- Technician-only nav — hidden for admin via setVis('sidebarTechGroup', isTech)
