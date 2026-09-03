@@ -805,20 +805,28 @@
     if(menuLogoutEl) menuLogoutEl.style.display = currentUser ? '' : 'none';
   }
 
-  // Shrinks sidebar row sizing just enough that the whole menu fits within
-  // the sidebar's actual available height without needing to scroll — the
-  // alternative (leaving rows at full size and letting .admin-sidebar's own
-  // overflow-y:auto kick in) buries the account footer behind a scroll the
-  // person has no reason to expect. Only the longer list (currently admin's
-  // 11 links + 2 section labels) tends to need this; the shorter one
-  // (technician's 8 links + 1 label) keeps full-size rows and just leaves
-  // extra space at the bottom, which is fine.
+  // Shrinks sidebar row sizing by exactly as much as needed — no more, no
+  // less — so the whole menu fits within the sidebar's actual available
+  // height without scrolling. A binary "full size vs. one compact preset"
+  // can't guarantee a fit for every combination of item count and screen
+  // height (a fixed preset sized for one menu can still overflow a longer
+  // one, or a shorter/older phone); scaling continuously via the
+  // --nav-scale custom property (see .sidebar-link/.sidebar-section-label
+  // in app.css) fits any current or future menu length down to a readable
+  // floor. Only past that floor does the sidebar's own overflow-y:auto
+  // kick in as a last resort, rather than shrinking text unreadably small.
   function fitSidebarNav(){
     const nav = document.querySelector('.sidebar-nav');
     if(!nav) return;
-    nav.classList.remove('compact');
-    if(nav.scrollHeight > nav.clientHeight + 2){
-      nav.classList.add('compact');
+    // Measure at full size first — a stale scale left over from a
+    // previous role's (possibly shorter) menu would otherwise make this
+    // measurement wrong.
+    nav.style.setProperty('--nav-scale', '1');
+    const available = nav.clientHeight;
+    const needed = nav.scrollHeight;
+    if(available > 0 && needed > available){
+      const ratio = Math.max(0.55, available / needed);
+      nav.style.setProperty('--nav-scale', String(ratio));
     }
   }
   window.addEventListener('resize', fitSidebarNav);
