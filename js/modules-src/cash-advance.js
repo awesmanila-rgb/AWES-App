@@ -773,11 +773,18 @@
     const balanceLabel = diff >= 0 ? 'Balance to be Returned' : 'Balance to be Reimbursed';
     let rows = '';
     caLiqItems.forEach((item, idx)=>{
+      // Transportation items cover one or more trip legs that don't fit this
+      // table's single Particular column — link the label to the same
+      // trip-leg summary the editable form and admin review already show,
+      // instead of leaving the technician no way to double-check it here.
+      const particular = item.type==='transport'
+        ? '🚕 <a href="#" class="ca-liq-preview-link" data-view-item="'+escapeHtml(String(item.id))+'" style="color:var(--green-dark); font-weight:700; text-decoration:underline;">'+escapeHtml(caLiqItemParticular(item))+'</a>'
+        : '<b>📄 '+escapeHtml(caLiqItemParticular(item))+'</b>';
       rows +=
         '<tr>'+
           '<td class="num">'+(idx+1)+'</td>'+
           '<td class="date">'+caLiqItemDate(item)+'</td>'+
-          '<td class="particular">'+(item.type==='transport'?'🚕 ':'📄 ')+'<b>'+escapeHtml(caLiqItemParticular(item))+'</b></td>'+
+          '<td class="particular">'+particular+'</td>'+
           '<td class="amt">'+caFmtPeso(item.amount)+'</td>'+
         '</tr>';
     });
@@ -805,6 +812,17 @@
       caLiqPreviewHtml()+
       '<button type="button" class="btn btn-primary" id="liqFormPreviewSubmitBtn" style="width:100%; margin-top:14px;">Submit</button>';
     $('liqFormPreviewOverlay').classList.add('open');
+    // Wire up the transportation summary link(s) added above — this preview
+    // used to render items as static text with no way to see a
+    // transportation item's trip-leg breakdown before submitting, unlike
+    // every other place items are shown in this feature.
+    $('liqFormPreviewBody').querySelectorAll('[data-view-item]').forEach(el=>{
+      el.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const item = caLiqItems.find(i=> String(i.id)===el.dataset.viewItem);
+        if(item) openLiquidationAttachment(item);
+      });
+    });
     $('liqFormPreviewSubmitBtn').addEventListener('click', ()=>{
       $('liqFormPreviewOverlay').classList.remove('open');
       caSubmitLiquidation();
