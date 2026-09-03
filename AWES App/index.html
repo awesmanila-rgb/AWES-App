@@ -1,0 +1,1825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Pinch-to-zoom is deliberately left enabled: maximum-scale=1 / user-scalable=no
+     blocked zoom entirely, which made small serial numbers and signatures
+     unreadable for anyone with less-than-perfect eyesight. viewport-fit=cover
+     keeps the layout under the notch on modern phones. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AWES App</title>
+<script>
+// AWES performance loader: heavy third-party libraries are fetched only when needed.
+window.__awesScripts = {};
+window.loadAwesScript = function(key, src){
+  if(window.__awesScripts[key]) return window.__awesScripts[key];
+  window.__awesScripts[key] = new Promise((resolve,reject)=>{
+    const existing = document.querySelector('script[data-awes-lib="'+key+'"]');
+    if(existing){ existing.addEventListener('load',resolve,{once:true}); existing.addEventListener('error',reject,{once:true}); return; }
+    const s=document.createElement('script'); s.src=src; s.async=true; s.dataset.awesLib=key;
+    s.onload=resolve; s.onerror=()=>reject(new Error('Failed to load '+key));
+    document.head.appendChild(s);
+  });
+  // On a weak field signal, a script request can stall indefinitely rather
+  // than ever firing onerror. A 12s timeout forces a failure so the retry
+  // logic in ensureCloud()/initCloud() gets a chance to try again soon,
+  // instead of the "Loading…" state hanging forever.
+  const timeout = new Promise((_,reject)=> setTimeout(()=> reject(new Error('Timed out loading '+key)), 12000));
+  return Promise.race([window.__awesScripts[key], timeout]).catch(err=>{
+    delete window.__awesScripts[key]; // let a future call try again fresh
+    throw err;
+  });
+};
+// Same idea as loadAwesScript but for a <link rel="stylesheet">, which has no
+// onload/onerror path worth racing — CSS that arrives a beat late just means
+// a brief flash of unstyled map tiles, not a broken feature.
+window.loadAwesCss = function(key, href){
+  if(document.querySelector('link[data-awes-css="'+key+'"]')) return;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href; l.dataset.awesCss = key;
+  document.head.appendChild(l);
+};
+window.awesLibs = {
+  supabase: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+  jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  autotable: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js',
+  pdfjs: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  signature: 'https://cdnjs.cloudflare.com/ajax/libs/signature_pad/5.1.3/signature_pad.umd.min.js',
+  emailjs: 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js',
+  // Used only by "Scan Nameplate" on Manage Equipment List → Add. Loaded on
+  // first use, not on app start — it's a multi-MB OCR engine (JS + WASM +
+  // English trained data) and most sessions never touch this feature.
+  // NOTE: pin/verify this version still exists on cdnjs before relying on it;
+  // bump here (and in sw.js's CDN_SHELL) together if it ever needs updating.
+  tesseract: 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js',
+  // Live technician map on the admin Home Overview. Admin-only and loaded on
+  // first view of that card, same reasoning as tesseract above — no reason to
+  // make every technician's first load pay for a map library they never see.
+  leaflet: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+};
+window.awesCss = {
+  leaflet: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
+};
+</script>
+<!-- Firebase removed: this app now uses Supabase (Postgres + Auth) for the shared cloud backend. -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#154D34">
+<script>
+  // Storage shim. The whole app talks to window.storage; when nothing else has
+  // provided one (i.e. the normal case: this file opened directly or installed
+  // as a PWA) we back it with the device's own localStorage.
+  if(!window.storage){
+    window.storage = {
+      get: async (key)=>{
+        const v = localStorage.getItem(key);
+        return v===null ? null : {key, value:v, shared:false};
+      },
+      set: async (key, value)=>{
+        localStorage.setItem(key, value);
+        return {key, value, shared:false};
+      },
+      delete: async (key)=>{
+        localStorage.removeItem(key);
+        return {key, deleted:true, shared:false};
+      },
+      list: async (prefix)=>{
+        const keys = Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix));
+        return {keys, prefix, shared:false};
+      }
+    };
+  }
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').then((reg)=>{
+        // A worker may already be waiting (e.g. update fetched on a
+        // previous visit but never applied) — offer it right away.
+        if(reg.waiting) showUpdateBanner(reg.waiting);
+        reg.addEventListener('updatefound', ()=>{
+          const newWorker = reg.installing;
+          if(!newWorker) return;
+          newWorker.addEventListener('statechange', ()=>{
+            // 'installed' + an existing controller means this is an update
+            // to an already-running app, not the very first install.
+            if(newWorker.state==='installed' && navigator.serviceWorker.controller){
+              showUpdateBanner(newWorker);
+            }
+          });
+        });
+      }).catch(()=>{ /* offline caching unavailable, app still works online */ });
+      // Reload once the new worker takes control so the fresh HTML/JS is
+      // actually used, instead of just having it cached in the background.
+      let swRefreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+        if(swRefreshing) return;
+        swRefreshing = true;
+        window.location.reload();
+      });
+    });
+  }
+  let waitingServiceWorker = null;
+  function showUpdateBanner(worker){
+    waitingServiceWorker = worker;
+    const el = document.getElementById('updateBanner');
+    if(el) el.style.display = 'flex';
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const btn = document.getElementById('updateBannerBtn');
+    if(btn) btn.addEventListener('click', ()=>{
+      if(waitingServiceWorker) waitingServiceWorker.postMessage({type:'SKIP_WAITING'});
+    });
+  });
+</script>
+<link rel="stylesheet" href="css/app.css">
+
+</head>
+<body>
+
+<!-- Shown when a new version of the app has been fetched in the background
+     (see the service worker registration/update logic near the bottom of
+     the script). Tapping Refresh applies it immediately. -->
+<div id="updateBanner" style="display:none; position:fixed; left:0; right:0; bottom:0; z-index:9999; background:var(--green-dark); color:#fff; padding:12px 16px; align-items:center; justify-content:space-between; gap:12px; box-shadow:0 -2px 10px rgba(0,0,0,.2);">
+  <span style="font-size:13px; font-weight:600;">A new version of the app is available.</span>
+  <button type="button" id="updateBannerBtn" style="background:#fff; color:var(--green-dark); border:none; border-radius:7px; padding:8px 14px; font-size:13px; font-weight:700; cursor:pointer;">Refresh</button>
+</div>
+
+<!-- Shown whenever there is field work saved on this device that has not reached
+     the shared cloud yet (see the outbox in js/modules-src/core.js). Before this
+     existed, offline work simply disappeared from view as soon as signal came
+     back, because History silently switches to cloud data when online. -->
+<div id="pendingSyncBanner" style="display:none; position:fixed; left:0; right:0; top:0; z-index:9998; background:#8A5A00; color:#fff; padding:10px 14px; align-items:center; justify-content:space-between; gap:10px; box-shadow:0 2px 8px rgba(0,0,0,.2);">
+  <span id="pendingSyncText" style="font-size:12.5px; font-weight:600; line-height:1.35;">Some work is saved on this device only.</span>
+  <button type="button" id="pendingSyncBtn" style="flex:0 0 auto; background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
+</div>
+
+<!-- Admin dashboard shell: a persistent sidebar + main content column.
+     Hidden entirely (via CSS, see body.role-admin rules) for technician
+     accounts and before login, so the plain mobile header below still
+     drives that experience unchanged. -->
+<div class="app-shell" id="appShell">
+<aside class="admin-sidebar" id="adminSidebar">
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-mark"><img src="logo.png" alt="Awes"></div>
+    <div class="sidebar-brand-text">
+      <div class="sidebar-brand-name" id="sidebarBrandName">Field Operations Portal</div>
+      <div class="sidebar-brand-sub" id="sidebarBrandSub">Management &amp; Administration</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <button type="button" class="sidebar-link active" id="sbNavDashboard"><span class="menu-ico">🏠</span>Dashboard</button>
+
+    <!-- Technician-only nav — hidden for admin via setVis('sidebarTechGroup', isTech)
+         in auth.js's applyUserRestrictions(). Each item routes to the same
+         screens already reachable from the Dashboard's tiles/Quick Actions;
+         this is just a persistent way to reach them without going Home first. -->
+    <div id="sidebarTechGroup" style="display:none;">
+      <div class="sidebar-section-label">My Work</div>
+      <button type="button" class="sidebar-link" id="techNavDispatch"><span class="menu-ico">📋</span>Job Orders</button>
+      <button type="button" class="sidebar-link" id="techNavServiceReport"><span class="menu-ico">🧾</span>Service Reports</button>
+      <button type="button" class="sidebar-link" id="techNavRequisition"><span class="menu-ico">📦</span>Requisitions</button>
+      <button type="button" class="sidebar-link" id="techNavLiquidation"><span class="menu-ico">🧮</span>Liquidation</button>
+      <button type="button" class="sidebar-link" id="techNavDtr"><span class="menu-ico">🕒</span>Attendance</button>
+      <button type="button" class="sidebar-link" id="techNavLeave"><span class="menu-ico">🗓️</span>Leaves</button>
+      <button type="button" class="sidebar-link" id="techNavMessages"><span class="menu-ico">💬</span>Messages<span class="sidebar-badge" id="sidebarMsgBadge" style="display:none;">0</span></button>
+      <button type="button" class="sidebar-link" id="techNavDocuments"><span class="menu-ico">📁</span>Documents</button>
+      <button type="button" class="sidebar-link" id="techNavSettings"><span class="menu-ico">⚙️</span>Settings</button>
+    </div>
+
+    <!-- Admin-only nav — hidden for technicians via setVis('sidebarAdminGroup', isAdmin). -->
+    <div id="sidebarAdminGroup">
+      <div class="sidebar-section-label">Operations</div>
+      <button type="button" class="sidebar-link" id="sbNavTechnicians"><span class="menu-ico">🕒</span>Technicians</button>
+      <button type="button" class="sidebar-link" id="menuManageReports"><span class="menu-ico">🗂</span>Service Reports</button>
+      <button type="button" class="sidebar-link" id="sbNavRequisitions"><span class="menu-ico">💵</span>Requisitions</button>
+      <button type="button" class="sidebar-link" id="sbNavDispatch"><span class="menu-ico">🚚</span>Dispatch</button>
+      <button type="button" class="sidebar-link" id="menuManageCustomers"><span class="menu-ico">🏢</span>Customers</button>
+      <button type="button" class="sidebar-link" id="menuManageEquipment"><span class="menu-ico">🧰</span>Equipment</button>
+      <div class="sidebar-section-label">Management</div>
+      <button type="button" class="sidebar-link" id="menuManageUsers"><span class="menu-ico">👤</span>Users &amp; Roles</button>
+      <button type="button" class="sidebar-link" id="menuManageAnnouncements"><span class="menu-ico">📣</span>Announcements</button>
+      <button type="button" class="sidebar-link" id="settingsBtn"><span class="menu-ico">⚙️</span>Settings</button>
+      <button type="button" class="sidebar-link" id="menuManageDropdowns"><span class="menu-ico">📋</span>Dropdown Lists</button>
+      <button type="button" class="sidebar-link" id="menuChangePin"><span class="menu-ico">🔑</span>Change Password</button>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <button class="icon-btn sidebar-cloud-btn" id="cloudBtn" title="Cloud connection status" aria-live="polite">☁ Not Connected</button>
+    <div class="sidebar-account">
+      <div class="sidebar-avatar" id="sidebarAvatar">AD</div>
+      <div class="sidebar-account-text">
+        <div class="sidebar-account-name" id="sidebarAccountName">Admin User</div>
+        <div class="sidebar-account-role" id="sidebarAccountRole">Super Administrator</div>
+      </div>
+      <button type="button" class="sidebar-logout" id="menuLogout" title="Logout">🚪</button>
+    </div>
+  </div>
+</aside>
+<div class="main-wrap" id="mainWrap">
+
+<!-- Dashboard top bar: replaces the plain mobile header while the admin
+     dashboard (homeScreen) is showing — see body.dashboard-active rules.
+     On every other admin screen the plain header below reappears instead,
+     since those screens still rely on it for the page title + Home button. -->
+<div class="dashboard-topbar" id="dashboardTopbar">
+  <div class="dt-greeting">
+    <div class="dt-greeting-title" id="dtGreetingTitle">Good day, Admin! 👋</div>
+    <div class="dt-greeting-sub">Here's what's happening with your field operations today.</div>
+  </div>
+  <div class="dt-actions">
+    <div class="dt-search"><span>🔍</span><input type="text" placeholder="Search anything..." disabled title="Search — coming soon"></div>
+    <button type="button" class="dt-icon-btn" id="dtNotifBtn" title="Pending items needing your attention">🔔<span class="dt-badge" id="notifBadge" style="display:none;">0</span></button>
+  </div>
+</div>
+
+<header class="app-top">
+  <div class="brand">
+    <div class="brand-mark"><img src="logo.png" alt="Awes"></div>
+    <div class="brand-text">
+      <div class="name" id="brandName">Technician's Homepage</div>
+      <div class="sub" id="brandSub">Field digital form</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button class="icon-btn" id="homeBtn" style="display:none;">🏠 Home</button>
+    <button class="icon-btn" id="newBtn">New</button>
+    <!-- Shown directly (not tucked in a menu) for technician accounts -->
+    <button class="icon-btn" id="userLogoutBtn" style="display:none;">🚪 Logout</button>
+    <!-- Legacy control kept off-screen: existing app logic is wired to this id. -->
+    <button class="icon-btn" id="adminBtn" style="display:none;" aria-hidden="true" tabindex="-1">Admin</button>
+    <!-- Admin-only mobile hamburger: toggles the sidebar drawer below 1000px
+         (see body.role-admin #menuBtn / .admin-sidebar rules in app.css).
+         Hidden entirely for technician accounts and on wide screens, where
+         the sidebar is already permanently visible. -->
+    <button class="icon-btn" id="menuBtn" style="display:none;">☰ Menu</button>
+  </div>
+</header>
+
+<!-- Backdrop behind the admin sidebar drawer on mobile. Lives outside the
+     header/sidebar so it can cover the whole screen; positioned fixed via
+     CSS regardless of where it sits in the DOM. -->
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+<div class="meta-bar" id="metaBar" style="display:none;">
+  <span>SR No. <b id="metaSrNo">—</b></span>
+  <span>Date <b id="metaDate">—</b></span>
+  <span class="status-pill status-draft" id="statusPill">Draft</span>
+  <span class="status-pill" id="metaUser" style="display:none; background:#DCEAE0; color:var(--green-dark);"></span>
+</div>
+
+<!-- Home screen (feature tiles) -->
+<div id="homeScreen" class="home-screen" style="display:none;">
+  <div class="card" id="homeGreetingCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>👋 Welcome Back</span></div>
+    <div class="card-body">
+      <div id="homeGreetingText"></div>
+    </div>
+  </div>
+  <!-- Technician-only snapshot, same visual style as admin's Overview below
+       but scoped to just this technician's own numbers. -->
+  <div class="card" id="homeTechOverviewCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>📊 Overview</span></div>
+    <div class="card-body">
+      <div class="overview-grid">
+        <div class="overview-stat ov-blue">
+          <div class="overview-stat-head"><span class="overview-stat-title">Job Order</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
+          <div class="overview-stat-value" id="ovMyJoValue">—</div>
+          <div class="overview-stat-sub" id="ovMyJoSub">—</div>
+        </div>
+        <div class="overview-stat ov-gray">
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Service Reports</span><span class="overview-stat-icon ov-icon-chip">🧾</span></div>
+          <div class="overview-stat-value" id="ovMyReportsValue">—</div>
+          <div class="overview-stat-sub" id="ovMyReportsSub">—</div>
+        </div>
+        <div class="overview-stat ov-amber">
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
+          <div class="overview-stat-value" id="ovMyReqValue">—</div>
+          <div class="overview-stat-sub" id="ovMyReqSub">—</div>
+        </div>
+        <div class="overview-stat ov-purple">
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Liquidation</span><span class="overview-stat-icon ov-icon-chip">🧮</span></div>
+          <div class="overview-stat-value" id="ovMyLiqValue">—</div>
+          <div class="overview-stat-sub" id="ovMyLiqSub">—</div>
+        </div>
+        <div class="overview-stat ov-green">
+          <div class="overview-stat-head"><span class="overview-stat-title">Today's Attendance</span><span class="overview-stat-icon ov-icon-chip">🕒</span></div>
+          <div class="overview-stat-value" id="ovMyDtrValue">—</div>
+          <div class="overview-stat-sub" id="ovMyDtrSub">—</div>
+        </div>
+        <div class="overview-stat ov-teal">
+          <div class="overview-stat-head"><span class="overview-stat-title">Next Job Order</span><span class="overview-stat-icon ov-icon-chip">📅</span></div>
+          <div class="overview-stat-value" id="ovMyNextJoValue">—</div>
+          <div class="overview-stat-sub" id="ovMyNextJoSub">—</div>
+        </div>
+        <div class="overview-stat ov-blue">
+          <div class="overview-stat-head"><span class="overview-stat-title">Completed This Month</span><span class="overview-stat-icon ov-icon-chip">✅</span></div>
+          <div class="overview-stat-value" id="ovMyDoneValue">—</div>
+          <div class="overview-stat-sub" id="ovMyDoneSub">—</div>
+        </div>
+        <div class="overview-stat ov-red">
+          <div class="overview-stat-head"><span class="overview-stat-title">Job Order Messages</span><span class="overview-stat-icon ov-icon-chip">💬</span></div>
+          <div class="overview-stat-value" id="ovMyUnreadValue">—</div>
+          <div class="overview-stat-sub" id="ovMyUnreadSub">—</div>
+        </div>
+        <div class="overview-stat ov-amber">
+          <div class="overview-stat-head"><span class="overview-stat-title">Leave Days Used (This Year)</span><span class="overview-stat-icon ov-icon-chip">🗓️</span></div>
+          <div class="overview-stat-value" id="ovMyLeaveValue">—</div>
+          <div class="overview-stat-sub" id="ovMyLeaveSub">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Announcements — technician only. Admin authors these from the
+       sidebar's Administration group (Manage Announcements). -->
+  <div class="card" id="homeAnnouncementsCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head">
+      <span>📣 Announcements</span>
+      <button type="button" id="homeAnnViewAllBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">View All ›</button>
+    </div>
+    <div class="card-body">
+      <div id="homeAnnouncementsList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+  <div class="card" id="homeOverviewCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>📊 Overview</span></div>
+    <div class="card-body">
+      <div class="overview-grid">
+        <div class="overview-stat ov-green">
+          <div class="overview-stat-head"><span class="overview-stat-title">Active Technicians</span><span class="overview-stat-icon ov-icon-chip">👥</span></div>
+          <div class="overview-stat-value" id="ovTechValue">—</div>
+          <div class="overview-progress"><div class="overview-progress-bar" id="ovTechBar" style="width:0%"></div></div>
+          <div class="overview-stat-sub" id="ovTechSub">—</div>
+        </div>
+        <div class="overview-stat ov-amber">
+          <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
+          <div class="overview-stat-value" id="ovReqValue">—</div>
+          <div class="overview-stat-sub" id="ovReqSub">—</div>
+        </div>
+        <div class="overview-stat ov-blue">
+          <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
+          <div class="overview-stat-value" id="ovDispatchValue">—</div>
+          <div class="overview-stat-sub" id="ovDispatchSub">—</div>
+        </div>
+        <div class="overview-stat ov-gray">
+          <div class="overview-stat-head"><span class="overview-stat-title">Unreviewed Reports</span><span class="overview-stat-icon ov-icon-chip">📝</span></div>
+          <div class="overview-stat-value" id="ovReportsValue">—</div>
+          <div class="overview-stat-sub" id="ovReportsSub">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Admin-only: compact month view of dispatch tickets by scheduled date,
+       same rendering engine as the full calendar under Dispatch > Calendar
+       (dtCalRender in dispatch.js, populated here from the tickets already
+       fetched by renderHomeOverview so no extra query is made). -->
+  <div class="card" id="homeScheduleCalendarCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head">
+      <span>📅 Schedule Calendar</span>
+      <button type="button" id="homeCalViewAllBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">Full Calendar ›</button>
+    </div>
+    <div class="card-body">
+      <div class="cal-toolbar">
+        <div class="cal-nav">
+          <button type="button" class="cal-nav-btn" id="homeCalPrevBtn" aria-label="Previous month">‹</button>
+          <div class="cal-month-label" id="homeCalMonthLabel">—</div>
+          <button type="button" class="cal-nav-btn" id="homeCalNextBtn" aria-label="Next month">›</button>
+        </div>
+        <button type="button" class="btn" id="homeCalTodayBtn">Today</button>
+      </div>
+      <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+      <div class="cal-grid cal-compact" id="homeCalGrid"><div class="empty-state">Loading…</div></div>
+      <div class="cal-day-detail">
+        <div class="cal-day-detail-head" id="homeCalDayDetailHead">Select a date to view scheduled jobs.</div>
+        <div id="homeCalDayList"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Admin-only: live map of every technician currently signed in and sharing
+       a GPS position (tracker.js), plus a lightweight recent-activity feed
+       drawn from cash advances, leave requests and dispatch tickets. Both
+       hidden for technician accounts, same as homeOverviewCard above. -->
+  <div class="dash-two-col" id="dashTwoCol">
+    <div class="card" id="homeTrackerCard" style="display:none; margin-bottom:16px;">
+      <div class="card-head"><span>🛰️ Technician Live Tracker</span></div>
+      <div class="card-body">
+        <div class="tracker-topline">
+          <span>Live location of technicians currently signed in and sharing their position. Tap a name below to see their path for today.</span>
+          <span class="tracker-badge" id="trackerCount">— sharing</span>
+        </div>
+        <div id="trackerMapEl" class="tracker-map"></div>
+        <div class="tracker-list" id="trackerList"></div>
+      </div>
+    </div>
+    <div class="card" id="homeActivityCard" style="display:none; margin-bottom:16px;">
+      <div class="card-head"><span>⚡ Recent Activity</span></div>
+      <div class="card-body">
+        <div id="recentActivityList"><div class="empty-state">No recent activity yet.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="card" id="homeIntroCard" style="margin-bottom:16px;">
+    <div class="card-head"><span>🧭 What would you like to do?</span></div>
+    <div class="card-body">
+  <div class="home-grid">
+    <button type="button" class="home-tile qa-purple" id="tile_serviceReport">
+      <span class="home-tile-icon">🧾</span>
+      <span class="tile-text"><span class="home-tile-label">Service Report</span><span class="tile-desc">Create or manage service reports</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile qa-gray" id="tile_dtr">
+      <span class="home-tile-icon">🕒</span>
+      <span class="tile-text"><span class="home-tile-label">Online DTR</span><span class="tile-desc">Manage daily time records</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile qa-green" id="tile_cashAdvance">
+      <span class="home-tile-icon">💵</span>
+      <span class="tile-text"><span class="home-tile-label">Cash Advance Form</span><span class="tile-desc">Process cash advance requests</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile qa-violet" id="tile_leave">
+      <span class="home-tile-icon">🗓️</span>
+      <span class="tile-text"><span class="home-tile-label">Leave Form</span><span class="tile-desc">Manage leave applications</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile qa-orange" id="tile_dispatch">
+      <span class="home-tile-icon">🚚</span>
+      <span class="tile-text"><span class="home-tile-label" id="tile_dispatch_label">Service Dispatch Ticket</span><span class="tile-desc">Create new dispatch or view tickets</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile qa-brown" id="tile_materialRequest">
+      <span class="home-tile-icon">📦</span>
+      <span class="tile-text"><span class="home-tile-label">Material Request Form <span class="home-tile-badge">Coming Soon</span></span><span class="tile-desc">Request materials and equipment</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+    <button type="button" class="home-tile" id="tile_changePassword" style="display:none;">
+      <span class="home-tile-icon">🔑</span>
+      <span class="tile-text"><span class="home-tile-label">Change My Password</span></span>
+      <span class="tile-chevron">›</span>
+    </button>
+  </div>
+    </div>
+  </div>
+</div>
+
+<!-- Online DTR (Daily Time Record) — a fully separate page/module from the
+     Service Report. It has its own header actions and its own data store;
+     nothing here reads or writes service-report data. -->
+<main id="dtrView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <div class="card" id="dtrTechCard">
+    <div class="card-head"><span>🕒 Daily Time Record</span><span id="dtrTechName" style="font-weight:600; opacity:.85;"></span></div>
+    <div class="card-body">
+      <div id="dtrDeviceBanner" class="dtr-banner dtr-banner-warn" style="display:none;"></div>
+      <div class="dtr-clock-row">
+        <button type="button" class="btn btn-primary" id="dtrTimeInBtn">🟢 Time In</button>
+        <button type="button" class="btn btn-secondary" id="dtrTimeOutBtn">🔴 Time Out</button>
+      </div>
+      <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--text-muted); margin:4px 0 8px;">Overtime</div>
+      <div class="dtr-clock-row">
+        <button type="button" class="btn btn-primary" id="dtrOtTimeInBtn">🟠 OT Time In</button>
+        <button type="button" class="btn btn-secondary" id="dtrOtTimeOutBtn">🟠 OT Time Out</button>
+      </div>
+      <div class="dtr-today-box">
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Today</span>
+          <span class="dtr-stat-val" id="dtrTodayDate">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Time In</span>
+          <span class="dtr-stat-val" id="dtrTodayIn">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">Time Out</span>
+          <span class="dtr-stat-val" id="dtrTodayOut">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">OT In</span>
+          <span class="dtr-stat-val" id="dtrTodayOtIn">—</span>
+        </div>
+        <div class="dtr-stat">
+          <span class="dtr-stat-label">OT Out</span>
+          <span class="dtr-stat-val" id="dtrTodayOtOut">—</span>
+        </div>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted);">
+        Tapping Time In / Time Out automatically records the current time and your device's location.
+        Overtime time-in unlocks once you've timed out from your regular shift.
+        This account is locked to this device — signing in on another phone will not be allowed to time in/out.
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin landing view for Online DTR: every active technician's today
+       status at a glance, in place of the old "pick a name from a popup"
+       flow. Tapping "View DTR" swaps this out for the read-only detail +
+       history view below, scoped to that one technician. -->
+  <div class="card" id="dtrAdminTableCard" style="display:none;">
+    <div class="card-head"><span>🕒 Technician Attendance</span><span id="dtrAttendanceDate" style="font-weight:600; opacity:.85;"></span></div>
+    <div class="card-body">
+      <div class="att-summary" id="dtrAttendanceSummary"></div>
+      <div class="attendance-table-wrap">
+        <table class="attendance-table">
+          <thead>
+            <tr><th>Technician</th><th>Status</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Action</th></tr>
+          </thead>
+          <tbody id="dtrAttendanceTableBody"><tr><td colspan="6"><div class="empty-state">Loading…</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="dtrAdminViewingCard" style="display:none;">
+    <div class="card-head"><span>🕒 Daily Time Record</span></div>
+    <div class="card-body">
+      <div class="dtr-banner dtr-banner-info">
+        Viewing <b id="dtrAdminViewingName">—</b>'s DTR (read-only). <button type="button" id="dtrSwitchUserBtn" style="background:none; border:none; color:var(--green-dark); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-size:13px;">← Back to attendance list</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="dtrHistoryCard">
+    <div class="card-head"><span>History (last 30 days)</span></div>
+    <div class="card-body">
+      <div id="dtrHistoryList"><div class="empty-state">No DTR entries yet.</div></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Manage Equipment List — full page (admin-only), reached via the
+     "Equipment" sidebar nav item. Every unit on file, across all customers.
+     Was previously a popup sheet; now its own dedicated page, same pattern
+     as the other admin/technician full-page views (dtrView, leaveView, etc). -->
+<main id="equipmentManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="equipmentManagerCard">
+    <div class="card-head"><span>🧰 Manage Equipment List</span></div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+        Every unit on file, across all customers — showing each equipment's description and the
+        customer it's under. Use the tabs below to edit, add, or delete a record.
+      </p>
+      <div class="seg-tabs" id="equipListTabs">
+        <button type="button" class="seg-tab" id="equipListTabAdd">Add</button>
+        <button type="button" class="seg-tab" id="equipListTabDelete">Delete</button>
+        <button type="button" class="seg-tab active" id="equipListTabEdit">View All</button>
+      </div>
+
+      <!-- View All / Delete: filtered, per-customer list -->
+      <div id="equipListViewSection">
+        <div class="field">
+          <label>Filter by Customer</label>
+          <select id="equipmentListCustomerFilter"><option value="">All Customers</option></select>
+        </div>
+        <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
+        <div id="equipmentListBody"></div>
+      </div>
+
+      <!-- Add: a new equipment record for a chosen customer -->
+      <div id="equipAddSection" style="display:none;">
+        <div class="field">
+          <label>Scan Equipment Label (optional)</label>
+          <button type="button" class="btn btn-secondary" id="eqScanBtn" style="width:100%;">📷 Scan Nameplate</button>
+          <input type="file" accept="image/*" capture="environment" id="eqScanInput" style="display:none;">
+          <div id="eqScanStatus" style="font-size:12px; color:var(--text-muted); margin-top:6px; display:none;"></div>
+          <div id="eqScanRawWrap" style="display:none; margin-top:6px;">
+            <details>
+              <summary style="font-size:12px; color:var(--text-muted); cursor:pointer;">Scanned text (for reference)</summary>
+              <div id="eqScanRawText" style="font-size:12px; color:var(--text-muted); white-space:pre-wrap; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:6px;"></div>
+            </details>
+          </div>
+        </div>
+        <div class="field">
+          <label>Customer <span class="req">*</span></label>
+          <select id="eqAddCustomer"><option value="">Select a customer…</option></select>
+        </div>
+        <div class="field"><label>Equipment Type</label><input type="text" id="eqAddEquipType"></div>
+        <div class="field"><label>Specific Location</label><input type="text" id="eqAddEquipLocation"></div>
+        <div class="field"><label>Manufacturer / Brand</label><input type="text" id="eqAddBrand"></div>
+        <div class="field"><label>Mounting Type</label><input type="text" id="eqAddMountType"></div>
+        <div class="field"><label>Cooling Capacity</label><input type="text" id="eqAddCoolCap"></div>
+        <div class="field"><label>Model No. (CU)</label><input type="text" id="eqAddModelCU"></div>
+        <div class="field"><label>Serial No. (CU)</label><input type="text" id="eqAddSerialCU"></div>
+        <div class="field"><label>Model No. (FCU)</label><input type="text" id="eqAddModelFCU"></div>
+        <div class="field"><label>Serial No. (FCU)</label><input type="text" id="eqAddSerialFCU"></div>
+        <div class="field"><label>Refrigerant Type</label><input type="text" id="eqAddRefrigerantType"></div>
+        <div class="field"><label>Compressor Type</label><input type="text" id="eqAddCompressorType"></div>
+        <button type="button" class="btn btn-primary" id="eqAddSaveBtn" style="width:100%;">Add Equipment</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- DTR location detail — shows the reverse-geocoded address and an
+     embedded map for a Time In/Out location tap. -->
+<div class="overlay" id="dtrLocationOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="dtrLocationTitle">Location</h3>
+      <button class="sheet-close" id="closeDtrLocation">&times;</button>
+    </div>
+    <div class="loc-modal-address" id="dtrLocationAddress">—</div>
+    <div class="loc-modal-coords" id="dtrLocationCoords">—</div>
+    <div class="loc-map-frame"><iframe id="dtrLocationIframe" src="" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Map"></iframe></div>
+    <a href="#" target="_blank" rel="noopener" class="loc-external-link" id="dtrLocationExternalLink">Open in Google Maps ↗</a>
+  </div>
+</div>
+
+<!-- Liquidation attachment viewer — shows a receipt image, or the trip
+     table for a transportation liquidation item. -->
+<div class="overlay" id="liqAttachmentOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="liqAttachmentTitle">Attachment</h3>
+      <button class="sheet-close" id="closeLiqAttachment">&times;</button>
+    </div>
+    <div id="liqAttachmentImageWrap" style="display:none;">
+      <img id="liqAttachmentImg" src="" alt="Attachment" style="width:100%; border-radius:8px; display:block;">
+    </div>
+    <div id="liqAttachmentTransportWrap" style="display:none;">
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead>
+          <tr style="text-align:left; border-bottom:2px solid var(--border);">
+            <th style="padding:6px 4px;">Date</th><th style="padding:6px 4px;">Mode</th>
+            <th style="padding:6px 4px;">From</th><th style="padding:6px 4px;">To</th>
+            <th style="padding:6px 4px; text-align:right;">Amount</th><th style="padding:6px 4px;">Purpose</th>
+          </tr>
+        </thead>
+        <tbody id="liqAttachmentTransportBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Liquidation: Add Item chooser — first stop after tapping "Liquidate Now"
+     or "+ Add Item". Picking a tab hands off to the matching form modal
+     below; this modal itself holds no fields. -->
+<div class="overlay" id="liqAddItemModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add Item to your liquidation</h3>
+      <button class="sheet-close" id="closeLiqAddItemModal">&times;</button>
+    </div>
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab" id="liqAddItemTabTransport">🚕 Transportation</button>
+      <button type="button" class="seg-tab" id="liqAddItemTabOthers">📄 Others</button>
+    </div>
+  </div>
+</div>
+
+<!-- Liquidation: Others item form (a single receipt — materials, meals,
+     lodging, etc.). -->
+<div class="overlay" id="liqOthersModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add Expense Item</h3>
+      <button class="sheet-close" id="closeLiqOthersModal">&times;</button>
+    </div>
+    <div class="field">
+      <label>Date <span class="req">*</span></label>
+      <input type="date" id="liqOthersDate">
+    </div>
+    <div class="field">
+      <label>Particular <span class="req">*</span></label>
+      <input type="text" id="liqOthersParticular" placeholder="e.g. Materials receipt, meals, lodging">
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Qty</label>
+        <input type="number" min="1" step="1" id="liqOthersQty" value="1">
+      </div>
+      <div class="field">
+        <label>Amount (₱) <span class="req">*</span></label>
+        <input type="number" min="0" step="0.01" id="liqOthersAmount">
+      </div>
+    </div>
+    <div class="field">
+      <label>Attach File <span class="req">*</span></label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="file" accept="image/*,application/pdf" capture="environment" id="liqOthersFile" style="display:none;">
+        <button type="button" class="btn btn-secondary" id="liqOthersAttachBtn" style="flex:1;">📎 Attach Photo of Receipt</button>
+      </div>
+      <div class="leave-note" id="liqOthersFileStatus" style="margin-top:6px;"></div>
+    </div>
+    <button type="button" class="btn btn-primary" id="liqOthersAddItemBtn" style="width:100%; margin-top:6px;">Add Item</button>
+  </div>
+</div>
+
+<!-- Liquidation: Transportation item form — one or more trip legs for fares
+     that rarely come with a single receipt, added as one liquidation item. -->
+<div class="overlay" id="liqTransportModal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>🚕 Transportation Expenses</h3>
+      <button class="sheet-close" id="closeLiqTransportModal">&times;</button>
+    </div>
+    <div class="leave-note" style="margin-bottom:10px;">For fares without a single receipt — list every leg, then add the whole table as one liquidation item.</div>
+    <div id="caTransportRowsList"></div>
+    <button type="button" class="btn btn-secondary" id="caTransportAddRowBtn" style="width:100%; margin-top:6px;">+ Add Another</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-weight:700;">
+      <span>Total</span><span id="caTransportTotalDisplay">₱0.00</span>
+    </div>
+    <button type="button" class="btn btn-primary" id="caTransportAddToLiqBtn" style="width:100%; margin-top:10px;">Add Item</button>
+  </div>
+</div>
+
+<!-- Liquidation Form preview — read-only rendering of the itemized form the
+     technician is about to submit. -->
+<div class="overlay" id="liqFormPreviewOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Liquidation Form</h3>
+      <button class="sheet-close" id="closeLiqFormPreview">&times;</button>
+    </div>
+    <div id="liqFormPreviewBody"></div>
+  </div>
+</div>
+
+<!-- Equipment full-detail viewer — opened from the "Equipment (X of Y
+     reported)" list on a Dispatch Ticket card, so admin/technicians can see
+     every field on one unit (model/serial numbers, refrigerant, scope, its
+     report status, etc.) without leaving the ticket list. -->
+<div class="overlay" id="dtEquipDetailOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="dtEquipDetailTitle">Equipment Details</h3>
+      <button class="sheet-close" id="closeDtEquipDetail">&times;</button>
+    </div>
+    <div id="dtEquipDetailBody"></div>
+  </div>
+</div>
+
+<!-- Job Order detail — opened via "Open Job Order" on any ticket card.
+     Two things live here that don't belong on the card list: closing the
+     ticket (with a per-unit "scope not completed" exceptions checklist),
+     and a small inquiry/message thread scoped to that one ticket. -->
+<div class="overlay" id="dtTicketOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="dtTicketTitle">Job Order</h3>
+      <button class="sheet-close" id="closeDtTicketOverlay">&times;</button>
+    </div>
+    <div id="dtTicketStatusWrap" style="margin-bottom:10px;"></div>
+    <div id="dtTicketSummary"></div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Close Job Order</label>
+      <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+        If any equipment's scope wasn't completed, check it below and give a reason — then Close Job Order.
+        Closing is available to the assigned technician(s) or admin, any time.
+      </p>
+      <div id="dtCloseSection"></div>
+      <button type="button" class="btn btn-primary" id="dtCloseSubmitBtn" style="width:100%; margin-top:10px;">Close Job Order</button>
+    </div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Job Order Inquiry</label>
+      <div id="dtMsgList" class="dt-msg-list"><div class="empty-state">Loading…</div></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <input type="text" id="dtMsgInput" placeholder="Ask a question about this Job Order…" style="flex:1;">
+        <button type="button" class="btn btn-primary" id="dtMsgSendBtn" style="flex:none; padding:10px 16px;">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Leave Form — a fully separate page/module. Technicians file a leave
+     request here and track its approval status. Admin reviews every
+     technician's requests and approves/disapproves with a comment. -->
+<main id="leaveView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <!-- Technician: file + track -->
+  <div id="leaveTechArea">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="leaveTabNew">New Request</button>
+      <button type="button" class="seg-tab" id="leaveTabHistory">My Requests</button>
+    </div>
+
+    <div class="card" id="leaveFormCard">
+      <div class="card-head"><span>🗓️ File a Leave Request</span></div>
+      <div class="card-body">
+        <div class="field">
+          <label>Leave Type <span class="req">*</span></label>
+          <select id="leaveType">
+            <option value="">Select leave type…</option>
+            <option value="Vacation Leave">Vacation Leave</option>
+            <option value="Sick Leave">Sick Leave</option>
+            <option value="Emergency Leave">Emergency Leave</option>
+            <option value="Bereavement Leave">Bereavement Leave</option>
+            <option value="Maternity Leave">Maternity Leave</option>
+            <option value="Paternity Leave">Paternity Leave</option>
+            <option value="Unpaid Leave">Unpaid Leave</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Date From <span class="req">*</span></label>
+            <input type="date" id="leaveDateFrom">
+          </div>
+          <div class="field">
+            <label>Date To <span class="req">*</span></label>
+            <input type="date" id="leaveDateTo">
+          </div>
+        </div>
+        <div class="field">
+          <label>Total Days</label>
+          <input type="text" id="leaveDaysDisplay" readonly placeholder="Auto-calculated" style="background:#F7F8F6; color:var(--text-muted);">
+        </div>
+        <div class="field">
+          <label>Reason / Details <span class="req">*</span></label>
+          <textarea id="leaveReason" rows="3" placeholder="Briefly explain the reason for this leave"></textarea>
+        </div>
+        <div class="field">
+          <label>Contact Number While on Leave</label>
+          <input type="text" id="leaveContact" placeholder="Optional — how to reach you if needed">
+        </div>
+        <button type="button" class="btn btn-primary" id="leaveSubmitBtn" style="width:100%;">Submit for Approval</button>
+        <div class="leave-note">Your request will be sent to the admin for approval. You'll see the decision under "My Requests".</div>
+      </div>
+    </div>
+
+    <div class="card" id="leaveHistoryCard" style="display:none;">
+      <div class="card-head"><span>My Leave Requests</span></div>
+      <div class="card-body">
+        <div id="leaveHistoryList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin: review every technician's requests -->
+  <div id="leaveAdminArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>🗓️ Leave Requests</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="leaveAdminFilterRow">
+          <button type="button" data-filter="pending" class="active">Pending</button>
+          <button type="button" data-filter="approved">Approved</button>
+          <button type="button" data-filter="disapproved">Disapproved</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="leaveAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Cash Advance Form — a fully separate page/module, same pattern as Leave
+     Form. Technicians request a cash advance; admin reviews and decides. -->
+<main id="cashAdvanceView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <!-- Technician: file + track -->
+  <div id="caTechArea">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="caTabNew">New Request</button>
+      <button type="button" class="seg-tab" id="caTabLiquidate">Liquidate <span id="caLiqTabDot" style="display:none;">●</span></button>
+      <button type="button" class="seg-tab" id="caTabHistory">My Requests</button>
+    </div>
+
+    <!-- Shown instead of the request form whenever the technician already has
+         a pending request awaiting admin approval, or a previous cash advance
+         still awaiting liquidation. -->
+    <div class="card" id="caBlockedCard" style="display:none;">
+      <div class="card-body">
+        <div class="dtr-banner dtr-banner-warn" style="display:block;" id="caBlockedBanner"></div>
+        <div id="caBlockedSummary" style="margin-top:12px;"></div>
+        <button type="button" class="btn btn-primary" id="caGoLiquidateBtn" style="width:100%; margin-top:12px;">Liquidate Now</button>
+        <button type="button" class="btn btn-secondary" id="caCancelRequestBtn" style="width:100%; margin-top:12px; color:var(--danger);">Cancel Request</button>
+      </div>
+    </div>
+
+    <div class="card" id="caFormCard">
+      <div class="card-head"><span>💵 Request a Cash Advance</span></div>
+      <div class="card-body">
+        <div class="field">
+          <label>Amount Requested (₱) <span class="req">*</span></label>
+          <input type="number" id="caAmount" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label>Purpose / Reason <span class="req">*</span></label>
+          <textarea id="caPurpose" rows="3" placeholder="e.g. Materials for Tiaong AFSS site, fare and meals for site visit, etc."></textarea>
+        </div>
+        <div class="field">
+          <label>Project / Site</label>
+          <input type="text" id="caProject" placeholder="Optional — which project or site this is for">
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Date Needed <span class="req">*</span></label>
+            <input type="date" id="caDateNeeded">
+          </div>
+          <div class="field">
+            <label>Expected Liquidation Date</label>
+            <input type="date" id="caLiquidationDate">
+          </div>
+        </div>
+        <div class="field">
+          <label>Preferred Payment Mode</label>
+          <select id="caPaymentMode">
+            <option value="">Select…</option>
+            <option value="Cash">Cash</option>
+            <option value="Bank Transfer / Payroll">Bank Transfer / Payroll</option>
+            <option value="Check">Check</option>
+            <option value="GCash">GCash</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-primary" id="caSubmitBtn" style="width:100%;">Submit for Approval</button>
+        <div class="leave-note">Your request will be sent to the admin for approval. You'll see the decision under "My Requests". Remember to liquidate with official receipts on or before your target date.</div>
+      </div>
+    </div>
+
+    <!-- Liquidation: itemized breakdown of an already-given cash advance,
+         with a required attachment per item, plus a dedicated transportation
+         sub-form for fares that rarely come with a single receipt. -->
+    <div class="card" id="caLiquidateCard" style="display:none;">
+      <div class="card-head"><span>🧾 Liquidate Cash Advance</span></div>
+      <div class="card-body" id="caLiquidateBody">
+        <div id="caLiquidateEmpty" class="empty-state" style="display:none;">Nothing to liquidate right now — you're all clear!</div>
+
+        <div id="caLiquidateActive" style="display:none;">
+          <div id="caLiquidateSummary" style="margin-bottom:14px;"></div>
+
+          <!-- Read-only view: shown once submitted (pending/approved) or
+               when there's nothing left to edit. -->
+          <div id="caLiqReadonlyView" style="display:none;">
+            <div id="caLiqReadonlyItems"></div>
+            <button type="button" class="btn btn-secondary" id="caLiqDownloadPdfBtn" style="width:100%; margin-top:12px; display:none;">⬇️ Download PDF Copy</button>
+          </div>
+
+          <!-- Editable form: shown when nothing has been submitted yet, or
+               a previous submission was disapproved and needs fixing. Items
+               are added exclusively through the Add Item modal flow below —
+               nothing here is an inline form. -->
+          <div id="caLiqEditView" style="display:none;">
+
+            <!-- Before any item is added: an explicit entry point. The
+                 modal only opens when this is tapped — never automatically
+                 on arrival, which felt like the page popping something up
+                 on its own before the technician had done anything. -->
+            <div id="caLiqStartPrompt" style="display:none;">
+              <button type="button" class="btn btn-primary" id="caLiqStartBtn" style="width:100%;">+ Add Item</button>
+            </div>
+
+            <!-- Once at least one item exists: the Liquidation Form itself. -->
+            <div id="caLiqFormBuilt" style="display:none;">
+              <div class="card-head" style="padding:0 0 10px 0;"><span>🧾 Liquidation Form</span></div>
+              <div id="caLiqFormTable"></div>
+              <button type="button" class="btn btn-secondary" id="caLiqAddItemBtn" style="width:100%; margin-top:10px;">+ Add Item</button>
+
+              <div style="margin:18px 0; border-top:1px dashed var(--border);"></div>
+
+              <div class="field">
+                <label>Notes for Admin</label>
+                <textarea id="caLiqNotes" rows="2" placeholder="Optional — anything the admin should know"></textarea>
+              </div>
+
+              <button type="button" class="btn btn-secondary" id="caLiqViewFormBtn" style="width:100%; margin-top:6px;">View Liquidation Form</button>
+              <button type="button" class="btn btn-primary" id="caLiqSubmitBtn" style="width:100%; margin-top:10px;">Submit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="caHistoryCard" style="display:none;">
+      <div class="card-head"><span>My Cash Advance Requests</span></div>
+      <div class="card-body">
+        <div id="caHistoryList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin: review every technician's requests -->
+  <div id="caAdminArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>💵 Cash Advance Requests</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="caAdminFilterRow">
+          <button type="button" data-filter="pending" class="active">Pending</button>
+          <button type="button" data-filter="approved">Approved</button>
+          <button type="button" data-filter="given">Given</button>
+          <button type="button" data-filter="toReviewLiq">To Review Liquidation <span id="caToReviewLiqBadge" class="status-pill status-rejected" style="display:none; margin-left:4px;">0</span></button>
+          <button type="button" data-filter="disapproved">Disapproved</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="caAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Service Dispatch Ticket — admin creates & assigns; assigned workers view/acknowledge/complete -->
+<main id="dispatchView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+
+  <!-- Admin: create + manage dispatch tickets -->
+  <div id="dispatchAdminArea" style="display:none;">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="dtTabNew">New Ticket</button>
+      <button type="button" class="seg-tab" id="dtTabAll">All Tickets</button>
+      <button type="button" class="seg-tab" id="dtTabCalendar">Calendar</button>
+    </div>
+
+    <div class="card" id="dtNewCard">
+      <div class="card-head"><span>🚚 Service Dispatch Ticket</span></div>
+      <div class="card-body">
+        <div class="grid2">
+          <div class="field"><label>Job Order No.</label><input type="text" id="dtJobOrderNo" value="—" disabled></div>
+          <div class="field"><label>Date</label><input type="date" id="dtDate"></div>
+        </div>
+        <div class="field"><label>Expected Time at Site</label><input type="time" id="dtExpectedTime"></div>
+
+        <div class="field">
+          <label>Assigned Workers <span class="req">*</span></label>
+          <div id="dtWorkerChecklist"><div class="empty-state">Loading technicians…</div></div>
+        </div>
+
+        <div class="field">
+          <label>Who Can Create the Service Report? <span class="req">*</span></label>
+          <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+            Only the technician(s) checked here will be able to pick up this Job Order to create a
+            Service Report — not everyone assigned to the ticket automatically can. Pick one or more.
+          </p>
+          <div id="dtReporterChecklist"><div class="empty-state">Assign workers above first.</div></div>
+        </div>
+
+        <div class="field" style="margin-top:6px;">
+          <label>1. Customer's Information <span class="req">*</span></label>
+          <div class="combo-wrap" id="dtCustNameWrap">
+            <input type="text" id="dtCustName" placeholder="Search or type a new customer name" autocomplete="off">
+          </div>
+        </div>
+        <div class="field"><label>2. Site Address</label><textarea id="dtSiteAddress" rows="2"></textarea></div>
+        <div class="grid2">
+          <div class="field"><label>3. Contact Person at Site</label><input type="text" id="dtContactName"></div>
+          <div class="field"><label>Contact Number</label><input type="text" id="dtContactNo" inputmode="tel"></div>
+        </div>
+
+        <div class="field">
+          <label>4. Default Scope of Works</label>
+          <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+            Applied automatically to each piece of equipment you add below — edit per unit afterward if a
+            particular one needs something different.
+          </p>
+          <div id="dtDefaultScopeList"></div>
+          <button type="button" class="add-row-btn" data-target="dtDefaultScopeList">+ Add scope item</button>
+        </div>
+
+        <div class="field">
+          <label>5. Equipment for this Job Order <span class="req">*</span></label>
+          <div id="dtEquipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
+            <button type="button" id="dtEquipTabExisting" class="equip-tab">Select Existing</button>
+            <button type="button" id="dtEquipTabAddNew" class="equip-tab">+ Add New</button>
+          </div>
+          <div id="dtEquipPickerPanel" style="display:none; margin-bottom:14px;">
+            <div id="dtEquipPickerList"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn" id="dtAddSelectedEquipBtn">Add Selected</button>
+              <button type="button" class="btn" id="dtAddAllEquipBtn">Add All On File</button>
+            </div>
+          </div>
+          <div id="dtEquipFieldsWrap">
+            <div class="field"><label>Equipment Type</label><input type="text" id="dtEquipType" placeholder="e.g. Split Type Unit"></div>
+            <div class="grid2">
+              <div class="field"><label>Model No. (CU)</label><input type="text" id="dtModelCU"></div>
+              <div class="field"><label>Serial No. (CU)</label><input type="text" id="dtSerialCU"></div>
+              <div class="field"><label>Model No. (FCU)</label><input type="text" id="dtModelFCU"></div>
+              <div class="field"><label>Serial No. (FCU)</label><input type="text" id="dtSerialFCU"></div>
+              <div class="field"><label>Cooling Capacity (HP, TR, Btu/hr)</label><input type="text" id="dtCoolCap"></div>
+              <div class="field"><label>Mounting Type</label><input type="text" id="dtMountType"></div>
+              <div class="field"><label>Manufacturer / Brand</label><input type="text" id="dtBrand"></div>
+              <div class="field"><label>Refrigerant Type</label><input type="text" id="dtRefrigerantType" placeholder="e.g. R410A"></div>
+              <div class="field"><label>Compressor Type</label><input type="text" id="dtCompressorType" placeholder="e.g. Inverter"></div>
+              <div class="field"><label>Specific Location of Equipment</label><input type="text" id="dtEquipLocation"></div>
+            </div>
+            <button type="button" class="btn btn-primary" id="dtAddEquipItemBtn" style="width:100%; margin-bottom:14px;">+ Add This Equipment to Ticket</button>
+          </div>
+          <div class="u-status" id="dtEquipCount" style="margin-bottom:8px;">No equipment added yet</div>
+          <div id="dtEquipItemsList"><div class="empty-state">No equipment added yet.</div></div>
+        </div>
+
+        <div class="field"><label>6. Special Instruction / Remarks</label><textarea id="dtRemarks" rows="3"></textarea></div>
+
+        <div class="field">
+          <label>7. Requirements</label>
+          <label class="chk"><input type="checkbox" id="dtReqWorkPermit"><span>a. Work Permit</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqGatePass"><span>b. Gate Pass</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqSafety"><span>c. Safety</span></label>
+          <label class="chk"><input type="checkbox" id="dtReqOthers"><span>d. Others</span></label>
+          <div class="field" id="dtReqOthersDetailWrap" style="display:none; margin-top:8px;">
+            <input type="text" id="dtReqOthersDetail" placeholder="Specify other requirement">
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary" id="dtCreateBtn" style="width:100%; margin-top:6px;">Create Dispatch Ticket</button>
+      </div>
+    </div>
+
+    <div class="card" id="dtAllCard" style="display:none;">
+      <div class="card-head"><span>All Dispatch Tickets</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="dtAdminFilterRow">
+          <button type="button" data-filter="open" class="active">Open</button>
+          <button type="button" data-filter="acknowledged">Acknowledged</button>
+          <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="expired">Expired</button>
+          <button type="button" data-filter="closed">Closed</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="dtAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Schedule Calendar tab — month view of every dispatch ticket by its
+         scheduled date, so admin can see field jobs at a glance instead of
+         scrolling the All Tickets list. Same rendering engine (dtCalRender
+         in dispatch.js) also drives the compact widget on the dashboard. -->
+    <div class="card" id="dtCalendarCard" style="display:none;">
+      <div class="card-head"><span>📅 Schedule Calendar</span></div>
+      <div class="card-body">
+        <div class="cal-toolbar">
+          <div class="cal-nav">
+            <button type="button" class="cal-nav-btn" id="dtCalPrevBtn" aria-label="Previous month">‹</button>
+            <div class="cal-month-label" id="dtCalMonthLabel">—</div>
+            <button type="button" class="cal-nav-btn" id="dtCalNextBtn" aria-label="Next month">›</button>
+          </div>
+          <button type="button" class="btn" id="dtCalTodayBtn">Today</button>
+        </div>
+        <div class="cal-legend">
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-open"></span>Open</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-ack"></span>Acknowledged</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-done"></span>Completed</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-expired"></span>Expired</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-closed"></span>Closed</span>
+        </div>
+        <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+        <div class="cal-grid" id="dtCalGrid"><div class="empty-state">Loading…</div></div>
+        <div class="cal-day-detail">
+          <div class="cal-day-detail-head" id="dtCalDayDetailHead">Select a date to view scheduled jobs.</div>
+          <div id="dtCalDayList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Technician: tickets assigned to me -->
+  <div id="dispatchTechArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>🚚 My Job Order</span></div>
+      <div class="card-body">
+        <div class="leave-filter-row" id="dtTechFilterRow">
+          <button type="button" data-filter="open" class="active">Open</button>
+          <button type="button" data-filter="acknowledged">Acknowledged</button>
+          <button type="button" data-filter="completed">Completed</button>
+          <button type="button" data-filter="expired">Expired</button>
+          <button type="button" data-filter="closed">Closed</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="dtTechList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Messages hub — every Job Order thread in one place. -->
+<main id="messagesView" style="display:none; max-width:700px; margin:0 auto; padding:16px;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>💬 Job Order Messages</span></div>
+    <div class="card-body">
+      <div id="messagesHubList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- Documents — a technician's own completed Service Reports. Reuses
+     loadHistory() (see history.js), same as admin's Manage Service Report. -->
+<main id="documentsView" style="display:none; max-width:700px; margin:0 auto; padding:16px;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>📁 My Documents</span></div>
+    <div class="card-body">
+      <div id="documentsList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<main id="serviceReportView" style="display:none;">
+
+  <div class="seg-tabs" id="srSegTabs">
+    <button type="button" class="seg-tab active" id="srTabNewBtn">Create New</button>
+    <button type="button" class="seg-tab" id="srTabDraftBtn">Saved Draft</button>
+    <button type="button" class="seg-tab" id="srTabCompletedBtn">Completed</button>
+    <button type="button" class="seg-tab" id="srTabAllBtn">All</button>
+  </div>
+
+  <div id="srNewPanel">
+
+  <!-- Pick up an assigned Job Order to auto-fill the fields below (technicians only) -->
+  <div class="card" id="srJobOrderCard" style="display:none;">
+    <div class="card-head collapsible-head open" id="srJobOrderHead"><span>📋 Select From Job Order</span><span class="card-caret">▾</span></div>
+    <div class="card-body">
+      <div id="srJobOrderList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- 1. Customer Information -->
+  <div class="card" id="sec1Card" style="display:none;">
+    <div class="card-head collapsible-head open" id="sec1Head"><span><span class="num">1</span>Customer's Information</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec1Body">
+      <div class="grid2">
+        <div class="field" id="f_custName">
+          <label>Customer's Name <span class="req">*</span></label>
+          <input type="text" id="custName" placeholder="e.g. Dela Cruz Residence">
+          <div class="req-flag">Required</div>
+        </div>
+        <div class="field" id="f_date">
+          <label>Date <span class="req">*</span></label>
+          <input type="date" id="svcDate">
+          <div class="req-flag">Required</div>
+        </div>
+      </div>
+      <div id="custDetailsWrap" style="display:none;">
+        <div class="field">
+          <label>Complete Address</label>
+          <textarea id="custAddress" placeholder="Street, Barangay, City"></textarea>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Contact No.</label>
+            <input type="text" id="contactNo" inputmode="tel" placeholder="09xx xxx xxxx">
+          </div>
+          <div class="field">
+            <label>Contact Person</label>
+            <input type="text" id="contactPerson">
+          </div>
+        </div>
+        <div class="field" id="f_custEmail">
+          <label>Customer Email <span class="req">*</span> <span style="text-transform:none; font-weight:400;">(report is auto-sent here)</span></label>
+          <input type="text" id="custEmail" inputmode="email" placeholder="customer@email.com">
+          <div class="req-flag">Required</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Equipment Description -->
+  <div class="card" id="sec2Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">2</span>Equipment Description</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec2Body" style="display:none;">
+      <div id="equipTabBar" style="display:flex; gap:8px; margin-bottom:14px;">
+        <button type="button" id="equipTabExisting" class="equip-tab">Select Existing</button>
+        <button type="button" id="equipTabAddNew" class="equip-tab">+ Add New</button>
+      </div>
+      <div id="equipPickerPanel" style="display:none; margin-bottom:14px;">
+        <div id="equipPickerList"></div>
+      </div>
+      <div id="equipFieldsWrap">
+      <div class="field">
+        <label>Equipment Type</label>
+        <input type="text" id="equipType" placeholder="e.g. Split Type Unit">
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Model No. (CU)</label><input type="text" id="modelCU"></div>
+        <div class="field"><label>Serial No. (CU)</label><input type="text" id="serialCU"></div>
+        <div class="field"><label>Model No. (FCU)</label><input type="text" id="modelFCU"></div>
+        <div class="field"><label>Serial No. (FCU)</label><input type="text" id="serialFCU"></div>
+        <div class="field"><label>Cooling Capacity (HP, TR, Btu/hr)</label><input type="text" id="coolCap"></div>
+        <div class="field"><label>Mounting Type</label><input type="text" id="mountType"></div>
+        <div class="field"><label>Manufacturer / Brand</label><input type="text" id="brand"></div>
+        <div class="field"><label>Refrigerant Type</label><input type="text" id="refrigerantType" placeholder="e.g. R410A"></div>
+        <div class="field"><label>Compressor Type</label><input type="text" id="compressorType" placeholder="e.g. Inverter"></div>
+        <div class="field"><label>Specific Location of Equipment</label><input type="text" id="equipLocation"></div>
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Report Summary -->
+  <div class="card" id="sec3Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">3</span>Report Summary</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec3Body" style="display:none;">
+      <div class="field">
+        <label>Trouble Call / Request / Reason for Service</label>
+        <textarea id="troubleCall"></textarea>
+      </div>
+      <div class="field">
+        <label>Findings / Evaluation</label>
+        <div id="findingsList"></div>
+        <button type="button" class="add-row-btn" data-target="findingsList">+ Add finding</button>
+      </div>
+      <div class="field">
+        <label>Recommendation/s</label>
+        <div id="recsList"></div>
+        <button type="button" class="add-row-btn" data-target="recsList">+ Add recommendation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Components / Parts Needed to Replace -->
+  <div class="card" id="sec4Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">4</span>Components / Parts Needed to Replace</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec4Body" style="display:none;">
+      <div id="materialsTableWrap" style="display:none;">
+      <table class="materials" id="materialsTable">
+        <thead>
+          <tr>
+            <th class="letter-cell">Item No.</th>
+            <th>Item Description</th>
+            <th class="qty-cell">Qty</th>
+            <th class="unit-cell">Unit</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="materialsBody"></tbody>
+      </table>
+      </div>
+      <button type="button" class="add-row-btn" id="addMaterialRow">+ Add item</button>
+    </div>
+  </div>
+
+  <!-- 5. Services Done -->
+  <div class="card" id="sec5Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">5</span>Services Done</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec5Body" style="display:none;">
+      <div class="field">
+        <label>Describe the service(s) performed</label>
+        <div id="servicesDoneList"></div>
+        <button type="button" class="add-row-btn" data-target="servicesDoneList">+ Add item</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Operating Data -->
+  <div class="card" id="sec6Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">6</span>Operating Data</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec6Body" style="display:none;">
+      <div class="opdata-table-wrap">
+      <table class="opdata-table">
+        <thead>
+          <tr><th></th><th>Before Servicing</th><th>After Servicing</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="opdata-row-label">Amperage (L1/L2/L3)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_amp_l1" placeholder="L1"><input type="text" id="b_amp_l2" placeholder="L2"><input type="text" id="b_amp_l3" placeholder="L3"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_amp_l1" placeholder="L1"><input type="text" id="a_amp_l2" placeholder="L2"><input type="text" id="a_amp_l3" placeholder="L3"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Voltage (L12/L23/L31)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_volt_l12" placeholder="L12"><input type="text" id="b_volt_l23" placeholder="L23"><input type="text" id="b_volt_l31" placeholder="L31"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_volt_l12" placeholder="L12"><input type="text" id="a_volt_l23" placeholder="L23"><input type="text" id="a_volt_l31" placeholder="L31"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Pressure (Suction/Discharge)</td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="b_press_suction" placeholder="Suction"><input type="text" id="b_press_discharge" placeholder="Discharge"></div></td>
+            <td><div class="opdata-cell-inputs"><input type="text" id="a_press_suction" placeholder="Suction"><input type="text" id="a_press_discharge" placeholder="Discharge"></div></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Supply Air Temp (°C)</td>
+            <td><input type="text" id="b_temp"></td>
+            <td><input type="text" id="a_temp"></td>
+          </tr>
+          <tr>
+            <td class="opdata-row-label">Air Volume Flow Rate (cfm)</td>
+            <td><input type="text" id="b_airflow"></td>
+            <td><input type="text" id="a_airflow"></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Installation Data (conditional) -->
+  <div class="card" id="sec7Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">7</span>Installation Data</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec7Body" style="display:none;">
+      <div class="toggle-row">
+        <div>
+          <div class="ttl">This visit includes a new installation</div>
+          <div class="desc">Off for regular PM / repair visits</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="isInstallToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="collapsible" id="installSection">
+        <div class="subrow"><div class="sublabel">Pipe Diameter (in) — Suction / Discharge / Drain</div>
+          <input type="text" id="pd_suction" placeholder="Suction"><input type="text" id="pd_discharge" placeholder="Discharge"><input type="text" id="pd_drain" placeholder="Drain"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pipe Length (ft) — Ref't Line / Drain</div>
+          <input type="text" id="pl_refline" placeholder="Ref't Line"><input type="text" id="pl_drain" placeholder="Drain"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Wire Size (awg) — Feeder / Control</div>
+          <input type="text" id="ws_feeder" placeholder="Feeder"><input type="text" id="ws_control" placeholder="Control"></div>
+        <div class="field"><label>Circuit Breaker (amp)</label><input type="text" id="circuit_breaker"></div>
+        <div class="subrow" style="grid-template-columns:1fr 1fr;"><div class="sublabel">Pipe Insulation (in) — Ref't Line / Drain</div>
+          <input type="text" id="pi_refline" placeholder="Ref't Line"><input type="text" id="pi_drain" placeholder="Drain"></div>
+        <div class="field"><label>Riser Pipes Height (m)</label><input type="text" id="riser_height"></div>
+        <div class="field"><label>P-Trap</label><input type="text" id="ptrap"></div>
+        <div class="field"><label>Accu Bracket Type</label><input type="text" id="bracketType" placeholder="e.g. L-Type Bracket"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Acknowledgment -->
+  <div class="card" id="sec8Card" style="display:none;">
+    <div class="card-head collapsible-head"><span><span class="num">8</span>Acknowledgment</span><span class="card-caret">▾</span></div>
+    <div class="card-body" id="sec8Body" style="display:none;">
+      <p style="font-size:13px; color:var(--text-muted); margin-top:0; line-height:1.5;">
+        I hereby acknowledge the services / works done on my equipment and agree to the terms &amp; conditions stated herein.
+      </p>
+      <div class="grid2">
+        <div class="field"><label>Time In</label><input type="time" id="timeIn"></div>
+        <div class="field"><label>Time Out</label><input type="time" id="timeOut"></div>
+      </div>
+      <div class="field">
+        <label>Remarks</label>
+        <textarea id="remarks"></textarea>
+      </div>
+
+      <button type="button" class="btn btn-secondary" id="previewBtn" style="width:100%; margin-bottom:16px;">👁 Preview Report Before Signing</button>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Customer Signature</label>
+          <div class="sig-box">
+            <div class="sig-canvas-wrap">
+              <canvas class="sigpad" id="sigCustomer"></canvas>
+              <div class="sig-placeholder" id="sigCustomerPh">Sign with finger or stylus</div>
+            </div>
+            <div class="sig-tools">
+              <button type="button" class="sig-confirm-btn" data-confirm="sigCustomer">Confirm Signature</button>
+              <button type="button" data-clear="sigCustomer">Clear</button>
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <input type="text" id="custPrintedName" placeholder="Printed name">
+          </div>
+        </div>
+        <div class="field">
+          <label>Technician Signature</label>
+          <div class="sig-box">
+            <div class="sig-canvas-wrap">
+              <canvas class="sigpad" id="sigTech"></canvas>
+              <div class="sig-placeholder" id="sigTechPh">Sign with finger or stylus</div>
+            </div>
+            <div class="sig-tools">
+              <button type="button" class="sig-confirm-btn" data-confirm="sigTech">Confirm Signature</button>
+              <button type="button" data-clear="sigTech">Clear</button>
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <input type="text" id="techName" placeholder="Technician name">
+            <div class="leave-note" style="margin-top:4px;">Auto-filled from your logged-in account — edit if a different technician performed the work.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- View History (inline, mirrors the "Saved Reports" overlay list) -->
+  <div class="card" id="srHistoryPanel" style="display:none;">
+    <div class="card-head"><span id="srHistoryPanelTitle">Saved Reports</span></div>
+    <div class="card-body">
+      <div id="srHistoryList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
+</main>
+
+<div class="footer-bar" id="footerBar" style="display:none;">
+  <button class="btn btn-secondary" id="saveDraftBtn">Save Draft &amp; Create New</button>
+  <button class="btn btn-primary" id="genPdfBtn">Generate &amp; Share Report</button>
+</div>
+
+<!-- Report Preview -->
+<!-- Report Shared — Success -->
+<div class="overlay" id="shareSuccessOverlay" style="z-index:70;">
+  <div class="sheet" style="text-align:center; padding:32px 20px;">
+    <div style="font-size:52px; margin-bottom:10px;">✅</div>
+    <h3 style="margin:0 0 8px;">Service Report Shared Successfully</h3>
+    <p id="shareSuccessDetail" style="font-size:13px; color:var(--text-muted); margin:0 0 24px;"></p>
+    <button class="btn btn-primary" id="shareSuccessHomeBtn" type="button" style="width:100%;">🏠 Home</button>
+  </div>
+</div>
+
+<div class="overlay" id="previewOverlay" style="align-items:stretch;">
+  <div class="sheet" style="max-height:96vh; height:96vh; display:flex; flex-direction:column; border-radius:0;">
+    <div class="sheet-head">
+      <h3>Report Preview</h3>
+      <button class="sheet-close" id="closePreview">&times;</button>
+    </div>
+    <div id="previewFrame" style="flex:1; width:100%; overflow-y:auto; border:1px solid var(--border); border-radius:8px; background:#eee; padding:10px; text-align:center;">
+      <div class="empty-state" style="display:none;">Rendering preview…</div>
+    </div>
+    <div style="padding-top:12px;">
+      <button class="btn btn-primary" id="previewOkBtn" style="width:100%;" type="button">Looks Good — Continue to Signatures</button>
+    </div>
+  </div>
+</div>
+
+<!-- Login gate (blocking). Open by default so it covers the page instantly on
+     load/reopen, before any JS/network work finishes — prevents a flash of the
+     underlying form. checkLoginGate() closes it once a saved session is verified. -->
+<div class="overlay open" id="loginOverlay" style="align-items:center; z-index:80; background:var(--bg);">
+  <div class="sheet" style="border-radius:16px; max-height:70vh;">
+    <div class="login-logo"><img src="logo.png" alt="AWES"></div>
+    <div class="sheet-head" style="justify-content:center;">
+      <h3>Sign In</h3>
+    </div>
+    <div id="loginList"></div>
+  </div>
+</div>
+
+<!-- Manage Users sheet (admin only) -->
+<div class="overlay" id="usersOverlay" style="z-index:55;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Manage Users</h3>
+      <button class="sheet-close" id="closeUsers">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      Add users, edit their details, and restrict what they can do. Admin assigns every user's
+      password. Deactivate someone the moment they resign or are terminated — their access is
+      cut off next time the app checks in, without needing to touch their phone.
+    </p>
+    <div id="usersList"></div>
+    <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
+      <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Add a user</div>
+      <div class="field"><label>Full Name</label><input type="text" id="newUserName" placeholder="e.g. Juan Dela Cruz"></div>
+      <div class="field"><label>Password (admin-assigned, minimum 4 characters)</label><input type="password" id="newUserPin" placeholder="Set a password for this user"></div>
+      <div class="field"><label>Confirm Password</label><input type="password" id="newUserPin2" placeholder="Re-enter the password"></div>
+      <button class="btn btn-primary" id="addUserBtn" type="button" style="width:100%;">Add User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Customers — full page (admin-only), reached via the "Customers"
+     sidebar nav item. Was previously a popup sheet; now its own dedicated
+     page, same pattern as the Equipment page. -->
+<main id="customersManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="customersManagerCard">
+    <div class="card-head"><span>🏢 Manage Customers</span></div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+        This is the client list technicians pick from on Service Reports — selecting a name
+        auto-fills address and contact info. Only Admin can add or edit customer records here;
+        technicians can view and select, but can't add new ones.
+      </p>
+      <div class="field"><input type="text" id="customerSearch" placeholder="Search customers…"></div>
+      <div id="customersList"></div>
+      <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;" id="customerFormTitle">Add a customer</div>
+        <input type="hidden" id="editCustomerId" value="">
+        <div class="field"><label>Customer's Name</label><input type="text" id="newCustName" placeholder="e.g. Dela Cruz Residence"></div>
+        <div class="field"><label>Complete Address</label><textarea id="newCustAddress" placeholder="Street, Barangay, City"></textarea></div>
+        <div class="field"><label>Contact No.</label><input type="text" id="newCustContactNo" placeholder="09xx xxx xxxx"></div>
+        <div class="field"><label>Contact Person</label><input type="text" id="newCustContactPerson"></div>
+        <div class="field"><label>Email (optional)</label><input type="text" id="newCustEmail" placeholder="customer@email.com"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="saveCustomerBtn" type="button" style="flex:1;">Save Customer</button>
+          <button class="btn btn-secondary" id="cancelEditCustomerBtn" type="button" style="display:none;">Cancel</button>
+        </div>
+      </div>
+      <div id="customerEquipmentSection" style="display:none; border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Equipment on file for this customer</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+          Added automatically as technicians file reports for this customer. Edit to fix a typo, or remove a
+          decommissioned/duplicate unit.
+        </p>
+        <div id="customerEquipmentList"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Customer History — full page (admin-only), reached via the "History"
+     action on a customer card in Manage Customers. Two states within this
+     one page: the equipment list (customer details + every equipment record
+     on file) and, once an equipment record is tapped, that unit's full
+     service-report history. -->
+<main id="customerHistoryView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card" id="custHistEquipListCard">
+    <div class="card-head"><span>🗂️ Customer History</span></div>
+    <div class="card-body">
+      <button class="btn btn-secondary" id="custHistBackToListBtn" type="button" style="margin-bottom:12px;">← Back to Customers</button>
+      <div id="custHistDetails" style="margin-bottom:14px;"></div>
+      <div style="font-size:12px; font-weight:700; margin-bottom:4px;">Equipment on File</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">Tap a unit to see its full service history.</p>
+      <div id="custHistEquipList"></div>
+    </div>
+  </div>
+  <div class="card" id="custHistServiceCard" style="display:none;">
+    <div class="card-head"><span>🧾 Service History</span></div>
+    <div class="card-body">
+      <button class="btn btn-secondary" id="custHistBackToEquipBtn" type="button" style="margin-bottom:12px;">← Back to Equipment</button>
+      <div id="custHistEquipSummary" style="margin-bottom:14px;"></div>
+      <div class="attendance-table-wrap">
+        <table class="attendance-table">
+          <thead><tr><th>Services Done</th><th>Date</th><th>SR No.</th><th>View Service Report</th></tr></thead>
+          <tbody id="custHistServiceTableBody"><tr><td colspan="4"><div class="empty-state">Loading…</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Equipment full-detail overlay (Manage Equipment List → View All) — tapping
+     a row opens this clean label/value view instead of an inline accordion,
+     matching the same layout used by the Dispatch Ticket equipment detail
+     view. The Edit button swaps the read-only rows for editable fields. -->
+<div class="overlay" id="equipmentDetailOverlay" style="z-index:56;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="equipmentDetailTitle">Equipment Details</h3>
+      <button class="sheet-close" id="closeEquipmentDetail">&times;</button>
+    </div>
+    <div id="equipmentDetailBody"></div>
+    <div class="edit-save-row">
+      <button class="cancel-btn" id="equipmentDetailCancelBtn" type="button" style="display:none;">Cancel</button>
+      <button class="cancel-btn" id="equipmentDetailEditBtn" type="button">Edit</button>
+      <button class="save-btn" id="equipmentDetailSaveBtn" type="button" style="display:none;">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Cloud Setup sheet -->
+<div class="overlay" id="cloudOverlay" style="z-index:90;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Shared Cloud Setup</h3>
+      <button class="sheet-close" id="closeCloud">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      Connect your Supabase project so every technician's phone shares the same reports, dropdown lists,
+      and settings. This is a one-time setup — do it on one phone/browser, then just paste the same
+      Project URL and anon key on the other devices (including the Android app).
+    </p>
+    <div class="field">
+      <label>Supabase Project URL</label>
+      <input type="text" id="cfgSupabaseUrl" placeholder="https://xxxxx.supabase.co">
+    </div>
+    <div class="field">
+      <label>Supabase anon public key</label>
+      <textarea id="cfgSupabaseKey" rows="3" placeholder="eyJhbGciOi..."></textarea>
+    </div>
+    <div id="cloudStatusMsg" style="font-size:13px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:10px; margin-bottom:10px;">
+      <button class="btn btn-primary" id="connectCloudBtn" type="button">Connect</button>
+      <button class="btn btn-secondary" id="disconnectCloudBtn" type="button">Disconnect</button>
+    </div>
+    <div style="border-top:1px solid var(--border); padding-top:12px;">
+      <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Already used this app offline on this phone?</div>
+      <button class="icon-btn" style="background:#EEF1ED; color:var(--text); border-color:var(--border); width:100%;" id="migrateBtn" type="button">Upload this device's saved data to the cloud</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password sheet — used both for the forced first-login change
+     (no Cancel button shown) and the voluntary "Change My Password" tile
+     on the technician homepage (Cancel shown). z-index:95 so it can sit on
+     top of everything, including right after the login screen closes. -->
+<div class="overlay" id="changePasswordOverlay" style="z-index:95;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="cpTitle">Change Password</h3>
+    </div>
+    <p id="cpMessage" style="font-size:13px; color:var(--text-muted); margin-top:0;"></p>
+    <div class="field">
+      <label>New Password</label>
+      <input type="password" id="cpNew" placeholder="At least 4 characters">
+    </div>
+    <div class="field">
+      <label>Confirm New Password</label>
+      <input type="password" id="cpConfirm" placeholder="Re-enter the password">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-primary" id="cpSaveBtn" type="button" style="flex:1;">Save Password</button>
+      <button class="btn btn-secondary" id="cpCancelBtn" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Lists sheet (admin only) -->
+<div class="overlay" id="adminOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Manage Dropdown Lists</h3>
+      <button class="sheet-close" id="closeAdmin">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      Add the values you want technicians to be able to pick from. They can still type a custom value in any box —
+      these lists just speed up repeat entries.
+    </p>
+    <div id="adminListsBody"></div>
+  </div>
+</div>
+
+<!-- Settings sheet -->
+<div class="overlay" id="settingsOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Auto-Email Setup</h3>
+      <button class="sheet-close" id="closeSettings">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      One-time setup per tablet. Uses your free <b>EmailJS</b> account — no server needed.
+      These details are saved on this device only.
+    </p>
+    <div class="field"><label>EmailJS Public Key</label><input type="text" id="cfgPublicKey" placeholder="e.g. AbCdEfGhIjKlMnOp"></div>
+    <div class="field"><label>EmailJS Service ID</label><input type="text" id="cfgServiceId" placeholder="e.g. service_xxxxxxx"></div>
+    <div class="field"><label>EmailJS Template ID</label><input type="text" id="cfgTemplateId" placeholder="e.g. template_xxxxxxx"></div>
+    <div class="field"><label>Office Email (always CC'd / fallback recipient)</label><input type="text" id="cfgOfficeEmail" inputmode="email" placeholder="office@awesmanila.com"></div>
+    <div style="display:flex; gap:10px; margin-top:6px;">
+      <button class="btn btn-secondary" id="settingsHelpBtn" type="button">Setup guide</button>
+      <button class="btn btn-primary" id="saveSettingsBtn" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Service Reports — full page (admin-only), reached via the
+     "Service Reports" sidebar nav item. Was previously the "Saved Reports"
+     popup sheet; now its own dedicated page with All / Draft / Completed
+     tabs and a search bar, same pattern as the other full-page views. -->
+<main id="serviceReportsManagerView" style="display:none; max-width:900px; margin:0 auto; padding:16px;">
+  <div class="card">
+    <div class="card-head"><span>🗂 Saved Reports</span></div>
+    <div class="card-body">
+      <div class="leave-filter-row" id="srMgrFilterRow">
+        <button type="button" data-filter="all" class="active">All</button>
+        <button type="button" data-filter="draft">Saved Draft</button>
+        <button type="button" data-filter="completed">Completed</button>
+      </div>
+      <div class="field"><input type="text" id="srMgrSearch" placeholder="Search by customer or SR number…"></div>
+      <div id="historyList"><div class="empty-state">No saved reports yet.</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- Announcements: technician "View All" (read-only) -->
+<div class="overlay" id="announcementsViewAllOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Announcements</h3>
+      <button class="sheet-close" id="closeAnnViewAll">&times;</button>
+    </div>
+    <div id="announcementsViewAllList"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Announcements: admin authoring + management -->
+<div class="overlay" id="announcementsAdminOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Manage Announcements</h3>
+      <button class="sheet-close" id="closeAnnAdmin">&times;</button>
+    </div>
+    <div class="field">
+      <label>Title</label>
+      <input type="text" id="annTitleInput" placeholder="e.g. Safety First!" maxlength="200">
+    </div>
+    <div class="field">
+      <label>Message</label>
+      <textarea id="annBodyInput" rows="3" placeholder="Always follow safety protocols and wear proper PPE at all times." maxlength="4000"></textarea>
+    </div>
+    <label class="chk" style="margin-bottom:10px;"><input type="checkbox" id="annPinnedInput"><span>Pin to top</span></label>
+    <button type="button" class="btn btn-primary" id="annPostBtn" style="width:100%; margin-bottom:16px;">Post Announcement</button>
+    <div id="announcementsAdminList"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Admin password gate. This replaces window.prompt(), which iOS Safari
+     renders as a plain-text field (the password is visible on screen and gets
+     captured in screenshots), cannot be styled, and is suppressed entirely in
+     some in-app browsers — leaving the admin unable to get in at all. -->
+<div class="overlay" id="adminPwOverlay" style="z-index:120;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="adminPwTitle">Admin Password</h3>
+      <button class="sheet-close" id="adminPwCancel">&times;</button>
+    </div>
+    <div class="field">
+      <label id="adminPwLabel">Enter Admin Password</label>
+      <input type="password" id="adminPwInput" autocomplete="current-password" placeholder="Password">
+    </div>
+    <div id="adminPwMsg" style="font-size:13px; color:var(--danger); margin-bottom:10px;"></div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-primary" id="adminPwOk" type="button">Continue</button>
+      <button class="btn btn-secondary" id="adminPwCancel2" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /#mainWrap -->
+</div><!-- /#appShell -->
+
+<div class="toast" id="toast"></div>
+
+<script src="js/app.bundle.js"></script>
+
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"7f7b0fd8732c4326aae4b9d58d5c514a"}' crossorigin="anonymous"></script>
+</body>
+</html>
