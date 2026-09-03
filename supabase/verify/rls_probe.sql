@@ -58,11 +58,23 @@ do $$ begin
 exception when others then raise notice 'blocked (%)', sqlstate;
 end $$;
 \echo -n 'tech submits OWN liquidation : '
+-- IMPORTANT: this must be an upsert, not a plain UPDATE. The real app
+-- (caSaveRequest in cash-advance.js) always saves via .upsert(), which
+-- Postgres runs as INSERT ... ON CONFLICT DO UPDATE — firing the BEFORE
+-- INSERT trigger for the proposed row before the conflict is even
+-- detected. A raw UPDATE here only exercises the BEFORE UPDATE trigger
+-- and would pass even if the BEFORE INSERT branch is silently wiping the
+-- submission before the update trigger ever sees it (as it once did).
 do $$ begin
-  update public.cash_advance_requests
-    set data = data || '{"liquidation":{"status":"pending","items":[{"desc":"Bolts","amount":250}],"submittedAt":"2026-08-22T01:00:00Z","decidedAt":null,"decidedBy":null}}'
-  where id='22222222-2222-2222-2222-222222222222';
-  if found then raise notice 'OK (liquidation saved)'; else raise notice 'BLOCKED - feature broken'; end if;
+  insert into public.cash_advance_requests(id, technician_id, status, data)
+    select id, technician_id, status,
+      data || '{"liquidation":{"status":"pending","items":[{"desc":"Bolts","amount":250}],"submittedAt":"2026-08-22T01:00:00Z","decidedAt":null,"decidedBy":null}}'
+    from public.cash_advance_requests where id='22222222-2222-2222-2222-222222222222'
+  on conflict (id) do update set data = excluded.data;
+  if (select data->'liquidation'->>'status' from public.cash_advance_requests where id='22222222-2222-2222-2222-222222222222') = 'pending'
+    then raise notice 'OK (liquidation saved)';
+    else raise notice 'BLOCKED - feature broken (liquidation is %)',
+      (select coalesce(data->'liquidation', 'null'::jsonb) from public.cash_advance_requests where id='22222222-2222-2222-2222-222222222222'); end if;
 exception when others then raise notice 'BLOCKED (%) %', sqlstate, sqlerrm;
 end $$;
 \echo -n 'tech self-approves liquidation: '

@@ -373,10 +373,15 @@
     $('ovTechSub').textContent = pct+'% Check-in Rate (from Online DTR)';
 
     // Pending Requisitions — Cash Advance / Leave requests awaiting a decision.
+    // A submitted liquidation lives on an already-approved advance (status
+    // stays 'approved'), so it's invisible to the r.status==='pending' filter
+    // below unless counted separately here — otherwise a technician's
+    // liquidation submission never surfaces on the admin's dashboard at all.
     const pendingCA = (cashAdvances||[]).filter(r=> r.status==='pending').length;
+    const pendingLiq = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='pending').length;
     const pendingLeave = (leaves||[]).filter(r=> r.status==='pending').length;
-    $('ovReqValue').textContent = String(pendingCA+pendingLeave);
-    $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
+    $('ovReqValue').textContent = String(pendingCA+pendingLiq+pendingLeave);
+    $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLiq+' Liquidation'+(pendingLiq===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
 
     // Dispatch Status — open tickets, split into assigned/unassigned.
     const openTickets = (tickets||[]).filter(t=> t.status!=='completed');
@@ -393,7 +398,7 @@
 
     // Notification bell in the dashboard top bar — total items anywhere in
     // the app that are waiting on an admin decision or sign-off.
-    const notifTotal = pendingCA + pendingLeave + draftReports;
+    const notifTotal = pendingCA + pendingLiq + pendingLeave + draftReports;
     const notifEl = $('notifBadge');
     if(notifEl){
       notifEl.textContent = notifTotal > 99 ? '99+' : String(notifTotal);
