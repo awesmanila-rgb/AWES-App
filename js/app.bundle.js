@@ -805,6 +805,24 @@
     if(menuLogoutEl) menuLogoutEl.style.display = currentUser ? '' : 'none';
   }
 
+  // Shrinks sidebar row sizing just enough that the whole menu fits within
+  // the sidebar's actual available height without needing to scroll — the
+  // alternative (leaving rows at full size and letting .admin-sidebar's own
+  // overflow-y:auto kick in) buries the account footer behind a scroll the
+  // person has no reason to expect. Only the longer list (currently admin's
+  // 11 links + 2 section labels) tends to need this; the shorter one
+  // (technician's 8 links + 1 label) keeps full-size rows and just leaves
+  // extra space at the bottom, which is fine.
+  function fitSidebarNav(){
+    const nav = document.querySelector('.sidebar-nav');
+    if(!nav) return;
+    nav.classList.remove('compact');
+    if(nav.scrollHeight > nav.clientHeight + 2){
+      nav.classList.add('compact');
+    }
+  }
+  window.addEventListener('resize', fitSidebarNav);
+
   // Applies per-user access restrictions set by the admin. Admins bypass all restrictions.
   function applyUserRestrictions(){
     const r = (currentUser && currentUser.role!=='admin' && currentUser.restrictions) || {};
@@ -831,6 +849,7 @@
     // wrappers in index.html.
     setVis('sidebarTechGroup', isTech);
     setVis('sidebarAdminGroup', isAdmin);
+    fitSidebarNav();
     if(currentUser){
       const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : "Technician's Homepage";
       const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : 'Field digital form';

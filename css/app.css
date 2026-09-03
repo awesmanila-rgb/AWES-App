@@ -703,6 +703,18 @@
   .sidebar-link.active{ background:var(--green); color:#fff; }
   .sidebar-link.menu-danger{ color:#F7C7BB; }
 
+  /* Applied by fitSidebarNav() (see auth.js) only when the full-size rows
+     above don't fit the sidebar's actual available height without
+     scrolling — currently only the longer admin menu (11 links + 2 section
+     labels) needs this on shorter phones; the shorter technician menu (8
+     links + 1 label) keeps the bigger rows and just has extra space at the
+     bottom, which is fine. This is a size step, not a rewrite of the rules
+     above, so it only overrides what needs to shrink. */
+  .sidebar-nav.compact .sidebar-link{ padding:8px 12px; font-size:13.5px; gap:10px; }
+  .sidebar-nav.compact .sidebar-link .menu-ico{ width:20px; font-size:15px; }
+  .sidebar-nav.compact .sidebar-section-label{ margin:8px 12px 4px; font-size:11px; }
+  .sidebar-nav.compact{ gap:1px; }
+
   .sidebar-footer{ margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,.15); flex-shrink:0; }
   .sidebar-cloud-btn{ width:100%; text-align:center; margin-bottom:10px; }
   .sidebar-account{ display:flex; align-items:center; gap:11px; }
