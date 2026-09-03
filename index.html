@@ -177,13 +177,20 @@ window.awesCss = {
       <div class="sidebar-section-label">My Work</div>
       <button type="button" class="sidebar-link" id="techNavDispatch"><span class="menu-ico">📋</span>Job Orders</button>
       <button type="button" class="sidebar-link" id="techNavServiceReport"><span class="menu-ico">🧾</span>Service Reports</button>
-      <button type="button" class="sidebar-link" id="techNavRequisition"><span class="menu-ico">📦</span>Requisitions</button>
-      <button type="button" class="sidebar-link" id="techNavLiquidation"><span class="menu-ico">🧮</span>Liquidation</button>
       <button type="button" class="sidebar-link" id="techNavDtr"><span class="menu-ico">🕒</span>Attendance</button>
       <button type="button" class="sidebar-link" id="techNavLeave"><span class="menu-ico">🗓️</span>Leaves</button>
       <button type="button" class="sidebar-link" id="techNavMessages"><span class="menu-ico">💬</span>Messages<span class="sidebar-badge" id="sidebarMsgBadge" style="display:none;">0</span></button>
       <button type="button" class="sidebar-link" id="techNavDocuments"><span class="menu-ico">📁</span>Documents</button>
       <button type="button" class="sidebar-link" id="techNavSettings"><span class="menu-ico">⚙️</span>Settings</button>
+      <!-- Finance placed last (rather than between other groups, as on the
+           admin side) so it stays unambiguously its own labeled section —
+           this sidebar only ever had one section label ("My Work") before,
+           so inserting Finance in the middle would leave the items after it
+           looking like part of Finance too with no label of their own. -->
+      <div class="sidebar-section-label">Finance</div>
+      <button type="button" class="sidebar-link" id="techNavCashAdvance"><span class="menu-ico">💵</span>Cash Advance</button>
+      <button type="button" class="sidebar-link" id="techNavLiquidation"><span class="menu-ico">🧮</span>Liquidation</button>
+      <button type="button" class="sidebar-link" id="techNavReimbursement"><span class="menu-ico">🤝</span>Reimbursement</button>
     </div>
 
     <!-- Admin-only nav — hidden for technicians via setVis('sidebarAdminGroup', isAdmin). -->
@@ -191,10 +198,13 @@ window.awesCss = {
       <div class="sidebar-section-label">Operations</div>
       <button type="button" class="sidebar-link" id="sbNavTechnicians"><span class="menu-ico">🕒</span>Technicians</button>
       <button type="button" class="sidebar-link" id="menuManageReports"><span class="menu-ico">🗂</span>Service Reports</button>
-      <button type="button" class="sidebar-link" id="sbNavRequisitions"><span class="menu-ico">💵</span>Requisitions</button>
       <button type="button" class="sidebar-link" id="sbNavDispatch"><span class="menu-ico">🚚</span>Dispatch</button>
       <button type="button" class="sidebar-link" id="menuManageCustomers"><span class="menu-ico">🏢</span>Customers</button>
       <button type="button" class="sidebar-link" id="menuManageEquipment"><span class="menu-ico">🧰</span>Equipment</button>
+      <div class="sidebar-section-label">Finance</div>
+      <button type="button" class="sidebar-link" id="sbNavCashAdvance"><span class="menu-ico">💵</span>Cash Advance</button>
+      <button type="button" class="sidebar-link" id="sbNavLiquidation"><span class="menu-ico">🧮</span>Liquidation</button>
+      <button type="button" class="sidebar-link" id="sbNavReimbursement"><span class="menu-ico">🤝</span>Reimbursement</button>
       <div class="sidebar-section-label">Management</div>
       <button type="button" class="sidebar-link" id="menuManageUsers"><span class="menu-ico">👤</span>Users &amp; Roles</button>
       <button type="button" class="sidebar-link" id="menuManageAnnouncements"><span class="menu-ico">📣</span>Announcements</button>
@@ -301,11 +311,6 @@ window.awesCss = {
           <div class="overview-stat-value" id="ovMyLiqValue">—</div>
           <div class="overview-stat-sub" id="ovMyLiqSub">—</div>
         </div>
-        <div class="overview-stat ov-teal">
-          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
-          <div class="overview-stat-value" id="ovMyFinanceValue">—</div>
-          <div class="overview-stat-sub" id="ovMyFinanceSub">—</div>
-        </div>
         <div class="overview-stat ov-green">
           <div class="overview-stat-head"><span class="overview-stat-title">Today's Attendance</span><span class="overview-stat-icon ov-icon-chip">🕒</span></div>
           <div class="overview-stat-value" id="ovMyDtrValue">—</div>
@@ -359,16 +364,6 @@ window.awesCss = {
           <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
           <div class="overview-stat-value" id="ovReqValue">—</div>
           <div class="overview-stat-sub" id="ovReqSub">—</div>
-        </div>
-        <div class="overview-stat ov-teal">
-          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
-          <div class="overview-stat-value" id="ovFinanceValue">—</div>
-          <div class="overview-stat-sub" id="ovFinanceSub">—</div>
-        </div>
-        <div class="overview-stat ov-red">
-          <div class="overview-stat-head"><span class="overview-stat-title">To Settle</span><span class="overview-stat-icon ov-icon-chip">🤝</span></div>
-          <div class="overview-stat-value" id="ovSettleValue">—</div>
-          <div class="overview-stat-sub" id="ovSettleSub">—</div>
         </div>
         <div class="overview-stat ov-blue">
           <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
