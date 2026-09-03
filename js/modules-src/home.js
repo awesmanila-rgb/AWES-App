@@ -229,6 +229,26 @@
     $('ovMyLiqValue').textContent = String(liqCount);
     $('ovMyLiqSub').textContent = liqCount===0 ? 'Nothing to liquidate' : liqCount+' Cash Advance'+(liqCount===1?'':'s')+' to Liquidate';
 
+    // Finance — my own cash currently out and not yet accounted for
+    // (disbursed, but no approved liquidation on file yet). Same figure as
+    // admin's dashboard Finance tile, scoped down to just this technician.
+    const outstandingMine = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingMineTotal = outstandingMine.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    $('ovMyFinanceValue').textContent = caFmtPeso(outstandingMineTotal);
+    let myFinanceSub = outstandingMine.length===0
+      ? 'Nothing outstanding'
+      : outstandingMine.length+' Cash Advance'+(outstandingMine.length===1?'':'s')+' not yet liquidated';
+    // An approved liquidation can still leave a return/reimburse balance
+    // open — that's a separate, smaller state than "not yet liquidated"
+    // above, and used to have nowhere it stayed visible once the technician
+    // closed the liquidation screen.
+    const unsettledMine = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    if(unsettledMine.length>0){
+      const unsettledMineAmount = unsettledMine.reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+      myFinanceSub += ' · '+caFmtPeso(unsettledMineAmount)+' to settle';
+    }
+    $('ovMyFinanceSub').textContent = myFinanceSub;
+
     // Today's Attendance — straight from Online DTR, no separate storage.
     if(todayDtr && todayDtr.timeIn){
       const inTime = new Date(todayDtr.timeIn);
@@ -382,6 +402,33 @@
     const pendingLeave = (leaves||[]).filter(r=> r.status==='pending').length;
     $('ovReqValue').textContent = String(pendingCA+pendingLiq+pendingLeave);
     $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLiq+' Liquidation'+(pendingLiq===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
+
+    // Finance — total cash currently out with technicians and not yet
+    // accounted for (disbursed, but no approved liquidation on file yet).
+    // This is the company's outstanding cash-advance exposure at a glance,
+    // separate from "Pending Requisitions" above, which counts items
+    // awaiting a decision rather than money already handed out.
+    const outstanding = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingTotal = outstanding.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    const outstandingTechs = new Set(outstanding.map(r=> r.userId)).size;
+    $('ovFinanceValue').textContent = caFmtPeso(outstandingTotal);
+    $('ovFinanceSub').textContent = 'Outstanding across '+outstandingTechs+' technician'+(outstandingTechs===1?'':'s')+' · '+pendingLiq+' awaiting review';
+
+    // To Settle — approved liquidations with a return/reimburse balance that
+    // hasn't actually been paid back yet either direction. This is distinct
+    // from "Finance" above: that's money not yet liquidated at all, this is
+    // money whose liquidation IS approved but the leftover balance is still
+    // outstanding — a state that used to have no dashboard visibility
+    // whatsoever, since the balance was only ever computed for display and
+    // never persisted or tracked anywhere.
+    const unsettled = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    const toCollect = unsettled.filter(r=> r.liquidation.settlement.type==='return').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    const toReimburse = unsettled.filter(r=> r.liquidation.settlement.type==='reimburse').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    $('ovSettleValue').textContent = String(unsettled.length);
+    const settleParts = [];
+    if(toCollect>0) settleParts.push('To collect: '+caFmtPeso(toCollect));
+    if(toReimburse>0) settleParts.push('To reimburse: '+caFmtPeso(toReimburse));
+    $('ovSettleSub').textContent = settleParts.length ? settleParts.join(' · ') : 'Nothing pending';
 
     // Dispatch Status — open tickets, split into assigned/unassigned.
     const openTickets = (tickets||[]).filter(t=> t.status!=='completed');

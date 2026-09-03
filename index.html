@@ -301,6 +301,11 @@ window.awesCss = {
           <div class="overview-stat-value" id="ovMyLiqValue">—</div>
           <div class="overview-stat-sub" id="ovMyLiqSub">—</div>
         </div>
+        <div class="overview-stat ov-teal">
+          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
+          <div class="overview-stat-value" id="ovMyFinanceValue">—</div>
+          <div class="overview-stat-sub" id="ovMyFinanceSub">—</div>
+        </div>
         <div class="overview-stat ov-green">
           <div class="overview-stat-head"><span class="overview-stat-title">Today's Attendance</span><span class="overview-stat-icon ov-icon-chip">🕒</span></div>
           <div class="overview-stat-value" id="ovMyDtrValue">—</div>
@@ -354,6 +359,16 @@ window.awesCss = {
           <div class="overview-stat-head"><span class="overview-stat-title">Pending Requisitions</span><span class="overview-stat-icon ov-icon-chip">💵</span></div>
           <div class="overview-stat-value" id="ovReqValue">—</div>
           <div class="overview-stat-sub" id="ovReqSub">—</div>
+        </div>
+        <div class="overview-stat ov-teal">
+          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
+          <div class="overview-stat-value" id="ovFinanceValue">—</div>
+          <div class="overview-stat-sub" id="ovFinanceSub">—</div>
+        </div>
+        <div class="overview-stat ov-red">
+          <div class="overview-stat-head"><span class="overview-stat-title">To Settle</span><span class="overview-stat-icon ov-icon-chip">🤝</span></div>
+          <div class="overview-stat-value" id="ovSettleValue">—</div>
+          <div class="overview-stat-sub" id="ovSettleSub">—</div>
         </div>
         <div class="overview-stat ov-blue">
           <div class="overview-stat-head"><span class="overview-stat-title">Dispatch Status</span><span class="overview-stat-icon ov-icon-chip">🚚</span></div>
@@ -994,15 +1009,32 @@ window.awesCss = {
     <div class="card">
       <div class="card-head"><span>💵 Cash Advance Requests</span></div>
       <div class="card-body">
+        <input type="text" id="caAdminSearch" placeholder="Search by technician name…" style="width:100%; margin-bottom:10px;">
         <div class="leave-filter-row" id="caAdminFilterRow">
           <button type="button" data-filter="pending" class="active">Pending</button>
           <button type="button" data-filter="approved">Approved</button>
           <button type="button" data-filter="given">Given</button>
           <button type="button" data-filter="toReviewLiq">To Review Liquidation <span id="caToReviewLiqBadge" class="status-pill status-rejected" style="display:none; margin-left:4px;">0</span></button>
+          <button type="button" data-filter="toSettle">To Settle <span id="caToSettleBadge" class="status-pill status-rejected" style="display:none; margin-left:4px;">0</span></button>
           <button type="button" data-filter="disapproved">Disapproved</button>
           <button type="button" data-filter="all">All</button>
         </div>
         <div id="caAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin: one technician's full Cash Advance + Liquidation history, reached
+       by tapping a technician's name on any card above. Read-only — no
+       decision or disbursement actions here, just the full timeline
+       (same 4-milestone layout as the technician's own "My Requests" tab)
+       plus the itemized liquidation breakdown for records that have one. -->
+  <div id="caTechHistoryArea" style="display:none;">
+    <div class="card">
+      <div class="card-head"><span>🗂️ <span id="caTechHistoryName">Cash Advance History</span></span></div>
+      <div class="card-body">
+        <button class="btn btn-secondary" id="caTechHistBackBtn" type="button" style="margin-bottom:12px;">← Back to All Requests</button>
+        <div id="caTechHistoryList"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
   </div>

@@ -6718,7 +6718,7 @@
       const liqLine = r.disbursed
         ? '<div class="leave-comment"><b>Liquidation</b>'+caLiquidationStatusPill(r.liquidation)+
           (r.liquidation && r.liquidation.status==='disapproved' && r.liquidation.comment ? '<div style="margin-top:4px;">'+escapeHtml(r.liquidation.comment)+'</div>' : '')+
-          '</div>'
+          '</div>'+caSettlementLine(r.liquidation)
         : '';
       // The four milestones requested at a glance: Requested / Approved / Given / Liquidated.
       // Each shows "—" until that milestone has actually happened.
@@ -6953,6 +6953,40 @@
     const given = caLiqActiveRecord ? (Number(caLiqActiveRecord.amountGiven)||0) : 0;
     const diff = given - total; // positive: unspent cash advance; negative: technician spent more than given
     return { total, given, diff };
+  }
+
+  // The same balance as above (Unreturned Excess C.A. / Accounts Receivable),
+  // but computed from an already-saved record+liquidation rather than the
+  // in-progress form, and turned into something that can actually be tracked
+  // rather than just displayed. Before this, that balance was recalculated
+  // fresh wherever it was shown (the preview, the PDF, the review panel) and
+  // never stored anywhere — once approved, there was no record of whether a
+  // technician's owed excess was ever actually returned, or a company's owed
+  // reimbursement was ever actually paid out.
+  function caComputeSettlement(record){
+    const liq = record && record.liquidation;
+    if(!liq) return null;
+    const given = Number(record.amountGiven)||0;
+    const total = Number(liq.totalAmount)||0;
+    const diff = given - total;
+    if(Math.abs(diff) < 0.005) return { type:'none', amount:0 };
+    return { type: diff>0 ? 'return' : 'reimburse', amount: Math.abs(diff) };
+  }
+
+  // One line of settlement status, reused everywhere a liquidation is shown
+  // (admin's card summary, the review panel, admin's per-technician history,
+  // and the technician's own "My Requests" tab) so the balance doesn't just
+  // disappear once the approval screen is closed.
+  function caSettlementLine(liq){
+    if(!liq || liq.status!=='approved' || !liq.settlement || liq.settlement.type==='none') return '';
+    const s = liq.settlement;
+    const label = s.type==='return' ? 'Technician owes' : 'Reimburse technician';
+    if(s.settled){
+      return '<div class="leave-comment"><b>Settlement</b>✅ '+label+' '+caFmtPeso(s.amount)+
+        ' — settled '+leaveFmtWhen(s.settledAt)+(s.settledBy ? ' by '+escapeHtml(s.settledBy) : '')+
+        (s.method ? ' ('+escapeHtml(s.method)+')' : '')+'</div>';
+    }
+    return '<div class="leave-comment"><b>Settlement</b>⏳ '+label+' '+caFmtPeso(s.amount)+' — not yet settled</div>';
   }
 
   // Particular text for an item, folding in Qty when it's more than 1 so the
@@ -7293,7 +7327,8 @@
         '<span>'+excessLabel+'</span><span>'+caFmtPeso(Math.abs(diff))+'</span></div>'+
       '<div style="display:flex; justify-content:space-between; padding:8px 4px; border-top:1px dashed var(--border); font-weight:700; font-size:15px;">'+
         '<span>'+balanceLabel+'</span><span>'+caFmtPeso(Math.abs(diff))+'</span></div>'+
-      '<div class="leave-note" style="padding:0 4px;">Cash advance given: '+caFmtPeso(given)+'</div>';
+      '<div class="leave-note" style="padding:0 4px;">Cash advance given: '+caFmtPeso(given)+'</div>'+
+      caSettlementLine(liq);
     wrap.innerHTML = html;
     (liq.items||[]).forEach(item=>{
       const el = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
@@ -7535,6 +7570,13 @@
 
   // ================= Admin: review requests, disbursement, liquidation =================
   let caAdminFilter = 'pending';
+  // Used for the "No ___ cash advance requests" empty-state message — plain
+  // English instead of the raw filter key (which used to leak through
+  // verbatim as e.g. "No toReviewLiq cash advance requests.").
+  const caAdminFilterLabels = {
+    pending:'pending', approved:'approved', given:'given', disapproved:'disapproved',
+    all:'', toReviewLiq:'liquidation-review', toSettle:'unsettled'
+  };
   async function caRenderAdminList(){
     const list = $('caAdminList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
@@ -7547,12 +7589,30 @@
     const badge = $('caToReviewLiqBadge');
     badge.textContent = String(toReviewCount);
     badge.style.display = toReviewCount>0 ? '' : 'none';
+    // Same idea for approved liquidations whose return/reimbursement balance
+    // hasn't actually been settled yet — without a badge here, an approved
+    // liquidation with money still owed either way just blends into
+    // "Approved"/"Given"/"All" and is easy to forget about indefinitely.
+    const toSettleCount = all.filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled).length;
+    const settleBadge = $('caToSettleBadge');
+    settleBadge.textContent = String(toSettleCount);
+    settleBadge.style.display = toSettleCount>0 ? '' : 'none';
     let items;
     if(caAdminFilter==='all') items = all;
     else if(caAdminFilter==='given') items = all.filter(r=> r.disbursed);
     else if(caAdminFilter==='toReviewLiq') items = all.filter(r=> r.liquidation && r.liquidation.status==='pending');
+    else if(caAdminFilter==='toSettle') items = all.filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
     else items = all.filter(r=> r.status===caAdminFilter);
-    if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(caAdminFilter==='all'?'':caAdminFilter+' ')+'cash advance requests.</div>'; return; }
+    // Search by technician name — works within whichever tab is active, not
+    // just "All", since admin may want e.g. "this technician's pending
+    // requests" too.
+    const searchText = ($('caAdminSearch').value||'').trim().toLowerCase();
+    if(searchText) items = items.filter(r=> (r.userName||'').toLowerCase().includes(searchText));
+    if(items.length===0){
+      const label = caAdminFilterLabels[caAdminFilter];
+      list.innerHTML = '<div class="empty-state">No '+(label?label+' ':'')+'cash advance requests'+(searchText?' matching "'+escapeHtml(searchText)+'"':'')+'.</div>';
+      return;
+    }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');
@@ -7568,13 +7628,16 @@
           liqSummary = '<div class="leave-comment"><b>Liquidation</b> '+caLiquidationStatusPill(r.liquidation)+
             ' — '+caFmtPeso(r.liquidation.totalAmount)+' across '+r.liquidation.items.length+' item(s)'+
             (r.liquidation.comment ? '<div style="margin-top:4px;">'+escapeHtml(r.liquidation.comment)+'</div>' : '')+
-            '</div>';
+            '</div>'+
+            caSettlementLine(r.liquidation);
         }
       }
       card.innerHTML =
         '<div class="user-card-head">'+
           '<div>'+
-            '<div class="u-name">'+escapeHtml(r.userName)+' — '+caFmtPeso(r.amount)+'</div>'+
+            '<div class="u-name">'+
+      '<a href="#" class="ca-tech-name-link" data-view-tech="'+escapeHtml(String(r.userId))+'" data-tech-name="'+escapeHtml(r.userName)+'" style="color:inherit; text-decoration:underline;">'+escapeHtml(r.userName)+'</a>'+
+      ' — '+caFmtPeso(r.amount)+'</div>'+
             '<div class="u-status">Needed '+leaveFmtDate(r.dateNeeded)+(r.project ? (' · '+escapeHtml(r.project)) : '')+' · Filed '+leaveFmtWhen(r.submittedAt)+'</div>'+
           '</div>'+
           (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Given</span>' : leaveStatusPill(r.status))+
@@ -7614,6 +7677,13 @@
       const disbursePanel = card.querySelector('[data-panel="disbursement"]');
       const liqPanel = card.querySelector('[data-panel="liquidation"]');
       const allPanels = [decisionPanel, disbursePanel, liqPanel].filter(Boolean);
+      const nameLink = card.querySelector('.ca-tech-name-link');
+      if(nameLink){
+        nameLink.addEventListener('click', (e)=>{
+          e.preventDefault();
+          caOpenTechHistory(nameLink.dataset.viewTech, nameLink.dataset.techName);
+        });
+      }
       const reviewBtn = card.querySelector('[data-act="review"]');
       if(reviewBtn && decisionPanel){
         reviewBtn.addEventListener('click', ()=>{
@@ -7650,6 +7720,102 @@
       list.appendChild(card);
     });
   }
+  document.querySelectorAll('#caAdminFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#caAdminFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      caAdminFilter = btn.dataset.filter;
+      caRenderAdminList();
+    });
+  });
+  // Debounced so every keystroke doesn't refetch/re-render the whole list.
+  let caAdminSearchTimer = null;
+  $('caAdminSearch').addEventListener('input', ()=>{
+    clearTimeout(caAdminSearchTimer);
+    caAdminSearchTimer = setTimeout(caRenderAdminList, 200);
+  });
+
+  // ---------- Admin: one technician's full Cash Advance + Liquidation
+  // history (read-only), reached by tapping a technician's name on any
+  // card in the list above. Same 4-milestone-dates layout as the
+  // technician's own "My Requests" tab, plus a clickable itemized
+  // liquidation breakdown (receipts / transportation trip legs) since
+  // that's useful for an admin double-checking past records and the
+  // technician's own history view doesn't show it. ----------
+  async function caOpenTechHistory(userId, userName){
+    $('caTechHistoryName').textContent = userName ? (userName+' — Cash Advance History') : 'Cash Advance History';
+    $('caAdminArea').style.display = 'none';
+    $('caTechHistoryArea').style.display = '';
+    const list = $('caTechHistoryList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const items = await caListForUser(userId);
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No cash advance requests yet.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'hist-item';
+      row.style.cssText = 'cursor:default; flex-direction:column; align-items:stretch;';
+      let disbursementLine = '';
+      if(r.status==='approved'){
+        disbursementLine = r.disbursed
+          ? '<div class="leave-comment"><b>Cash given</b>'+caFmtPeso(r.amountGiven)+' on '+leaveFmtDate(r.dateGiven)+'</div>'
+          : '<div class="leave-comment"><b>Cash given</b>Not yet released</div>';
+      }
+      const datesLine =
+        '<div class="leave-comment" style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">'+
+          '<div><b>Date Requested</b>'+leaveFmtWhen(r.submittedAt)+'</div>'+
+          '<div><b>Date Approved</b>'+(r.status==='approved' ? leaveFmtWhen(r.decidedAt) : '—')+'</div>'+
+          '<div><b>Date Given</b>'+(r.disbursed ? leaveFmtDate(r.dateGiven) : '—')+'</div>'+
+          '<div><b>Date Liquidated</b>'+(r.liquidation && r.liquidation.status==='approved' ? leaveFmtWhen(r.liquidation.decidedAt) : '—')+'</div>'+
+        '</div>';
+      let liqBlock = '';
+      if(r.disbursed){
+        if(!r.liquidation){
+          liqBlock = '<div class="leave-comment"><b>Liquidation</b> ⏳ Not yet submitted</div>';
+        }else{
+          let itemsHtml = '';
+          (r.liquidation.items||[]).forEach(item=>{
+            itemsHtml += '<div class="hist-item" style="cursor:pointer; padding:6px 8px;" data-view-item="'+escapeHtml(String(item.id))+'">'+
+              '<div class="hist-info"><b>'+(item.type==='transport'?'🚕 ':'📄 ')+escapeHtml(caLiqItemParticular(item))+'</b>'+
+              '<span>'+caFmtPeso(item.amount)+'</span></div></div>';
+          });
+          liqBlock =
+            '<div class="leave-comment"><b>Liquidation</b>'+caLiquidationStatusPill(r.liquidation)+
+              ' — '+caFmtPeso(r.liquidation.totalAmount)+' across '+r.liquidation.items.length+' item(s)'+
+              (r.liquidation.comment ? '<div style="margin-top:4px;">'+escapeHtml(r.liquidation.comment)+'</div>' : '')+
+            '</div>'+
+            caSettlementLine(r.liquidation)+
+            itemsHtml;
+        }
+      }
+      row.innerHTML =
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
+          '<div class="hist-info"><b>'+caFmtPeso(r.amount)+'</b>'+
+            '<span>Needed '+leaveFmtDate(r.dateNeeded)+(r.project ? (' · '+escapeHtml(r.project)) : '')+'</span>'+
+          '</div>'+
+          (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Given</span>' : leaveStatusPill(r.status))+
+        '</div>'+
+        datesLine+
+        '<div class="leave-comment"><b>Purpose</b>'+escapeHtml(r.purpose)+'</div>'+
+        disbursementLine+
+        liqBlock+
+        (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '');
+      list.appendChild(row);
+      if(r.liquidation){
+        (r.liquidation.items||[]).forEach(item=>{
+          const el = row.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+          // Same on-demand-fetch pattern as the review panel — this list is
+          // loaded without attachment payloads.
+          if(el) el.addEventListener('click', ()=> openLiquidationAttachment(Object.assign({}, item, {__recordId: r.id})));
+        });
+      }
+    });
+  }
+  $('caTechHistBackBtn').addEventListener('click', ()=>{
+    $('caTechHistoryArea').style.display = 'none';
+    $('caAdminArea').style.display = '';
+    caRenderAdminList();
+  });
 
   function caRenderLiqAdminPanel(r, panel){
     const liq = r.liquidation;
@@ -7672,6 +7838,16 @@
       html += '<div class="leave-comment">'+caLiquidationStatusPill(liq)+
         (liq.decidedBy ? ' · decided by '+escapeHtml(liq.decidedBy) : '')+
         (liq.comment ? '<div style="margin-top:4px;">'+escapeHtml(liq.comment)+'</div>' : '')+'</div>';
+      if(liq.status==='approved' && liq.settlement && liq.settlement.type!=='none'){
+        html += caSettlementLine(liq);
+        if(!liq.settlement.settled){
+          html +=
+            '<div class="field"><label>Settlement method (optional)</label><input type="text" data-f="settleMethod" placeholder="e.g. Cash, GCash, payroll deduction"></div>'+
+            '<div class="edit-save-row">'+
+              '<button class="save-btn" data-act="mark-settled" type="button">Mark as Settled</button>'+
+            '</div>';
+        }
+      }
     }
     panel.innerHTML = html;
     (liq.items||[]).forEach(item=>{
@@ -7684,6 +7860,8 @@
     const disapproveBtn = panel.querySelector('[data-act="liq-disapprove"]');
     if(approveBtn) approveBtn.addEventListener('click', ()=> caDecideLiquidation(r.id, 'approved', panel.querySelector('[data-f="liqComment"]').value.trim()));
     if(disapproveBtn) disapproveBtn.addEventListener('click', ()=> caDecideLiquidation(r.id, 'disapproved', panel.querySelector('[data-f="liqComment"]').value.trim()));
+    const markSettledBtn = panel.querySelector('[data-act="mark-settled"]');
+    if(markSettledBtn) markSettledBtn.addEventListener('click', ()=> caMarkSettled(r.id, panel.querySelector('[data-f="settleMethod"]').value.trim()));
   }
 
   // All three admin actions below now:
@@ -7732,12 +7910,48 @@
     await caApplyAdminChange(id, (rec)=>{
       if(!rec.liquidation){ toast('Liquidation not found'); return null; }
       if(rec.liquidation.status===status){ toast('Already '+status); return null; }
-      return { data: { liquidation: Object.assign({}, rec.liquidation, {
+      const updatedLiq = Object.assign({}, rec.liquidation, {
         status, comment: comment || '',
         decidedAt: new Date().toISOString(),
         decidedBy: currentUser.name || 'Admin'
-      }) } };
+      });
+      if(status==='approved'){
+        // Stamp the return/reimburse balance right when it's approved, so it
+        // becomes a trackable record instead of a number that only ever
+        // existed on-screen. A zero balance is marked settled immediately
+        // since there's nothing to follow up on.
+        const settle = caComputeSettlement(Object.assign({}, rec, {liquidation: updatedLiq}));
+        updatedLiq.settlement = {
+          type: settle.type, amount: settle.amount,
+          settled: settle.type==='none',
+          settledAt: settle.type==='none' ? new Date().toISOString() : null,
+          settledBy: settle.type==='none' ? (currentUser.name || 'Admin') : null,
+          method: null
+        };
+      }
+      return { data: { liquidation: updatedLiq } };
     }, 'Liquidation '+status);
+    caRenderAdminList();
+  }
+
+  // Admin follow-up once a technician's unreturned excess is actually handed
+  // back, or a company reimbursement is actually paid out. Nothing before
+  // this point ever recorded that — the balance would just sit computed but
+  // untracked forever.
+  async function caMarkSettled(id, method){
+    if(!caAdminGuard()) return;
+    await caApplyAdminChange(id, (rec)=>{
+      if(!rec.liquidation || !rec.liquidation.settlement){ toast('Nothing to settle'); return null; }
+      if(rec.liquidation.settlement.settled){ toast('Already settled'); return null; }
+      return { data: { liquidation: Object.assign({}, rec.liquidation, {
+        settlement: Object.assign({}, rec.liquidation.settlement, {
+          settled: true,
+          settledAt: new Date().toISOString(),
+          settledBy: currentUser.name || 'Admin',
+          method: method || ''
+        })
+      }) } };
+    }, 'Marked as settled');
     caRenderAdminList();
   }
 
@@ -7774,14 +7988,6 @@
     }, 'Disbursement recorded');
     caRenderAdminList();
   }
-  document.querySelectorAll('#caAdminFilterRow button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.querySelectorAll('#caAdminFilterRow button').forEach(b=> b.classList.remove('active'));
-      btn.classList.add('active');
-      caAdminFilter = btn.dataset.filter;
-      caRenderAdminList();
-    });
-  });
 
   async function showCashAdvanceView(){
     document.body.classList.remove('dashboard-active');
@@ -7805,10 +8011,12 @@
     if(currentUser && currentUser.role==='admin'){
       $('caTechArea').style.display = 'none';
       $('caAdminArea').style.display = '';
+      $('caTechHistoryArea').style.display = 'none';
       caRenderAdminList();
     }else{
       $('caTechArea').style.display = '';
       $('caAdminArea').style.display = 'none';
+      $('caTechHistoryArea').style.display = 'none';
       caShowTab('new');
     }
   }
@@ -8045,6 +8253,26 @@
     $('ovMyLiqValue').textContent = String(liqCount);
     $('ovMyLiqSub').textContent = liqCount===0 ? 'Nothing to liquidate' : liqCount+' Cash Advance'+(liqCount===1?'':'s')+' to Liquidate';
 
+    // Finance — my own cash currently out and not yet accounted for
+    // (disbursed, but no approved liquidation on file yet). Same figure as
+    // admin's dashboard Finance tile, scoped down to just this technician.
+    const outstandingMine = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingMineTotal = outstandingMine.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    $('ovMyFinanceValue').textContent = caFmtPeso(outstandingMineTotal);
+    let myFinanceSub = outstandingMine.length===0
+      ? 'Nothing outstanding'
+      : outstandingMine.length+' Cash Advance'+(outstandingMine.length===1?'':'s')+' not yet liquidated';
+    // An approved liquidation can still leave a return/reimburse balance
+    // open — that's a separate, smaller state than "not yet liquidated"
+    // above, and used to have nowhere it stayed visible once the technician
+    // closed the liquidation screen.
+    const unsettledMine = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    if(unsettledMine.length>0){
+      const unsettledMineAmount = unsettledMine.reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+      myFinanceSub += ' · '+caFmtPeso(unsettledMineAmount)+' to settle';
+    }
+    $('ovMyFinanceSub').textContent = myFinanceSub;
+
     // Today's Attendance — straight from Online DTR, no separate storage.
     if(todayDtr && todayDtr.timeIn){
       const inTime = new Date(todayDtr.timeIn);
@@ -8198,6 +8426,33 @@
     const pendingLeave = (leaves||[]).filter(r=> r.status==='pending').length;
     $('ovReqValue').textContent = String(pendingCA+pendingLiq+pendingLeave);
     $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLiq+' Liquidation'+(pendingLiq===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
+
+    // Finance — total cash currently out with technicians and not yet
+    // accounted for (disbursed, but no approved liquidation on file yet).
+    // This is the company's outstanding cash-advance exposure at a glance,
+    // separate from "Pending Requisitions" above, which counts items
+    // awaiting a decision rather than money already handed out.
+    const outstanding = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingTotal = outstanding.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    const outstandingTechs = new Set(outstanding.map(r=> r.userId)).size;
+    $('ovFinanceValue').textContent = caFmtPeso(outstandingTotal);
+    $('ovFinanceSub').textContent = 'Outstanding across '+outstandingTechs+' technician'+(outstandingTechs===1?'':'s')+' · '+pendingLiq+' awaiting review';
+
+    // To Settle — approved liquidations with a return/reimburse balance that
+    // hasn't actually been paid back yet either direction. This is distinct
+    // from "Finance" above: that's money not yet liquidated at all, this is
+    // money whose liquidation IS approved but the leftover balance is still
+    // outstanding — a state that used to have no dashboard visibility
+    // whatsoever, since the balance was only ever computed for display and
+    // never persisted or tracked anywhere.
+    const unsettled = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    const toCollect = unsettled.filter(r=> r.liquidation.settlement.type==='return').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    const toReimburse = unsettled.filter(r=> r.liquidation.settlement.type==='reimburse').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    $('ovSettleValue').textContent = String(unsettled.length);
+    const settleParts = [];
+    if(toCollect>0) settleParts.push('To collect: '+caFmtPeso(toCollect));
+    if(toReimburse>0) settleParts.push('To reimburse: '+caFmtPeso(toReimburse));
+    $('ovSettleSub').textContent = settleParts.length ? settleParts.join(' · ') : 'Nothing pending';
 
     // Dispatch Status — open tickets, split into assigned/unassigned.
     const openTickets = (tickets||[]).filter(t=> t.status!=='completed');
