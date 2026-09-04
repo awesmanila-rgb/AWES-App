@@ -786,9 +786,10 @@
     }else{
       trackerStopBroadcasting();
     }
-    // Idle-timeout watch (15 min Admin / 1 hr Technician) starts for either
-    // role now — see IDLE_MS in auth.js. It's the only thing that signs
-    // anyone out automatically; a page reload/refresh never does.
+    // Idle-timeout watch (Admin only, 30 min) — see ADMIN_IDLE_MS in
+    // auth.js. startIdleWatch() itself is a no-op for tech/customer, who
+    // only sign out via the explicit Logout button; a page reload/refresh
+    // never signs anyone out either.
     if(currentUser) startIdleWatch(); else stopIdleWatch();
     showHome();
   }

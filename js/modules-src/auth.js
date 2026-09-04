@@ -220,21 +220,24 @@
 
   let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
-  // ---------- Idle timeout — Admin 15 minutes, Technician 1 hour ----------
+  // ---------- Idle timeout — Admin only, 30 minutes ----------
   // A shared/unattended device left signed in is the risk being guarded
-  // against; Admin gets a much shorter window because of its far more
-  // sensitive surface (Manage Users, approvals, password changes, dropdown
-  // list editing). Implemented as "last activity timestamp + periodic check"
+  // against; Admin is the only role with an auto sign-out because of its far
+  // more sensitive surface (Manage Users, approvals, password changes,
+  // dropdown list editing). Technician and customer sessions no longer
+  // auto-expire from inactivity — they only end when the person taps
+  // "Logout". Implemented as "last activity timestamp + periodic check"
   // rather than clearTimeout/setTimeout on every event — mousemove alone can
   // fire dozens of times a second, and resetting a real timer that often is
   // wasted work for no behavioral difference.
   //
-  // This is the ONLY thing that signs anyone out automatically. Reloading or
-  // refreshing the page never does — see getVerifiedSession/checkLoginGate
-  // below, which restore the saved session from cache whenever the cloud
-  // can't be reached to re-verify it (e.g. a brief signal drop on a field
-  // connection), instead of treating "couldn't check" as "log them out".
-  const IDLE_MS = { admin: 15 * 60 * 1000, tech: 60 * 60 * 1000 };
+  // This (and the explicit Logout button) are the ONLY things that sign
+  // anyone out. Reloading or refreshing the page never does — see
+  // getVerifiedSession/checkLoginGate below, which restore the saved session
+  // from cache whenever the cloud can't be reached to re-verify it (e.g. a
+  // brief signal drop on a field connection), instead of treating "couldn't
+  // check" as "log them out".
+  const ADMIN_IDLE_MS = 30 * 60 * 1000;
   const IDLE_CHECK_MS = 15 * 1000;     // how often we check the clock
   let lastActivity = Date.now();
   let idleInterval = null;
@@ -247,16 +250,17 @@
   });
 
   function startIdleWatch(){
+    // Only admin sessions are watched — tech/customer sign out on explicit
+    // Logout tap only.
+    if(!currentUser || currentUser.role!=='admin'){ stopIdleWatch(); return; }
     lastActivity = Date.now();
     if(idleInterval) clearInterval(idleInterval);
     idleInterval = setInterval(async ()=>{
-      if(!currentUser){ stopIdleWatch(); return; }
-      const role = currentUser.role;
-      const limitMs = IDLE_MS[role] || IDLE_MS.tech;
-      if(Date.now() - lastActivity >= limitMs){
+      if(!currentUser || currentUser.role!=='admin'){ stopIdleWatch(); return; }
+      if(Date.now() - lastActivity >= ADMIN_IDLE_MS){
         stopIdleWatch();
         await doLogout();
-        toast(role==='admin' ? 'Signed out after 15 minutes of inactivity' : 'Signed out after 1 hour of inactivity');
+        toast('Signed out after 30 minutes of inactivity');
       }
     }, IDLE_CHECK_MS);
   }

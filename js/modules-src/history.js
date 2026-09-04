@@ -770,7 +770,7 @@
     const dateISO = todayISO();
     const dateEl = $('dtrAttendanceDate');
     if(dateEl) dateEl.textContent = dtrFmtDateLabel(dateISO);
-    body.innerHTML = '<tr><td colspan="6"><div class="empty-state">Loading…</div></td></tr>';
+    body.innerHTML = '<tr><td colspan="9"><div class="empty-state">Loading…</div></td></tr>';
     const [users, records] = await Promise.all([
       cloudListUsers().catch(()=>[]),
       dtrListAllForDate(dateISO).catch(()=>[])
@@ -779,7 +779,7 @@
       .sort((a,b)=> (a.name||'').localeCompare(b.name||''));
     const summaryEl = $('dtrAttendanceSummary');
     if(active.length===0){
-      body.innerHTML = '<tr><td colspan="6"><div class="empty-state">No technician accounts yet.</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty-state">No technician accounts yet.</div></td></tr>';
       if(summaryEl) summaryEl.textContent = '';
       return;
     }
@@ -787,15 +787,30 @@
     (records||[]).forEach(r=>{ if(r && r.technicianId) recByTech[r.technicianId] = r; });
 
     const now = new Date();
-    let presentCount = 0, completedCount = 0, absentCount = 0;
+    let presentCount = 0, completedCount = 0, absentCount = 0, otCount = 0;
     body.innerHTML = '';
     active.forEach(u=>{
       const rec = recByTech[u.id];
       let statusLabel, inTxt = '—', outTxt = '—', hoursTxt = '—';
+      let otInTxt = '—', otOutTxt = '—', otHoursTxt = '—';
       if(rec && rec.timeIn && rec.timeOut){
-        statusLabel = '⚫ Completed'; completedCount++;
         inTxt = dtrFmtTime(rec.timeIn); outTxt = dtrFmtTime(rec.timeOut);
         hoursTxt = dtrHoursLabel(Math.max(0, Math.round((new Date(rec.timeOut)-new Date(rec.timeIn))/60000)));
+        // Regular shift is done, but overtime logged after it can still be
+        // running — that's a distinct status from "Completed for the day",
+        // same split dtrIsOnClock() uses to keep the location tracker on.
+        if(rec.otTimeIn && !rec.otTimeOut){
+          statusLabel = '🟠 Overtime'; otCount++;
+          otInTxt = dtrFmtTime(rec.otTimeIn);
+          otHoursTxt = dtrHoursLabel(Math.max(0, Math.round((now-new Date(rec.otTimeIn))/60000)));
+        }else{
+          statusLabel = '⚫ Completed'; completedCount++;
+          if(rec.otTimeIn){
+            otInTxt = dtrFmtTime(rec.otTimeIn);
+            otOutTxt = rec.otTimeOut ? dtrFmtTime(rec.otTimeOut) : '—';
+            if(rec.otTimeOut) otHoursTxt = dtrHoursLabel(Math.max(0, Math.round((new Date(rec.otTimeOut)-new Date(rec.otTimeIn))/60000)));
+          }
+        }
       }else if(rec && rec.timeIn){
         statusLabel = '🟢 Present'; presentCount++;
         inTxt = dtrFmtTime(rec.timeIn);
@@ -810,11 +825,14 @@
         '<td>'+escapeHtml(inTxt)+'</td>'+
         '<td>'+escapeHtml(outTxt)+'</td>'+
         '<td>'+escapeHtml(hoursTxt)+'</td>'+
+        '<td>'+escapeHtml(otInTxt)+'</td>'+
+        '<td>'+escapeHtml(otOutTxt)+'</td>'+
+        '<td>'+escapeHtml(otHoursTxt)+'</td>'+
         '<td><button type="button" class="att-view-btn">View DTR</button></td>';
       row.querySelector('.att-view-btn').addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
       body.appendChild(row);
     });
-    if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+absentCount+' Absent · '+active.length+' Total';
+    if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+otCount+' On Overtime · '+absentCount+' Absent · '+active.length+' Total';
   }
   function dtrShowTechnicianDetail(u){
     dtrViewingUser = u;

@@ -802,21 +802,24 @@
 
   let currentUser = null; // {id, name, role: 'tech'|'admin'}
 
-  // ---------- Idle timeout — Admin 15 minutes, Technician 1 hour ----------
+  // ---------- Idle timeout — Admin only, 30 minutes ----------
   // A shared/unattended device left signed in is the risk being guarded
-  // against; Admin gets a much shorter window because of its far more
-  // sensitive surface (Manage Users, approvals, password changes, dropdown
-  // list editing). Implemented as "last activity timestamp + periodic check"
+  // against; Admin is the only role with an auto sign-out because of its far
+  // more sensitive surface (Manage Users, approvals, password changes,
+  // dropdown list editing). Technician and customer sessions no longer
+  // auto-expire from inactivity — they only end when the person taps
+  // "Logout". Implemented as "last activity timestamp + periodic check"
   // rather than clearTimeout/setTimeout on every event — mousemove alone can
   // fire dozens of times a second, and resetting a real timer that often is
   // wasted work for no behavioral difference.
   //
-  // This is the ONLY thing that signs anyone out automatically. Reloading or
-  // refreshing the page never does — see getVerifiedSession/checkLoginGate
-  // below, which restore the saved session from cache whenever the cloud
-  // can't be reached to re-verify it (e.g. a brief signal drop on a field
-  // connection), instead of treating "couldn't check" as "log them out".
-  const IDLE_MS = { admin: 15 * 60 * 1000, tech: 60 * 60 * 1000 };
+  // This (and the explicit Logout button) are the ONLY things that sign
+  // anyone out. Reloading or refreshing the page never does — see
+  // getVerifiedSession/checkLoginGate below, which restore the saved session
+  // from cache whenever the cloud can't be reached to re-verify it (e.g. a
+  // brief signal drop on a field connection), instead of treating "couldn't
+  // check" as "log them out".
+  const ADMIN_IDLE_MS = 30 * 60 * 1000;
   const IDLE_CHECK_MS = 15 * 1000;     // how often we check the clock
   let lastActivity = Date.now();
   let idleInterval = null;
@@ -829,16 +832,17 @@
   });
 
   function startIdleWatch(){
+    // Only admin sessions are watched — tech/customer sign out on explicit
+    // Logout tap only.
+    if(!currentUser || currentUser.role!=='admin'){ stopIdleWatch(); return; }
     lastActivity = Date.now();
     if(idleInterval) clearInterval(idleInterval);
     idleInterval = setInterval(async ()=>{
-      if(!currentUser){ stopIdleWatch(); return; }
-      const role = currentUser.role;
-      const limitMs = IDLE_MS[role] || IDLE_MS.tech;
-      if(Date.now() - lastActivity >= limitMs){
+      if(!currentUser || currentUser.role!=='admin'){ stopIdleWatch(); return; }
+      if(Date.now() - lastActivity >= ADMIN_IDLE_MS){
         stopIdleWatch();
         await doLogout();
-        toast(role==='admin' ? 'Signed out after 15 minutes of inactivity' : 'Signed out after 1 hour of inactivity');
+        toast('Signed out after 30 minutes of inactivity');
       }
     }, IDLE_CHECK_MS);
   }
@@ -5038,7 +5042,7 @@
     const dateISO = todayISO();
     const dateEl = $('dtrAttendanceDate');
     if(dateEl) dateEl.textContent = dtrFmtDateLabel(dateISO);
-    body.innerHTML = '<tr><td colspan="6"><div class="empty-state">Loading…</div></td></tr>';
+    body.innerHTML = '<tr><td colspan="9"><div class="empty-state">Loading…</div></td></tr>';
     const [users, records] = await Promise.all([
       cloudListUsers().catch(()=>[]),
       dtrListAllForDate(dateISO).catch(()=>[])
@@ -5047,7 +5051,7 @@
       .sort((a,b)=> (a.name||'').localeCompare(b.name||''));
     const summaryEl = $('dtrAttendanceSummary');
     if(active.length===0){
-      body.innerHTML = '<tr><td colspan="6"><div class="empty-state">No technician accounts yet.</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty-state">No technician accounts yet.</div></td></tr>';
       if(summaryEl) summaryEl.textContent = '';
       return;
     }
@@ -5055,15 +5059,30 @@
     (records||[]).forEach(r=>{ if(r && r.technicianId) recByTech[r.technicianId] = r; });
 
     const now = new Date();
-    let presentCount = 0, completedCount = 0, absentCount = 0;
+    let presentCount = 0, completedCount = 0, absentCount = 0, otCount = 0;
     body.innerHTML = '';
     active.forEach(u=>{
       const rec = recByTech[u.id];
       let statusLabel, inTxt = '—', outTxt = '—', hoursTxt = '—';
+      let otInTxt = '—', otOutTxt = '—', otHoursTxt = '—';
       if(rec && rec.timeIn && rec.timeOut){
-        statusLabel = '⚫ Completed'; completedCount++;
         inTxt = dtrFmtTime(rec.timeIn); outTxt = dtrFmtTime(rec.timeOut);
         hoursTxt = dtrHoursLabel(Math.max(0, Math.round((new Date(rec.timeOut)-new Date(rec.timeIn))/60000)));
+        // Regular shift is done, but overtime logged after it can still be
+        // running — that's a distinct status from "Completed for the day",
+        // same split dtrIsOnClock() uses to keep the location tracker on.
+        if(rec.otTimeIn && !rec.otTimeOut){
+          statusLabel = '🟠 Overtime'; otCount++;
+          otInTxt = dtrFmtTime(rec.otTimeIn);
+          otHoursTxt = dtrHoursLabel(Math.max(0, Math.round((now-new Date(rec.otTimeIn))/60000)));
+        }else{
+          statusLabel = '⚫ Completed'; completedCount++;
+          if(rec.otTimeIn){
+            otInTxt = dtrFmtTime(rec.otTimeIn);
+            otOutTxt = rec.otTimeOut ? dtrFmtTime(rec.otTimeOut) : '—';
+            if(rec.otTimeOut) otHoursTxt = dtrHoursLabel(Math.max(0, Math.round((new Date(rec.otTimeOut)-new Date(rec.otTimeIn))/60000)));
+          }
+        }
       }else if(rec && rec.timeIn){
         statusLabel = '🟢 Present'; presentCount++;
         inTxt = dtrFmtTime(rec.timeIn);
@@ -5078,11 +5097,14 @@
         '<td>'+escapeHtml(inTxt)+'</td>'+
         '<td>'+escapeHtml(outTxt)+'</td>'+
         '<td>'+escapeHtml(hoursTxt)+'</td>'+
+        '<td>'+escapeHtml(otInTxt)+'</td>'+
+        '<td>'+escapeHtml(otOutTxt)+'</td>'+
+        '<td>'+escapeHtml(otHoursTxt)+'</td>'+
         '<td><button type="button" class="att-view-btn">View DTR</button></td>';
       row.querySelector('.att-view-btn').addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
       body.appendChild(row);
     });
-    if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+absentCount+' Absent · '+active.length+' Total';
+    if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+otCount+' On Overtime · '+absentCount+' Absent · '+active.length+' Total';
   }
   function dtrShowTechnicianDetail(u){
     dtrViewingUser = u;
@@ -9245,9 +9267,10 @@
     }else{
       trackerStopBroadcasting();
     }
-    // Idle-timeout watch (15 min Admin / 1 hr Technician) starts for either
-    // role now — see IDLE_MS in auth.js. It's the only thing that signs
-    // anyone out automatically; a page reload/refresh never does.
+    // Idle-timeout watch (Admin only, 30 min) — see ADMIN_IDLE_MS in
+    // auth.js. startIdleWatch() itself is a no-op for tech/customer, who
+    // only sign out via the explicit Logout button; a page reload/refresh
+    // never signs anyone out either.
     if(currentUser) startIdleWatch(); else stopIdleWatch();
     showHome();
   }
