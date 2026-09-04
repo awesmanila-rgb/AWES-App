@@ -797,6 +797,8 @@
   .ov-amber .ov-icon-chip{ background:#FBF0DC; }
   .ov-blue .ov-icon-chip{ background:#DCEEFB; }
   .ov-gray .ov-icon-chip{ background:#ECEDEF; }
+  .ov-purple .ov-icon-chip{ background:#EDE4FC; }
+  .ov-teal .ov-icon-chip{ background:#D9F1EE; }
 
   /* Live tracker + recent activity side-by-side */
   .dash-two-col{ display:flex; align-items:flex-start; gap:16px; }
