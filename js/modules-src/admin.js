@@ -334,7 +334,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"><div>'+
@@ -395,7 +395,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head" data-act="open" style="cursor:pointer;"><div>'+
@@ -421,7 +421,7 @@
     $('custHistEquipListCard').style.display = 'none';
     $('custHistServiceCard').style.display = '';
     window.scrollTo({top:0});
-    const summary = [equip.equipType, equip.brand, equip.coolCap, equip.mountType, equip.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+    const summary = [equip.equipLocation, equip.brand, equip.mountType, equip.equipType, equip.coolCap].filter(Boolean).join(' · ') || '(no details)';
     const serials = [equip.serialCU && ('CU: '+equip.serialCU), equip.serialFCU && ('FCU: '+equip.serialFCU)].filter(Boolean).join('  ');
     $('custHistEquipSummary').innerHTML =
       '<div class="cust-detail-row"><b>'+escapeHtml(c.name)+' — '+escapeHtml(summary)+'</b></div>'+
@@ -528,7 +528,7 @@
     items.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
@@ -582,7 +582,7 @@
   }
   function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
-    const summary = [record.equipType, record.brand, record.coolCap, record.mountType, record.equipLocation].filter(Boolean).join(' · ') || record.customerName;
+    const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
     $('equipmentDetailTitle').textContent = summary;
     setEquipDetailMode('view');
     $('equipmentDetailOverlay').classList.add('open');

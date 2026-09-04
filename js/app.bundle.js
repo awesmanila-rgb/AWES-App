@@ -2089,7 +2089,7 @@
   // dropdown lists, free entry) for equipment not yet on file.
   let currentEquipTab = 'addnew';
   function equipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   function renderEquipPicker(){
     const list = $('equipPickerList');
@@ -2958,7 +2958,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"><div>'+
@@ -3019,7 +3019,7 @@
     currentEquipmentCache.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head" data-act="open" style="cursor:pointer;"><div>'+
@@ -3045,7 +3045,7 @@
     $('custHistEquipListCard').style.display = 'none';
     $('custHistServiceCard').style.display = '';
     window.scrollTo({top:0});
-    const summary = [equip.equipType, equip.brand, equip.coolCap, equip.mountType, equip.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+    const summary = [equip.equipLocation, equip.brand, equip.mountType, equip.equipType, equip.coolCap].filter(Boolean).join(' · ') || '(no details)';
     const serials = [equip.serialCU && ('CU: '+equip.serialCU), equip.serialFCU && ('FCU: '+equip.serialFCU)].filter(Boolean).join('  ');
     $('custHistEquipSummary').innerHTML =
       '<div class="cust-detail-row"><b>'+escapeHtml(c.name)+' — '+escapeHtml(summary)+'</b></div>'+
@@ -3152,7 +3152,7 @@
     items.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join(' · ') || '(no details)';
+      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
@@ -3206,7 +3206,7 @@
   }
   function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
-    const summary = [record.equipType, record.brand, record.coolCap, record.mountType, record.equipLocation].filter(Boolean).join(' · ') || record.customerName;
+    const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
     $('equipmentDetailTitle').textContent = summary;
     setEquipDetailMode('view');
     $('equipmentDetailOverlay').classList.add('open');
@@ -5726,7 +5726,7 @@
     dtCurrentEquipmentCache = [];
   }
   function dtEquipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   // Checkbox multi-select — lets an admin add several (or all) of a
   // customer's known units to this ticket in one pass instead of loading
@@ -9893,8 +9893,10 @@
   }
 
   function cpEquipmentCardHtml(eq){
-    const name = escapeHtml(eq.equipType || 'Equipment');
-    const loc = escapeHtml(eq.equipLocation || '—');
+    // Same field order as the admin/technician equipment lines: Location,
+    // Brand, Mount type, Equipment type, Capacity.
+    const loc = escapeHtml(eq.equipLocation || 'Equipment');
+    const details = [eq.brand, eq.mountType, eq.equipType, eq.coolCap].filter(Boolean).map(escapeHtml).join(' · ') || '—';
     const lastDate = eq.lastReport ? fmtDate(eq.lastReport.date) : '—';
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
@@ -9902,8 +9904,8 @@
           '<div class="cp-equip-icon">❄️</div>'+
           cpStatusPillHtml(eq.status)+
         '</div>'+
-        '<div class="cp-unit-name">'+name+'</div>'+
-        '<div class="cp-unit-loc">'+loc+'</div>'+
+        '<div class="cp-unit-name">'+loc+'</div>'+
+        '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
       '</div>'
     );

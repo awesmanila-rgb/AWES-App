@@ -120,8 +120,10 @@
   }
 
   function cpEquipmentCardHtml(eq){
-    const name = escapeHtml(eq.equipType || 'Equipment');
-    const loc = escapeHtml(eq.equipLocation || '—');
+    // Same field order as the admin/technician equipment lines: Location,
+    // Brand, Mount type, Equipment type, Capacity.
+    const loc = escapeHtml(eq.equipLocation || 'Equipment');
+    const details = [eq.brand, eq.mountType, eq.equipType, eq.coolCap].filter(Boolean).map(escapeHtml).join(' · ') || '—';
     const lastDate = eq.lastReport ? fmtDate(eq.lastReport.date) : '—';
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
@@ -129,8 +131,8 @@
           '<div class="cp-equip-icon">❄️</div>'+
           cpStatusPillHtml(eq.status)+
         '</div>'+
-        '<div class="cp-unit-name">'+name+'</div>'+
-        '<div class="cp-unit-loc">'+loc+'</div>'+
+        '<div class="cp-unit-name">'+loc+'</div>'+
+        '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
       '</div>'
     );

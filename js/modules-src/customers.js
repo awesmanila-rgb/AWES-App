@@ -217,7 +217,7 @@
   // dropdown lists, free entry) for equipment not yet on file.
   let currentEquipTab = 'addnew';
   function equipSummaryLine(e){
-    return [e.equipType, e.brand, e.coolCap, e.mountType, e.equipLocation].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
   }
   function renderEquipPicker(){
     const list = $('equipPickerList');
