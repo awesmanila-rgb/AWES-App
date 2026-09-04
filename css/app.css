@@ -934,3 +934,143 @@
     background:var(--green-light); border-radius:8px; margin-top:2px;
   }
   .ca-liq-preview-footnote{ font-size:12px; color:var(--text-muted); padding:8px 6px 0; text-align:right; }
+
+
+/* ===================== Customer Portal ===================== */
+/* ---------- Customer Portal additions ---------- */
+/* Append to css/app.css. Reuses the existing .card / .card-head / .card-body
+   / .status-pill / .empty-state / .btn-primary base classes already defined
+   above — only new cp-prefixed classes are added here, plus two status-pill
+   colour variants your existing set doesn't have yet. */
+
+/* ---- Plug role-customer into the existing desktop shell ----
+   Your @media (min-width:1000px) block (css/app.css ~line 627) gives
+   role-admin/role-tech a permanent sidebar + dashboard top bar via
+   body.role-admin/.role-tech selectors. These mirror the SAME rules for
+   role-customer so the sidebar/topbar mechanism applies here too, instead
+   of falling back to the plain mobile header on desktop. Keep these next
+   to the originals in app.css (or here) — either works, selectors just
+   need to exist somewhere after the base rules. */
+@media (max-width:999px){
+  body.role-customer #menuBtn{ display:inline-block !important; }
+  body.role-customer .admin-sidebar{
+    display:flex; flex-direction:column; width:82vw; max-width:300px;
+    background:var(--green-dark); color:#fff; padding:14px 14px;
+    position:fixed; top:0; left:0; bottom:0; overflow-y:auto;
+    z-index:110; transform:translateX(-100%); transition:transform .2s ease;
+    box-shadow:2px 0 18px rgba(0,0,0,.25);
+  }
+  body.role-customer .admin-sidebar.open{ transform:translateX(0); }
+  body.role-customer .sidebar-backdrop.open{
+    display:block; position:fixed; inset:0; background:rgba(20,28,23,.5); z-index:105;
+  }
+}
+@media (min-width:1000px){
+  body.role-customer .app-shell{ display:flex; align-items:stretch; min-height:100vh; }
+  body.role-customer .admin-sidebar{
+    display:flex; flex-direction:column; width:264px; flex-shrink:0;
+    background:var(--green-dark); color:#fff; padding:14px 14px;
+    position:fixed; top:0; left:0; bottom:0; overflow-y:auto; transform:none;
+  }
+  body.role-customer .main-wrap{ margin-left:264px; flex:1; min-width:0; }
+  body.role-customer.dashboard-active header.app-top{ display:none; }
+  body.role-customer.dashboard-active .dashboard-topbar{ display:flex; }
+  body.role-customer header.app-top .brand-mark{ display:none; }
+  body.role-customer header.app-top #homeBtn{ display:none !important; }
+  body.role-customer header.app-top #userLogoutBtn{ display:none !important; }
+  body.role-customer .footer-bar{ left:264px; }
+}
+
+/* New status-pill colour variants (existing ones are status-draft/-done/
+   -rejected/-given/-cancelled — these two are portal-specific labels) */
+.status-ok{background:var(--green-light); color:var(--green-dark);}
+.status-flag{background:#FBEFE4; color:var(--amber);}
+
+.cp-stat-grid{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px;
+}
+@media (max-width:520px){ .cp-stat-grid{grid-template-columns:1fr;} }
+.cp-stat-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:12px 14px;
+}
+.cp-stat-num{font-size:22px; font-weight:700; line-height:1; color:var(--text);}
+.cp-stat-label{font-size:12px; color:var(--text-muted); margin-top:5px;}
+.cp-stat-flag .cp-stat-num{color:var(--amber);}
+
+.cp-alert-banner{
+  display:flex; gap:10px; align-items:flex-start;
+  background:#FBEFE4; border:1px solid #EBD2AF; border-radius:var(--radius);
+  padding:12px 14px; margin-bottom:16px;
+}
+.cp-alert-dot{width:8px; height:8px; border-radius:50%; background:var(--amber); margin-top:6px; flex-shrink:0;}
+.cp-alert-banner b{font-size:13px; display:block; margin-bottom:2px;}
+.cp-alert-banner span{font-size:12.5px; color:var(--text-muted); line-height:1.5;}
+
+.cp-equip-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px;}
+@media (max-width:520px){ .cp-equip-grid{grid-template-columns:1fr;} }
+.cp-equip-card{
+  border:1px solid var(--border); border-radius:var(--radius); padding:12px; cursor:pointer;
+}
+.cp-equip-card:hover{border-color:var(--green);}
+.cp-equip-card-top{display:flex; align-items:flex-start; justify-content:space-between;}
+.cp-equip-icon{
+  width:30px; height:30px; border-radius:8px; background:var(--green-light);
+  display:flex; align-items:center; justify-content:center; font-size:14px;
+}
+.cp-unit-name{font-size:13px; font-weight:700; margin-top:9px;}
+.cp-unit-loc{font-size:11.5px; color:var(--text-muted); margin-top:2px;}
+.cp-unit-date{font-size:11px; color:var(--text-muted); margin-top:8px; padding-top:8px; border-top:1px solid var(--border);}
+
+.cp-row{display:flex; align-items:center; gap:11px; padding:10px 0; border-bottom:1px solid var(--border); cursor:pointer;}
+.cp-row:last-child{border-bottom:none;}
+.cp-row-icon{
+  width:32px; height:32px; border-radius:9px; background:var(--green-light);
+  display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0;
+}
+.cp-row-title{font-size:13px; font-weight:700;}
+.cp-row-sub{font-size:11.5px; color:var(--text-muted); margin-top:2px;}
+.cp-row-chev{color:var(--text-muted); font-size:13px; margin-left:auto;}
+
+
+/* ------- Customer Equipment Detail / History ------- */
+/* ---------- Equipment Detail / Service History additions ---------- */
+/* Append to css/app.css (after the customer-portal.css additions). */
+
+.cp-back-btn{
+  background:none; border:none; color:var(--green-dark); font-size:13px; font-weight:700;
+  cursor:pointer; padding:8px 0; margin-bottom:8px;
+}
+
+.cp-spec-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px 16px;}
+@media (max-width:420px){ .cp-spec-grid{grid-template-columns:1fr;} }
+.cp-spec-row{display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:6px 0; border-bottom:1px solid var(--border);}
+.cp-spec-k{color:var(--text-muted);}
+.cp-spec-v{font-weight:600; text-align:right;}
+
+/* Visit timeline — each entry is a collapsed "chart card" that expands */
+.cp-visit-card{border:1px solid var(--border); border-radius:var(--radius); margin-bottom:10px; overflow:hidden;}
+.cp-visit-head{
+  display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer;
+}
+.cp-visit-head:hover{background:var(--bg);}
+.cp-visit-dot{width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0;}
+.cp-visit-head-body{flex:1; min-width:0;}
+.cp-visit-title{font-size:13px; font-weight:700;}
+.cp-visit-meta{font-size:11.5px; color:var(--text-muted); margin-top:2px;}
+.cp-visit-chevron{color:var(--text-muted); font-size:12px; flex-shrink:0;}
+
+.cp-visit-body{padding:0 14px 16px 32px; border-top:1px solid var(--border);}
+.cp-visit-remarks{
+  font-size:12.5px; color:var(--text); background:var(--bg); border-radius:8px;
+  padding:10px 12px; margin:12px 0; font-style:italic;
+}
+.cp-visit-section{margin-top:12px;}
+.cp-visit-section b{font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); display:block; margin-bottom:6px;}
+.cp-visit-list{margin:0; padding-left:18px; font-size:12.5px; line-height:1.6;}
+.cp-visit-empty{font-size:12px; color:var(--text-muted); font-style:italic;}
+.cp-visit-pdf-btn{
+  margin-top:14px; background:var(--surface); border:1px solid var(--border); color:var(--green-dark);
+  border-radius:8px; padding:9px 14px; font-size:12.5px; font-weight:700; cursor:pointer;
+}
+.cp-visit-pdf-btn:hover{border-color:var(--green);}

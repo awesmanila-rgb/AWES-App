@@ -799,34 +799,27 @@
     const el = $('metaUser');
     if(!el) return;
     if(currentUser && currentUser.role==='admin'){ el.style.display=''; el.textContent = 'Admin'; }
+    else if(currentUser && currentUser.role==='customer'){ el.style.display=''; el.textContent = 'Customer: '+currentUser.name; }
     else if(currentUser){ el.style.display=''; el.textContent = 'Tech: '+currentUser.name; }
     else{ el.style.display='none'; }
     const menuLogoutEl = $('menuLogout');
     if(menuLogoutEl) menuLogoutEl.style.display = currentUser ? '' : 'none';
   }
 
-  // Shrinks sidebar row sizing by exactly as much as needed — no more, no
-  // less — so the whole menu fits within the sidebar's actual available
-  // height without scrolling. A binary "full size vs. one compact preset"
-  // can't guarantee a fit for every combination of item count and screen
-  // height (a fixed preset sized for one menu can still overflow a longer
-  // one, or a shorter/older phone); scaling continuously via the
-  // --nav-scale custom property (see .sidebar-link/.sidebar-section-label
-  // in app.css) fits any current or future menu length down to a readable
-  // floor. Only past that floor does the sidebar's own overflow-y:auto
-  // kick in as a last resort, rather than shrinking text unreadably small.
+  // Shrinks sidebar row sizing just enough that the whole menu fits within
+  // the sidebar's actual available height without needing to scroll — the
+  // alternative (leaving rows at full size and letting .admin-sidebar's own
+  // overflow-y:auto kick in) buries the account footer behind a scroll the
+  // person has no reason to expect. Only the longer list (currently admin's
+  // 11 links + 2 section labels) tends to need this; the shorter one
+  // (technician's 8 links + 1 label) keeps full-size rows and just leaves
+  // extra space at the bottom, which is fine.
   function fitSidebarNav(){
     const nav = document.querySelector('.sidebar-nav');
     if(!nav) return;
-    // Measure at full size first — a stale scale left over from a
-    // previous role's (possibly shorter) menu would otherwise make this
-    // measurement wrong.
-    nav.style.setProperty('--nav-scale', '1');
-    const available = nav.clientHeight;
-    const needed = nav.scrollHeight;
-    if(available > 0 && needed > available){
-      const ratio = Math.max(0.55, available / needed);
-      nav.style.setProperty('--nav-scale', String(ratio));
+    nav.classList.remove('compact');
+    if(nav.scrollHeight > nav.clientHeight + 2){
+      nav.classList.add('compact');
     }
   }
   window.addEventListener('resize', fitSidebarNav);
@@ -843,35 +836,46 @@
     };
     // Technician accounts: hide the Menu (admin-only tools live there), and
     // surface Email Setup + Logout directly instead of tucked in the menu.
-    const isTech = !!(currentUser && currentUser.role!=='admin');
+    // (Was `role!=='admin'` back when only admin/tech existed — tightened to
+    // an exact match now that a third role, customer, exists too, so
+    // customers don't get treated as technicians below. No behavior change
+    // for admin or tech: both still resolve exactly as before.)
+    const isTech = !!(currentUser && currentUser.role==='tech');
     const isAdmin = !!(currentUser && currentUser.role==='admin');
+    const isCustomer = !!(currentUser && currentUser.role==='customer');
     // Switches on the desktop/tablet sidebar dashboard shell (see the
     // admin-sidebar / dashboard-topbar rules in css/app.css) — off before
-    // login, and now shared by both roles (role-tech mirrors role-admin;
-    // the shell layout itself is identical, only its contents differ).
+    // login, and now shared by all three roles (role-customer mirrors
+    // role-admin/role-tech; the shell layout itself is identical, only its
+    // contents differ).
     document.body.classList.toggle('role-admin', isAdmin);
     document.body.classList.toggle('role-tech', isTech);
+    document.body.classList.toggle('role-customer', isCustomer);
     if(!currentUser) document.body.classList.remove('dashboard-active');
     // Sidebar nav: each role only sees its own group of links (My Work vs.
-    // Operations/Management) — see the #sidebarTechGroup / #sidebarAdminGroup
-    // wrappers in index.html.
+    // Operations/Management vs. My Account) — see the #sidebarTechGroup /
+    // #sidebarAdminGroup / #sidebarCustomerGroup wrappers in index.html.
     setVis('sidebarTechGroup', isTech);
     setVis('sidebarAdminGroup', isAdmin);
+    setVis('sidebarCustomerGroup', isCustomer);
     fitSidebarNav();
     if(currentUser){
-      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : "Technician's Homepage";
-      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : 'Field digital form';
+      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : isCustomer ? 'Customer Portal' : "Technician's Homepage";
+      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : isCustomer ? 'Your equipment & service history' : 'Field digital form';
       const initial = (currentUser.name||'?').trim().charAt(0).toUpperCase() || '?';
       const avatarEl = $('sidebarAvatar'); if(avatarEl) avatarEl.textContent = initial;
       const acctNameEl = $('sidebarAccountName'); if(acctNameEl) acctNameEl.textContent = currentUser.name || '—';
-      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : 'Technician';
+      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : isCustomer ? 'Customer' : 'Technician';
     }
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already
     // never saw the header button; admins can only view/edit existing
     // reports, not author new ones, so neither role gets either control now.
+    // (srTabNewBtn was `!isAdmin`, which — now that isTech is an exact
+    // match — would incorrectly show for customers too; switched to isTech
+    // directly. Admin and tech both still resolve exactly as before.)
     setVis('newBtn', false);
-    setVis('srTabNewBtn', !isAdmin);
+    setVis('srTabNewBtn', isTech);
     // Logout is now a direct, always-visible top-right button for EVERY
     // logged-in role, not just technicians — admin's only path used to be
     // buried inside "☰ Menu", which read as "there's no logout button in
@@ -934,8 +938,13 @@
     adminLoginBtn.type='button'; adminLoginBtn.className='login-user-btn';
     adminLoginBtn.textContent = '🔑 Admin';
     adminLoginBtn.addEventListener('click', ()=> renderAdminLoginForm());
+    const customerLoginBtn = document.createElement('button');
+    customerLoginBtn.type='button'; customerLoginBtn.className='login-user-btn';
+    customerLoginBtn.textContent = '🧾 Customer Portal';
+    customerLoginBtn.addEventListener('click', ()=> renderCustomerLoginForm());
     container.appendChild(techBtn);
     container.appendChild(adminLoginBtn);
+    container.appendChild(customerLoginBtn);
 
     const cloudLink = document.createElement('button');
     cloudLink.type='button';
@@ -1002,6 +1011,78 @@
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
     container.appendChild(submit);
     setTimeout(()=> input.focus(), 50);
+  }
+
+  // Customer accounts sign in with an email + password an admin set up for
+  // them (see the migration notes for how that account gets created) —
+  // unlike technicians, customers aren't picked from a public roster list,
+  // so this is a plain email/password form like Admin's, not a name-picker.
+  function renderCustomerLoginForm(message){
+    const container = $('loginList');
+    container.innerHTML = '';
+    container.appendChild(loginBackButton());
+    if(message){
+      const m = document.createElement('div');
+      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
+      m.textContent = message;
+      container.appendChild(m);
+    }
+    const emailField = document.createElement('div');
+    emailField.className = 'field';
+    emailField.innerHTML = '<label>Email</label>';
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email'; emailInput.id = 'loginCustEmail'; emailInput.placeholder = 'you@example.com';
+    emailField.appendChild(emailInput);
+    container.appendChild(emailField);
+
+    const pwField = document.createElement('div');
+    pwField.className = 'field';
+    pwField.innerHTML = '<label>Password</label>';
+    const pwInput = document.createElement('input');
+    pwInput.type = 'password'; pwInput.id = 'loginCustPw'; pwInput.placeholder = 'Enter your password';
+    pwField.appendChild(pwInput);
+    container.appendChild(pwField);
+
+    const submit = document.createElement('button');
+    submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
+    submit.textContent = 'Sign In';
+    const doSubmit = async ()=>{
+      const email = (emailInput.value||'').trim();
+      const pw = pwInput.value;
+      if(!email || !pw){ toast('Enter your email and password'); return; }
+      if(!(await ensureCloud())){ renderCustomerLoginForm('Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      submit.disabled = true;
+      const { data, error } = await db.auth.signInWithPassword({ email, password: pw });
+      if(error){ submit.disabled = false; renderCustomerLoginForm('Incorrect email or password — try again.'); return; }
+      let prof = null;
+      try{
+        const res = await db.from('profiles').select('role, customer_id').eq('id', data.user.id).maybeSingle();
+        prof = res.data;
+      }catch(e){}
+      if(!prof || prof.role !== 'customer' || !prof.customer_id){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account is not set up as a customer portal login.');
+        return;
+      }
+      let custName = 'there';
+      try{
+        const { data: custRow } = await db.from('customers').select('name').eq('id', prof.customer_id).maybeSingle();
+        if(custRow && custRow.name) custName = custRow.name;
+      }catch(e){}
+      submit.disabled = false;
+      currentUser = {id: data.user.id, name: custName, role:'customer', customerId: prof.customer_id};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      toast('Welcome, '+custName);
+    };
+    submit.addEventListener('click', doSubmit);
+    pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    container.appendChild(submit);
+    setTimeout(()=> emailInput.focus(), 50);
   }
 
   function renderTechnicianList(users, message){
@@ -1122,11 +1203,23 @@
       if(!data || !data.session || !data.session.user) return false; // genuinely no session
       const user = data.session.user;
       const email = (user.email||'').toLowerCase();
-      return {
-        id: user.id,
-        email,
-        role: email === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'tech'
-      };
+      if(email === ADMIN_EMAIL.toLowerCase()){
+        return { id: user.id, email, role: 'admin' };
+      }
+      // Not the admin account — could be a technician or a customer portal
+      // login. Ask `profiles` rather than assuming 'tech' as before, now
+      // that a third role exists (self-select is already allowed by the
+      // existing `id = auth.uid()` clause on profiles' select policy, so
+      // this works pre-login-restoration same as cloudGetUser does below).
+      // Falls back to 'tech' — the old, only behavior — if this lookup
+      // fails or the row isn't a customer, so nothing changes for tech.
+      try{
+        const { data: prof } = await db.from('profiles').select('role, customer_id').eq('id', user.id).maybeSingle();
+        if(prof && prof.role === 'customer' && prof.customer_id){
+          return { id: user.id, email, role: 'customer', customerId: prof.customer_id };
+        }
+      }catch(e){}
+      return { id: user.id, email, role: 'tech' };
     }catch(e){ return null; }
   }
 
@@ -1165,6 +1258,46 @@
         currentUser = null;
         await showLoginScreen('Please sign in again.');
       }
+      return;
+    }
+    // ---- Customer portal session restore ----
+    // Mirrors the admin pattern above (verified case, then cached-locally
+    // case) rather than falling into the technician branch below — that
+    // branch's cloudGetUser()/profileToUser() path doesn't carry a role or
+    // customer_id, so a customer session would silently come back as a
+    // technician if it fell through. Pure insertion: none of this runs
+    // unless currentUser.role is 'customer'.
+    if(verified && verified.role==='customer'){
+      let custName = 'Customer';
+      try{
+        const { data: custRow } = await db.from('customers').select('name').eq('id', verified.customerId).maybeSingle();
+        if(custRow && custRow.name) custName = custRow.name;
+      }catch(e){}
+      currentUser = {id: verified.id, name: custName, role:'customer', customerId: verified.customerId};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      return;
+    }
+    if(saved && saved.role==='customer'){
+      if(verified===null){
+        // Cloud unreachable — trust the cache rather than forcing a login
+        // screen on a plain reload, same leniency as the technician branch.
+        currentUser = {id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId};
+        updateUserBadge();
+        applyUserRestrictions();
+        $('loginOverlay').classList.remove('open');
+        enterApp();
+        return;
+      }
+      // Cloud WAS reachable but didn't confirm this as a live customer
+      // session (verified is false, or verified but a different
+      // role/identity) — don't guess, ask them to sign in again.
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      await showLoginScreen('Please sign in again.');
       return;
     }
     if(saved && verified && saved.id !== verified.id){
@@ -1213,7 +1346,7 @@
 
   // returns false (and re-shows login) if this technician was deactivated mid-session
   async function verifyStillActive(){
-    if(!currentUser || currentUser.role==='admin') return true; // admin sessions aren't gated this way
+    if(!currentUser || currentUser.role==='admin' || currentUser.role==='customer') return true; // admin/customer sessions aren't gated this way
     const fresh = await cloudGetUser(currentUser.id);
     if(fresh && fresh.active===false){
       trackerStopBroadcasting();
@@ -3084,14 +3217,64 @@
     renderCustomersList('');
   }
 
+  // Populates the "Linked Customer Record" dropdown in Add a User from the
+  // same customers table Manage Customers uses.
+  async function populateNewUserCustomerOptions(){
+    const sel = $('newUserCustomerId');
+    if(!sel) return;
+    if(!customersCache || customersCache.length===0) await loadCustomers();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select a customer —</option>' +
+      customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
+        .map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
+    sel.value = current;
+  }
+  $('newUserRole').addEventListener('change', ()=>{
+    const isCust = $('newUserRole').value === 'customer';
+    $('newUserCustomerField').style.display = isCust ? '' : 'none';
+    $('newUserEmail').style.display = isCust ? '' : 'none';
+    $('newUserNameLabel').textContent = isCust ? 'Contact Name' : 'Full Name';
+    $('newUserName').placeholder = isCust ? 'e.g. Maria Santos' : 'e.g. Juan Dela Cruz';
+    if(isCust) populateNewUserCustomerOptions();
+  });
+
   $('addUserBtn').addEventListener('click', async ()=>{
+    const role = $('newUserRole').value;
     const name = $('newUserName').value.trim();
     const pin = $('newUserPin').value;
     const pin2 = $('newUserPin2').value;
-    if(!name){ toast('Enter a name'); return; }
+    if(!name){ toast(role==='customer' ? 'Enter a contact name' : 'Enter a name'); return; }
     if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
     if(pin !== pin2){ toast('Passwords do not match'); return; }
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
+
+    if(role === 'customer'){
+      const customerId = $('newUserCustomerId').value;
+      const email = $('newUserEmail').value.trim();
+      if(!customerId){ toast('Select the customer record this login belongs to'); return; }
+      if(!email){ toast('Enter an email for this customer login'); return; }
+      $('addUserBtn').disabled = true;
+      try{
+        // Customer logins go through their own Edge Function rather than
+        // admin-create-technician — that function's deployed source isn't
+        // part of this codebase, so its technician-creation logic is left
+        // completely untouched rather than guessed at and extended blind.
+        // See supabase/functions/admin-create-customer/index.ts (new —
+        // needs to be deployed to Supabase before this button will work).
+        const { data, error } = await db.functions.invoke('admin-create-customer', {
+          body: { name, email, password: pin, customerId }
+        });
+        if(error || (data && data.error)){
+          toast((data && data.error) || 'Could not add customer login');
+        }else{
+          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value=''; $('newUserCustomerId').value='';
+          toast('Added customer login for '+name);
+          renderUsersList();
+        }
+      }finally{ $('addUserBtn').disabled = false; }
+      return;
+    }
+
     $('addUserBtn').disabled = true;
     try{
       // Real account creation happens server-side (Edge Function) so it can't
@@ -8280,6 +8463,25 @@
     $('ovMyLiqValue').textContent = String(liqCount);
     $('ovMyLiqSub').textContent = liqCount===0 ? 'Nothing to liquidate' : liqCount+' Cash Advance'+(liqCount===1?'':'s')+' to Liquidate';
 
+    // Finance — my own cash currently out and not yet accounted for
+    // (disbursed, but no approved liquidation on file yet). Same figure as
+    // admin's dashboard Finance tile, scoped down to just this technician.
+    const outstandingMine = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingMineTotal = outstandingMine.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    $('ovMyFinanceValue').textContent = caFmtPeso(outstandingMineTotal);
+    let myFinanceSub = outstandingMine.length===0
+      ? 'Nothing outstanding'
+      : outstandingMine.length+' Cash Advance'+(outstandingMine.length===1?'':'s')+' not yet liquidated';
+    // An approved liquidation can still leave a return/reimburse balance
+    // open — that's a separate, smaller state than "not yet liquidated"
+    // above, and used to have nowhere it stayed visible once the technician
+    // closed the liquidation screen.
+    const unsettledMine = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    if(unsettledMine.length>0){
+      const unsettledMineAmount = unsettledMine.reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+      myFinanceSub += ' · '+caFmtPeso(unsettledMineAmount)+' to settle';
+    }
+    $('ovMyFinanceSub').textContent = myFinanceSub;
 
     // Today's Attendance — straight from Online DTR, no separate storage.
     if(todayDtr && todayDtr.timeIn){
@@ -8435,6 +8637,32 @@
     $('ovReqValue').textContent = String(pendingCA+pendingLiq+pendingLeave);
     $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLiq+' Liquidation'+(pendingLiq===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
 
+    // Finance — total cash currently out with technicians and not yet
+    // accounted for (disbursed, but no approved liquidation on file yet).
+    // This is the company's outstanding cash-advance exposure at a glance,
+    // separate from "Pending Requisitions" above, which counts items
+    // awaiting a decision rather than money already handed out.
+    const outstanding = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
+    const outstandingTotal = outstanding.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
+    const outstandingTechs = new Set(outstanding.map(r=> r.userId)).size;
+    $('ovFinanceValue').textContent = caFmtPeso(outstandingTotal);
+    $('ovFinanceSub').textContent = 'Outstanding across '+outstandingTechs+' technician'+(outstandingTechs===1?'':'s')+' · '+pendingLiq+' awaiting review';
+
+    // To Settle — approved liquidations with a return/reimburse balance that
+    // hasn't actually been paid back yet either direction. This is distinct
+    // from "Finance" above: that's money not yet liquidated at all, this is
+    // money whose liquidation IS approved but the leftover balance is still
+    // outstanding — a state that used to have no dashboard visibility
+    // whatsoever, since the balance was only ever computed for display and
+    // never persisted or tracked anywhere.
+    const unsettled = (cashAdvances||[]).filter(r=> r.liquidation && r.liquidation.status==='approved' && r.liquidation.settlement && !r.liquidation.settlement.settled);
+    const toCollect = unsettled.filter(r=> r.liquidation.settlement.type==='return').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    const toReimburse = unsettled.filter(r=> r.liquidation.settlement.type==='reimburse').reduce((sum,r)=> sum + r.liquidation.settlement.amount, 0);
+    $('ovSettleValue').textContent = String(unsettled.length);
+    const settleParts = [];
+    if(toCollect>0) settleParts.push('To collect: '+caFmtPeso(toCollect));
+    if(toReimburse>0) settleParts.push('To reimburse: '+caFmtPeso(toReimburse));
+    $('ovSettleSub').textContent = settleParts.length ? settleParts.join(' · ') : 'Nothing pending';
 
     // Dispatch Status — open tickets, split into assigned/unassigned.
     const openTickets = (tickets||[]).filter(t=> t.status!=='completed');
@@ -8538,23 +8766,8 @@
   }
   $('sbNavDashboard').addEventListener('click', ()=>{ closeMainMenu(); showHome(); });
   $('sbNavTechnicians').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavTechnicians'); showDtrView(); });
+  $('sbNavRequisitions').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavRequisitions'); showCashAdvanceView(); });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
-  // Finance section — all three land on the same Cash Advance screen, just
-  // pre-filtered to the relevant tab, so admin doesn't have to open the
-  // page and then hunt for the right tab each time.
-  $('sbNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavCashAdvance'); showCashAdvanceView(); });
-  $('sbNavLiquidation').addEventListener('click', async ()=>{
-    closeMainMenu(); setSidebarActive('sbNavLiquidation');
-    await showCashAdvanceView();
-    const btn = document.querySelector('#caAdminFilterRow button[data-filter="toReviewLiq"]');
-    if(btn) btn.click();
-  });
-  $('sbNavReimbursement').addEventListener('click', async ()=>{
-    closeMainMenu(); setSidebarActive('sbNavReimbursement');
-    await showCashAdvanceView();
-    const btn = document.querySelector('#caAdminFilterRow button[data-filter="toSettle"]');
-    if(btn) btn.click();
-  });
   $('menuManageReports').addEventListener('click', ()=>{
     closeMainMenu();
     setSidebarActive('menuManageReports');
@@ -8575,20 +8788,11 @@
   // that screen instead of the admin's management view.
   $('techNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDispatch'); showDispatchView(); });
   $('techNavServiceReport').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavServiceReport'); showServiceReport(); });
-  // Finance section — Cash Advance opens straight to the request form/list;
-  // Liquidation jumps directly to the liquidate tab; Reimbursement jumps to
-  // "My Requests" where a technician's own settlement status (owed/owing,
-  // settled or not) is shown per record.
-  $('techNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavCashAdvance'); showCashAdvanceView(); });
+  $('techNavRequisition').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavRequisition'); showCashAdvanceView(); });
   $('techNavLiquidation').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('techNavLiquidation');
     await showCashAdvanceView();
     if(currentUser && currentUser.role!=='admin') caShowTab('liquidate');
-  });
-  $('techNavReimbursement').addEventListener('click', async ()=>{
-    closeMainMenu(); setSidebarActive('techNavReimbursement');
-    await showCashAdvanceView();
-    if(currentUser && currentUser.role!=='admin') caShowTab('history');
   });
   $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
   $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });
@@ -8690,6 +8894,10 @@
       : ["Technician's Homepage", 'Field digital form'];
   }
   function showHome(){
+    // Customer sessions get their own home screen/router entirely — bail
+    // out here before anything below (which assumes admin/tech-only
+    // elements) runs. See showCustomerHome() in customer-equipment-history.js.
+    if(currentUser && currentUser.role==='customer'){ showCustomerHome(); return; }
     document.body.classList.add('dashboard-active');
     setSidebarActive('sbNavDashboard');
     $('homeScreen').style.display = '';
@@ -9325,5 +9533,387 @@
       annRenderAdminList();
     }catch(e){ console.error('delete announcement failed', describeCloudError(e)); toast('Could not delete — please try again'); }
   });
+
+
+// ---------- Customer Portal (customer-facing home screen) ----------
+// Read-only view for logged-in customer accounts: their enrolled equipment,
+// service report history, and open service requests.
+//
+// SCHEMA NOTES / ASSUMPTIONS (please verify against your Supabase project):
+//
+// 1. customer_equipment already exists and is keyed by customer_id — this
+//    module reuses it as-is (see customers.js: EQUIP_FIELD_TO_COLUMN).
+//
+// 2. service_reports is currently matched to a customer by the free-text
+//    `cust_name` column, NOT a customer_id foreign key (see core.js:
+//    REPORT_STRING_FIELDS). That works fine for techs filling the field in
+//    by hand, but it's fragile for a customer portal — a typo'd or
+//    inconsistently-cased name will silently exclude reports. Before
+//    shipping this to real customers, add a `customer_id uuid references
+//    customers(id)` column to service_reports (nullable, backfilled by
+//    matching cust_name once), and switch loadCustomerReports() below to
+//    filter on that instead of cust_name. Left as cust_name matching here
+//    so this runs against your current schema without a migration.
+//
+// 3. "Status" (Running well / Needs attention / PM due) is not a stored
+//    field anywhere yet. computeEquipmentStatus() below is a placeholder
+//    heuristic: it looks at the equipment's most recent report and flags
+//    "Needs attention" if that report has any findings/recommendations
+//    text. Replace with a real stored status once technicians have a way
+//    to set one explicitly on the report (recommended — heuristics like
+//    this will misfire on reports where findings are informational, not
+//    actionable).
+//
+// 4. Requires a `profiles` row with role='customer' and a `customer_id`
+//    column added to profiles, so a logged-in customer account can be
+//    resolved to a customers.id row. See customers table already used by
+//    customers.js. Also needs a Supabase RLS policy scoping
+//    customer_equipment/service_reports SELECT to rows matching the caller's
+//    own customer_id — without RLS, any authenticated customer could query
+//    another customer's data directly via the JS client.
+
+  let cpEquipment = [];   // this customer's equipment, from customer_equipment
+  let cpReports = [];     // this customer's service reports, most recent first
+  let cpCustomer = null;  // {id, name, ...} row from customers
+
+  async function loadCustomerPortalData(customerId){
+    cpCustomer = null; cpEquipment = []; cpReports = [];
+    if(!customerId) return;
+    if(!(await ensureCloud())) return;
+    try{
+      const { data: custRow, error: custErr } = await db.from('customers')
+        .select('*').eq('id', customerId).maybeSingle();
+      if(custErr) throw custErr;
+      cpCustomer = custRow || null;
+    }catch(e){ console.error('load customer record failed', describeCloudError(e)); }
+
+    try{
+      const { data, error } = await db.from('customer_equipment')
+        .select('*').eq('customer_id', customerId).order('id');
+      if(error) throw error;
+      cpEquipment = (data||[]).map(row => ({
+        id: row.id, equipType: row.equip_type, equipLocation: row.equip_location,
+        brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap,
+        modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu
+      }));
+    }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
+
+    if(cpCustomer && cpCustomer.name){
+      try{
+        // See schema note #2 above — matched by name until service_reports
+        // gets a customer_id column. Selecting the full set of columns here
+        // (not just summary fields) so the equipment history screen can
+        // show findings/recommendations/materials/services done per visit
+        // without a second round-trip per unit.
+        const { data, error } = await db.from('service_reports')
+          .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+          .eq('cust_name', cpCustomer.name)
+          .order('date', { ascending:false });
+        if(error) throw error;
+        cpReports = data || [];
+      }catch(e){ console.error('load customer reports failed', describeCloudError(e)); }
+    }
+
+    // Attach each equipment's full matching report history, for the status
+    // heuristic, "last serviced" date, and the equipment detail screen.
+    //
+    // Matched by serial number first (serial_cu / serial_fcu) when the
+    // equipment record has one on file — far more reliable than matching by
+    // location+type text, which breaks the moment two units share a room or
+    // a location gets renamed/retyped slightly differently on a visit.
+    // Falls back to location+type only when no serial is on file.
+    cpEquipment.forEach(eq => {
+      const hasSerial = !!(eq.serialCU || eq.serialFCU);
+      eq.reportHistory = cpReports.filter(r => {
+        if(hasSerial){
+          return (eq.serialCU && r.serial_cu === eq.serialCU) ||
+                 (eq.serialFCU && r.serial_fcu === eq.serialFCU);
+        }
+        return (r.equip_location||'') === (eq.equipLocation||'') &&
+               (r.equip_type||'') === (eq.equipType||'');
+      }).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+      eq.lastReport = eq.reportHistory[0] || null;
+      eq.status = computeEquipmentStatus(eq);
+    });
+  }
+
+  // Placeholder heuristic — see schema note #3 above.
+  function computeEquipmentStatus(eq){
+    if(!eq.lastReport) return { key:'ok', label:'Running well' };
+    if(!eq.lastReport.completed) return { key:'flag', label:'Service in progress' };
+    if((eq.lastReport.remarks||'').trim()) return { key:'flag', label:'Needs attention' };
+    return { key:'ok', label:'Running well' };
+  }
+
+  function cpStatusPillHtml(status){
+    return '<span class="status-pill status-'+status.key+'">'+escapeHtml(status.label)+'</span>';
+  }
+
+  function cpUpdateSidebarBadge(id, count){
+    const el = $(id);
+    if(!el) return;
+    if(count > 0){ el.textContent = String(count); el.style.display = ''; }
+    else { el.style.display = 'none'; }
+  }
+
+  function cpEquipmentCardHtml(eq){
+    const name = escapeHtml(eq.equipType || 'Equipment');
+    const loc = escapeHtml(eq.equipLocation || '—');
+    const lastDate = eq.lastReport ? fmtDate(eq.lastReport.date) : '—';
+    return (
+      '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
+        '<div class="cp-equip-card-top">'+
+          '<div class="cp-equip-icon">❄️</div>'+
+          cpStatusPillHtml(eq.status)+
+        '</div>'+
+        '<div class="cp-unit-name">'+name+'</div>'+
+        '<div class="cp-unit-loc">'+loc+'</div>'+
+        '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
+      '</div>'
+    );
+  }
+
+  function cpReportRowHtml(r){
+    const title = escapeHtml((r.trouble_call && r.trouble_call.trim()) ? r.trouble_call : (r.equip_type||'Service report'));
+    const sub = escapeHtml(r.sr_no||'')+' · '+escapeHtml(r.equip_location||'')+' · '+fmtDate(r.date);
+    return (
+      '<div class="cp-row" data-sr-no="'+escapeHtml(r.sr_no||'')+'">'+
+        '<div class="cp-row-icon">📄</div>'+
+        '<div class="cp-row-body">'+
+          '<div class="cp-row-title">'+title+'</div>'+
+          '<div class="cp-row-sub">'+sub+'</div>'+
+        '</div>'+
+        '<div class="cp-row-chev">›</div>'+
+      '</div>'
+    );
+  }
+
+  function renderCustomerHome(){
+    const flaggedEquip = cpEquipment.filter(e => e.status.key === 'flag');
+
+    // Stat strip
+    $('cpStatUnits').textContent = String(cpEquipment.length);
+    $('cpStatFlagged').textContent = String(flaggedEquip.length);
+    $('cpStatOpenReports').textContent = String(cpReports.filter(r => !r.completed).length);
+
+    // Alert banner — only shown when something needs attention
+    const alertEl = $('cpAlertBanner');
+    if(flaggedEquip.length){
+      const names = flaggedEquip.map(e => escapeHtml(e.equipType||'a unit')+' ('+escapeHtml(e.equipLocation||'—')+')').join(', ');
+      $('cpAlertText').innerHTML = names+' '+(flaggedEquip.length===1?'was':'were')+' flagged during the last service visit.';
+      alertEl.style.display = '';
+    } else {
+      alertEl.style.display = 'none';
+    }
+
+    // Sidebar badges — same pattern as your existing #sidebarMsgBadge on
+    // the technician nav.
+    cpUpdateSidebarBadge('custEquipBadge', flaggedEquip.length);
+    cpUpdateSidebarBadge('custRequestsBadge', cpReports.filter(r => !r.completed).length);
+
+    // Equipment grid
+    $('cpEquipGrid').innerHTML = cpEquipment.length
+      ? cpEquipment.map(cpEquipmentCardHtml).join('')
+      : '<div class="empty-state">No equipment enrolled yet.</div>';
+
+    // Recent reports (cap at 5 on the home screen)
+    $('cpReportsList').innerHTML = cpReports.length
+      ? cpReports.slice(0,5).map(cpReportRowHtml).join('')
+      : '<div class="empty-state">No service reports yet.</div>';
+
+    // Wire equipment cards to open the (separate) equipment detail screen —
+    // hook up to whatever your detail/history screen is called.
+    $$('.cp-equip-card', $('customerHomeScreen')).forEach(card => {
+      card.onclick = () => {
+        const eq = cpEquipment.find(e => String(e.id) === card.dataset.equipId);
+        if(eq && typeof openCustomerEquipmentDetail === 'function') openCustomerEquipmentDetail(eq);
+      };
+    });
+    $$('.cp-row', $('customerHomeScreen')).forEach(row => {
+      row.onclick = () => {
+        const sr = row.dataset.srNo;
+        if(sr && typeof openCustomerReportPreview === 'function') openCustomerReportPreview(sr);
+      };
+    });
+  }
+
+  // Entry point — call this after a customer logs in and homeScreen (or a
+  // dedicated customerHomeScreen, see the HTML snippet) is shown.
+  // currentUser is expected to carry a `customerId` when role==='customer'
+  // (see auth.js note in the integration guide).
+  async function initCustomerHomeScreen(){
+    if(!currentUser || currentUser.role !== 'customer' || !currentUser.customerId) return;
+    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
+    await loadCustomerPortalData(currentUser.customerId);
+    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
+    renderCustomerHome();
+  }
+
+
+// ---------- Customer Equipment Detail / Service History ----------
+// The "complete patient record" screen for a single piece of equipment:
+// its info, plus every service visit ever recorded against it, each
+// expandable to the full findings/recommendations/materials/services-done
+// detail — not just a list of dates.
+//
+// Depends on customer-portal.js having already run loadCustomerPortalData(),
+// which attaches eq.reportHistory (full, sorted, most-recent-first) to each
+// equipment object in cpEquipment.
+
+  let cpDetailEquip = null; // the equipment currently shown on this screen
+
+  function cpFmtList(arr){
+    if(!arr || !arr.length) return '<div class="cp-visit-empty">None recorded for this visit.</div>';
+    return '<ul class="cp-visit-list">' + arr.map(item => {
+      // findings/recommendations/servicesDone rows are usually {text} or
+      // plain strings depending on how service-report.js stored them;
+      // materials rows carry qty/unit/description. Handle both shapes.
+      if(typeof item === 'string') return '<li>'+escapeHtml(item)+'</li>';
+      if(item && typeof item === 'object'){
+        if('description' in item){
+          const qty = item.qty ? escapeHtml(String(item.qty))+' '+escapeHtml(item.unit||'')+' — ' : '';
+          return '<li>'+qty+escapeHtml(item.description||'')+'</li>';
+        }
+        return '<li>'+escapeHtml(item.text || JSON.stringify(item))+'</li>';
+      }
+      return '';
+    }).join('') + '</ul>';
+  }
+
+  function cpVisitCardHtml(r, idx){
+    const statusLabel = r.completed ? 'Completed' : 'In progress';
+    const statusClass = r.completed ? 'status-ok' : 'status-flag';
+    const title = escapeHtml((r.trouble_call && r.trouble_call.trim()) ? r.trouble_call : 'Scheduled maintenance visit');
+    return (
+      '<div class="cp-visit-card">'+
+        '<div class="cp-visit-head" data-visit-idx="'+idx+'">'+
+          '<div class="cp-visit-dot"></div>'+
+          '<div class="cp-visit-head-body">'+
+            '<div class="cp-visit-title">'+title+'</div>'+
+            '<div class="cp-visit-meta">'+escapeHtml(fmtDate(r.date))+' · '+escapeHtml(r.sr_no||'')+
+              (r.technician_name ? ' · '+escapeHtml(r.technician_name) : '')+'</div>'+
+          '</div>'+
+          '<span class="status-pill '+statusClass+'">'+statusLabel+'</span>'+
+          '<span class="cp-visit-chevron">▾</span>'+
+        '</div>'+
+        '<div class="cp-visit-body" id="cpVisitBody'+idx+'" style="display:none;">'+
+          (r.remarks ? '<div class="cp-visit-remarks">'+escapeHtml(r.remarks)+'</div>' : '')+
+          '<div class="cp-visit-section"><b>Findings / Evaluation</b>'+cpFmtList(r.findings)+'</div>'+
+          '<div class="cp-visit-section"><b>Recommendations</b>'+cpFmtList(r.recommendations)+'</div>'+
+          '<div class="cp-visit-section"><b>Services Done</b>'+cpFmtList(r.services_done)+'</div>'+
+          '<div class="cp-visit-section"><b>Materials Used</b>'+cpFmtList(r.materials)+'</div>'+
+          '<button type="button" class="cp-visit-pdf-btn" data-sr-no="'+escapeHtml(r.sr_no||'')+'">🗎 View Full Report (PDF)</button>'+
+        '</div>'+
+      '</div>'
+    );
+  }
+
+  function renderCustomerEquipmentDetail(eq){
+    cpDetailEquip = eq;
+    $('cpDetailName').textContent = eq.equipType || 'Equipment';
+    $('cpDetailLoc').textContent = eq.equipLocation || '—';
+
+    const specs = [
+      ['Brand', eq.brand], ['Mount type', eq.mountType], ['Cooling capacity', eq.coolCap],
+      ['Model (CU)', eq.modelCU], ['Serial (CU)', eq.serialCU],
+      ['Model (FCU)', eq.modelFCU], ['Serial (FCU)', eq.serialFCU],
+    ].filter(([,v]) => v);
+    $('cpDetailSpecs').innerHTML = specs.map(([k,v]) =>
+      '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
+    ).join('');
+
+    const history = eq.reportHistory || [];
+    $('cpDetailVisitCount').textContent = String(history.length);
+    $('cpDetailFirstVisit').textContent = history.length ? fmtDate(history[history.length-1].date) : '—';
+    $('cpDetailLastVisit').textContent = history.length ? fmtDate(history[0].date) : '—';
+
+    $('cpVisitTimeline').innerHTML = history.length
+      ? history.map(cpVisitCardHtml).join('')
+      : '<div class="empty-state">No service visits recorded yet for this unit.</div>';
+
+    // Expand/collapse each visit
+    $$('.cp-visit-head', $('customerEquipmentDetailScreen')).forEach(head => {
+      head.onclick = () => {
+        const idx = head.dataset.visitIdx;
+        const body = $('cpVisitBody'+idx);
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        head.querySelector('.cp-visit-chevron').textContent = open ? '▾' : '▴';
+      };
+    });
+
+    // "View Full Report (PDF)" reuses your existing buildPdf()/preview flow
+    // from pdf.js — same one history.js already uses for completed reports.
+    $$('.cp-visit-pdf-btn', $('customerEquipmentDetailScreen')).forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const sr = btn.dataset.srNo;
+        const full = cpReports.find(r => r.sr_no === sr);
+        if(full && typeof openCustomerReportPreview === 'function') openCustomerReportPreview(sr);
+      };
+    });
+  }
+
+  // Called from customer-portal.js when an equipment card is tapped.
+  // Swap #customerHomeScreen for #customerEquipmentDetailScreen — adjust
+  // ids here to match whatever your screen-switching helper is called.
+  function openCustomerEquipmentDetail(eq){
+    $('customerHomeScreen').style.display = 'none';
+    $('customerEquipmentDetailScreen').style.display = '';
+    renderCustomerEquipmentDetail(eq);
+  }
+
+  function closeCustomerEquipmentDetail(){
+    $('customerEquipmentDetailScreen').style.display = 'none';
+    $('customerHomeScreen').style.display = '';
+  }
+
+  // ---------- Customer Portal wiring ----------
+  // Routes a customer session to the customer home screen, hiding every
+  // other view the same way showHome() does for admin/tech — but kept as
+  // its own function so admin/tech's showHome() only needs a one-line
+  // branch pointing here, with no other changes to its existing logic.
+  function showCustomerHome(){
+    document.body.classList.add('dashboard-active');
+    $('serviceReportView').style.display = 'none';
+    $('dtrView').style.display = 'none';
+    $('leaveView').style.display = 'none';
+    $('cashAdvanceView').style.display = 'none';
+    $('dispatchView').style.display = 'none';
+    $('equipmentManagerView').style.display = 'none';
+    $('customersManagerView').style.display = 'none';
+    $('serviceReportsManagerView').style.display = 'none';
+    $('messagesView').style.display = 'none';
+    $('documentsView').style.display = 'none';
+    $('customerHistoryView').style.display = 'none';
+    $('homeScreen').style.display = 'none';
+    $('customerEquipmentDetailScreen').style.display = 'none';
+    $('footerBar').style.display = 'none';
+    $('metaBar').style.display = 'none';
+    $('homeBtn').style.display = 'none';
+    setSidebarActive('custNavHome');
+    setHeaderTitle('Customer Portal', "Your equipment & service history");
+    $('customerHomeScreen').style.display = '';
+    initCustomerHomeScreen();
+    window.scrollTo({top:0});
+  }
+
+  $('custNavHome').addEventListener('click', ()=>{ closeMainMenu(); showCustomerHome(); });
+  $('custNavEquipment').addEventListener('click', ()=>{
+    closeMainMenu(); setSidebarActive('custNavEquipment'); showCustomerHome();
+    const el = $('cpEquipGrid'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  $('custNavReports').addEventListener('click', ()=>{
+    closeMainMenu(); setSidebarActive('custNavReports'); showCustomerHome();
+    const el = $('cpReportsList'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  // No dedicated screens shipped yet for these two — same "coming soon"
+  // convention already used elsewhere in the app (see tile_materialRequest
+  // in home.js) rather than linking to something that doesn't exist.
+  $('custNavRequests').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('custNavRequests'); toast('Service Requests — coming soon'); });
+  $('custNavAccount').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('custNavAccount'); toast('Account settings — coming soon'); });
+  $('cpRequestServiceBtn').addEventListener('click', ()=> toast('Request Service — coming soon'));
+  $('cpViewAllReportsBtn').addEventListener('click', ()=> toast('Full report list — coming soon'));
+  $('cpDetailBackBtn').addEventListener('click', closeCustomerEquipmentDetail);
 
 })();

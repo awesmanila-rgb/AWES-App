@@ -212,6 +212,22 @@ window.awesCss = {
       <button type="button" class="sidebar-link" id="menuManageDropdowns"><span class="menu-ico">📋</span>Dropdown Lists</button>
       <button type="button" class="sidebar-link" id="menuChangePin"><span class="menu-ico">🔑</span>Change Password</button>
     </div>
+
+    <!-- Customer-only nav — hidden for admin/tech via setVis('sidebarCustomerGroup', isCustomer). -->
+    <div id="sidebarCustomerGroup" style="display:none;">
+      <div class="sidebar-section-label">My Account</div>
+      <button type="button" class="sidebar-link active" id="custNavHome"><span class="menu-ico">🏠</span>Home</button>
+      <button type="button" class="sidebar-link" id="custNavEquipment">
+        <span class="menu-ico">❄️</span>Equipment
+        <span class="sidebar-badge" id="custEquipBadge" style="display:none;">0</span>
+      </button>
+      <button type="button" class="sidebar-link" id="custNavReports"><span class="menu-ico">📄</span>Service Reports</button>
+      <button type="button" class="sidebar-link" id="custNavRequests">
+        <span class="menu-ico">🛠️</span>Service Requests
+        <span class="sidebar-badge" id="custRequestsBadge" style="display:none;">0</span>
+      </button>
+      <button type="button" class="sidebar-link" id="custNavAccount"><span class="menu-ico">👤</span>Account</button>
+    </div>
   </nav>
   <div class="sidebar-footer">
     <button class="icon-btn sidebar-cloud-btn" id="cloudBtn" title="Cloud connection status" aria-live="polite">☁ Not Connected</button>
@@ -469,6 +485,109 @@ window.awesCss = {
   </div>
     </div>
   </div>
+</div>
+
+<!-- Customer Portal — shown instead of #homeScreen when currentUser.role === 'customer'. -->
+<div id="customerHomeScreen" class="home-screen" style="display:none;">
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>👋 Welcome Back</span></div>
+    <div class="card-body">
+      <div>Hi <b id="cpGreetingName">there</b> — here's the status of your equipment and recent service activity.</div>
+    </div>
+  </div>
+
+  <div class="cp-stat-grid">
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpStatUnits">—</div>
+      <div class="cp-stat-label">Units enrolled</div>
+    </div>
+    <div class="cp-stat-card cp-stat-flag">
+      <div class="cp-stat-num" id="cpStatFlagged">—</div>
+      <div class="cp-stat-label">Need attention</div>
+    </div>
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpStatOpenReports">—</div>
+      <div class="cp-stat-label">Reports in progress</div>
+    </div>
+  </div>
+
+  <div class="cp-alert-banner" id="cpAlertBanner" style="display:none;">
+    <div class="cp-alert-dot"></div>
+    <div>
+      <b>Equipment flagged at last visit</b>
+      <span id="cpAlertText"></span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>❄️ Your Equipment</span></div>
+    <div class="card-body">
+      <div class="cp-equip-grid" id="cpEquipGrid">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head">
+      <span>📄 Recent Service Reports</span>
+      <button type="button" id="cpViewAllReportsBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">View All ›</button>
+    </div>
+    <div class="card-body">
+      <div id="cpReportsList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:700; font-size:14px;">Something not running right?</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">Submit a request and we'll get a technician assigned.</div>
+      </div>
+      <button type="button" id="cpRequestServiceBtn" class="btn-primary">＋ Request Service</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Customer Portal — equipment detail / full service history for one unit. -->
+<div id="customerEquipmentDetailScreen" class="home-screen" style="display:none;">
+
+  <button type="button" id="cpDetailBackBtn" class="cp-back-btn">‹ Back to Home</button>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>❄️ <span id="cpDetailName">Equipment</span></span></div>
+    <div class="card-body">
+      <div class="cp-unit-loc" style="font-size:13px; margin-bottom:12px;">📍 <span id="cpDetailLoc">—</span></div>
+      <div id="cpDetailSpecs" class="cp-spec-grid"></div>
+    </div>
+  </div>
+
+  <div class="cp-stat-grid">
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpDetailVisitCount">—</div>
+      <div class="cp-stat-label">Total service visits</div>
+    </div>
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpDetailFirstVisit" style="font-size:15px;">—</div>
+      <div class="cp-stat-label">First recorded visit</div>
+    </div>
+    <div class="cp-stat-card">
+      <div class="cp-stat-num" id="cpDetailLastVisit" style="font-size:15px;">—</div>
+      <div class="cp-stat-label">Most recent visit</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>📋 Complete Service History</span></div>
+    <div class="card-body">
+      <div id="cpVisitTimeline">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Online DTR (Daily Time Record) — a fully separate page/module from the
@@ -1575,7 +1694,19 @@ window.awesCss = {
     <div id="usersList"></div>
     <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:6px;">
       <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Add a user</div>
-      <div class="field"><label>Full Name</label><input type="text" id="newUserName" placeholder="e.g. Juan Dela Cruz"></div>
+      <div class="field">
+        <label>Account Type</label>
+        <select id="newUserRole">
+          <option value="tech">Technician</option>
+          <option value="customer">Customer (Portal Access)</option>
+        </select>
+      </div>
+      <div class="field" id="newUserCustomerField" style="display:none;">
+        <label>Linked Customer Record</label>
+        <select id="newUserCustomerId"><option value="">— Select a customer —</option></select>
+      </div>
+      <div class="field"><label id="newUserNameLabel">Full Name</label><input type="text" id="newUserName" placeholder="e.g. Juan Dela Cruz"></div>
+      <div class="field"><label>Email (for Customer login only)</label><input type="email" id="newUserEmail" placeholder="customer@example.com" style="display:none;" data-role-field="customer"></div>
       <div class="field"><label>Password (admin-assigned, minimum 4 characters)</label><input type="password" id="newUserPin" placeholder="Set a password for this user"></div>
       <div class="field"><label>Confirm Password</label><input type="password" id="newUserPin2" placeholder="Re-enter the password"></div>
       <button class="btn btn-primary" id="addUserBtn" type="button" style="width:100%;">Add User</button>

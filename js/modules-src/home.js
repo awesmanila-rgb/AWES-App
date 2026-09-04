@@ -660,6 +660,10 @@
       : ["Technician's Homepage", 'Field digital form'];
   }
   function showHome(){
+    // Customer sessions get their own home screen/router entirely — bail
+    // out here before anything below (which assumes admin/tech-only
+    // elements) runs. See showCustomerHome() in customer-equipment-history.js.
+    if(currentUser && currentUser.role==='customer'){ showCustomerHome(); return; }
     document.body.classList.add('dashboard-active');
     setSidebarActive('sbNavDashboard');
     $('homeScreen').style.display = '';

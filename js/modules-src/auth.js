@@ -217,6 +217,7 @@
     const el = $('metaUser');
     if(!el) return;
     if(currentUser && currentUser.role==='admin'){ el.style.display=''; el.textContent = 'Admin'; }
+    else if(currentUser && currentUser.role==='customer'){ el.style.display=''; el.textContent = 'Customer: '+currentUser.name; }
     else if(currentUser){ el.style.display=''; el.textContent = 'Tech: '+currentUser.name; }
     else{ el.style.display='none'; }
     const menuLogoutEl = $('menuLogout');
@@ -253,35 +254,46 @@
     };
     // Technician accounts: hide the Menu (admin-only tools live there), and
     // surface Email Setup + Logout directly instead of tucked in the menu.
-    const isTech = !!(currentUser && currentUser.role!=='admin');
+    // (Was `role!=='admin'` back when only admin/tech existed — tightened to
+    // an exact match now that a third role, customer, exists too, so
+    // customers don't get treated as technicians below. No behavior change
+    // for admin or tech: both still resolve exactly as before.)
+    const isTech = !!(currentUser && currentUser.role==='tech');
     const isAdmin = !!(currentUser && currentUser.role==='admin');
+    const isCustomer = !!(currentUser && currentUser.role==='customer');
     // Switches on the desktop/tablet sidebar dashboard shell (see the
     // admin-sidebar / dashboard-topbar rules in css/app.css) — off before
-    // login, and now shared by both roles (role-tech mirrors role-admin;
-    // the shell layout itself is identical, only its contents differ).
+    // login, and now shared by all three roles (role-customer mirrors
+    // role-admin/role-tech; the shell layout itself is identical, only its
+    // contents differ).
     document.body.classList.toggle('role-admin', isAdmin);
     document.body.classList.toggle('role-tech', isTech);
+    document.body.classList.toggle('role-customer', isCustomer);
     if(!currentUser) document.body.classList.remove('dashboard-active');
     // Sidebar nav: each role only sees its own group of links (My Work vs.
-    // Operations/Management) — see the #sidebarTechGroup / #sidebarAdminGroup
-    // wrappers in index.html.
+    // Operations/Management vs. My Account) — see the #sidebarTechGroup /
+    // #sidebarAdminGroup / #sidebarCustomerGroup wrappers in index.html.
     setVis('sidebarTechGroup', isTech);
     setVis('sidebarAdminGroup', isAdmin);
+    setVis('sidebarCustomerGroup', isCustomer);
     fitSidebarNav();
     if(currentUser){
-      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : "Technician's Homepage";
-      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : 'Field digital form';
+      const brandNameEl = $('sidebarBrandName'); if(brandNameEl) brandNameEl.textContent = isAdmin ? 'Field Operations Portal' : isCustomer ? 'Customer Portal' : "Technician's Homepage";
+      const brandSubEl = $('sidebarBrandSub'); if(brandSubEl) brandSubEl.textContent = isAdmin ? 'Management & Administration' : isCustomer ? 'Your equipment & service history' : 'Field digital form';
       const initial = (currentUser.name||'?').trim().charAt(0).toUpperCase() || '?';
       const avatarEl = $('sidebarAvatar'); if(avatarEl) avatarEl.textContent = initial;
       const acctNameEl = $('sidebarAccountName'); if(acctNameEl) acctNameEl.textContent = currentUser.name || '—';
-      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : 'Technician';
+      const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : isCustomer ? 'Customer' : 'Technician';
     }
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already
     // never saw the header button; admins can only view/edit existing
     // reports, not author new ones, so neither role gets either control now.
+    // (srTabNewBtn was `!isAdmin`, which — now that isTech is an exact
+    // match — would incorrectly show for customers too; switched to isTech
+    // directly. Admin and tech both still resolve exactly as before.)
     setVis('newBtn', false);
-    setVis('srTabNewBtn', !isAdmin);
+    setVis('srTabNewBtn', isTech);
     // Logout is now a direct, always-visible top-right button for EVERY
     // logged-in role, not just technicians — admin's only path used to be
     // buried inside "☰ Menu", which read as "there's no logout button in
@@ -344,8 +356,13 @@
     adminLoginBtn.type='button'; adminLoginBtn.className='login-user-btn';
     adminLoginBtn.textContent = '🔑 Admin';
     adminLoginBtn.addEventListener('click', ()=> renderAdminLoginForm());
+    const customerLoginBtn = document.createElement('button');
+    customerLoginBtn.type='button'; customerLoginBtn.className='login-user-btn';
+    customerLoginBtn.textContent = '🧾 Customer Portal';
+    customerLoginBtn.addEventListener('click', ()=> renderCustomerLoginForm());
     container.appendChild(techBtn);
     container.appendChild(adminLoginBtn);
+    container.appendChild(customerLoginBtn);
 
     const cloudLink = document.createElement('button');
     cloudLink.type='button';
@@ -412,6 +429,78 @@
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
     container.appendChild(submit);
     setTimeout(()=> input.focus(), 50);
+  }
+
+  // Customer accounts sign in with an email + password an admin set up for
+  // them (see the migration notes for how that account gets created) —
+  // unlike technicians, customers aren't picked from a public roster list,
+  // so this is a plain email/password form like Admin's, not a name-picker.
+  function renderCustomerLoginForm(message){
+    const container = $('loginList');
+    container.innerHTML = '';
+    container.appendChild(loginBackButton());
+    if(message){
+      const m = document.createElement('div');
+      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
+      m.textContent = message;
+      container.appendChild(m);
+    }
+    const emailField = document.createElement('div');
+    emailField.className = 'field';
+    emailField.innerHTML = '<label>Email</label>';
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email'; emailInput.id = 'loginCustEmail'; emailInput.placeholder = 'you@example.com';
+    emailField.appendChild(emailInput);
+    container.appendChild(emailField);
+
+    const pwField = document.createElement('div');
+    pwField.className = 'field';
+    pwField.innerHTML = '<label>Password</label>';
+    const pwInput = document.createElement('input');
+    pwInput.type = 'password'; pwInput.id = 'loginCustPw'; pwInput.placeholder = 'Enter your password';
+    pwField.appendChild(pwInput);
+    container.appendChild(pwField);
+
+    const submit = document.createElement('button');
+    submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
+    submit.textContent = 'Sign In';
+    const doSubmit = async ()=>{
+      const email = (emailInput.value||'').trim();
+      const pw = pwInput.value;
+      if(!email || !pw){ toast('Enter your email and password'); return; }
+      if(!(await ensureCloud())){ renderCustomerLoginForm('Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      submit.disabled = true;
+      const { data, error } = await db.auth.signInWithPassword({ email, password: pw });
+      if(error){ submit.disabled = false; renderCustomerLoginForm('Incorrect email or password — try again.'); return; }
+      let prof = null;
+      try{
+        const res = await db.from('profiles').select('role, customer_id').eq('id', data.user.id).maybeSingle();
+        prof = res.data;
+      }catch(e){}
+      if(!prof || prof.role !== 'customer' || !prof.customer_id){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account is not set up as a customer portal login.');
+        return;
+      }
+      let custName = 'there';
+      try{
+        const { data: custRow } = await db.from('customers').select('name').eq('id', prof.customer_id).maybeSingle();
+        if(custRow && custRow.name) custName = custRow.name;
+      }catch(e){}
+      submit.disabled = false;
+      currentUser = {id: data.user.id, name: custName, role:'customer', customerId: prof.customer_id};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      toast('Welcome, '+custName);
+    };
+    submit.addEventListener('click', doSubmit);
+    pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    container.appendChild(submit);
+    setTimeout(()=> emailInput.focus(), 50);
   }
 
   function renderTechnicianList(users, message){
@@ -532,11 +621,23 @@
       if(!data || !data.session || !data.session.user) return false; // genuinely no session
       const user = data.session.user;
       const email = (user.email||'').toLowerCase();
-      return {
-        id: user.id,
-        email,
-        role: email === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'tech'
-      };
+      if(email === ADMIN_EMAIL.toLowerCase()){
+        return { id: user.id, email, role: 'admin' };
+      }
+      // Not the admin account — could be a technician or a customer portal
+      // login. Ask `profiles` rather than assuming 'tech' as before, now
+      // that a third role exists (self-select is already allowed by the
+      // existing `id = auth.uid()` clause on profiles' select policy, so
+      // this works pre-login-restoration same as cloudGetUser does below).
+      // Falls back to 'tech' — the old, only behavior — if this lookup
+      // fails or the row isn't a customer, so nothing changes for tech.
+      try{
+        const { data: prof } = await db.from('profiles').select('role, customer_id').eq('id', user.id).maybeSingle();
+        if(prof && prof.role === 'customer' && prof.customer_id){
+          return { id: user.id, email, role: 'customer', customerId: prof.customer_id };
+        }
+      }catch(e){}
+      return { id: user.id, email, role: 'tech' };
     }catch(e){ return null; }
   }
 
@@ -575,6 +676,46 @@
         currentUser = null;
         await showLoginScreen('Please sign in again.');
       }
+      return;
+    }
+    // ---- Customer portal session restore ----
+    // Mirrors the admin pattern above (verified case, then cached-locally
+    // case) rather than falling into the technician branch below — that
+    // branch's cloudGetUser()/profileToUser() path doesn't carry a role or
+    // customer_id, so a customer session would silently come back as a
+    // technician if it fell through. Pure insertion: none of this runs
+    // unless currentUser.role is 'customer'.
+    if(verified && verified.role==='customer'){
+      let custName = 'Customer';
+      try{
+        const { data: custRow } = await db.from('customers').select('name').eq('id', verified.customerId).maybeSingle();
+        if(custRow && custRow.name) custName = custRow.name;
+      }catch(e){}
+      currentUser = {id: verified.id, name: custName, role:'customer', customerId: verified.customerId};
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      return;
+    }
+    if(saved && saved.role==='customer'){
+      if(verified===null){
+        // Cloud unreachable — trust the cache rather than forcing a login
+        // screen on a plain reload, same leniency as the technician branch.
+        currentUser = {id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId};
+        updateUserBadge();
+        applyUserRestrictions();
+        $('loginOverlay').classList.remove('open');
+        enterApp();
+        return;
+      }
+      // Cloud WAS reachable but didn't confirm this as a live customer
+      // session (verified is false, or verified but a different
+      // role/identity) — don't guess, ask them to sign in again.
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      await showLoginScreen('Please sign in again.');
       return;
     }
     if(saved && verified && saved.id !== verified.id){
@@ -623,7 +764,7 @@
 
   // returns false (and re-shows login) if this technician was deactivated mid-session
   async function verifyStillActive(){
-    if(!currentUser || currentUser.role==='admin') return true; // admin sessions aren't gated this way
+    if(!currentUser || currentUser.role==='admin' || currentUser.role==='customer') return true; // admin/customer sessions aren't gated this way
     const fresh = await cloudGetUser(currentUser.id);
     if(fresh && fresh.active===false){
       trackerStopBroadcasting();

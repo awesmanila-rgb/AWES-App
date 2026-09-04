@@ -696,14 +696,64 @@
     renderCustomersList('');
   }
 
+  // Populates the "Linked Customer Record" dropdown in Add a User from the
+  // same customers table Manage Customers uses.
+  async function populateNewUserCustomerOptions(){
+    const sel = $('newUserCustomerId');
+    if(!sel) return;
+    if(!customersCache || customersCache.length===0) await loadCustomers();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select a customer —</option>' +
+      customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
+        .map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
+    sel.value = current;
+  }
+  $('newUserRole').addEventListener('change', ()=>{
+    const isCust = $('newUserRole').value === 'customer';
+    $('newUserCustomerField').style.display = isCust ? '' : 'none';
+    $('newUserEmail').style.display = isCust ? '' : 'none';
+    $('newUserNameLabel').textContent = isCust ? 'Contact Name' : 'Full Name';
+    $('newUserName').placeholder = isCust ? 'e.g. Maria Santos' : 'e.g. Juan Dela Cruz';
+    if(isCust) populateNewUserCustomerOptions();
+  });
+
   $('addUserBtn').addEventListener('click', async ()=>{
+    const role = $('newUserRole').value;
     const name = $('newUserName').value.trim();
     const pin = $('newUserPin').value;
     const pin2 = $('newUserPin2').value;
-    if(!name){ toast('Enter a name'); return; }
+    if(!name){ toast(role==='customer' ? 'Enter a contact name' : 'Enter a name'); return; }
     if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
     if(pin !== pin2){ toast('Passwords do not match'); return; }
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
+
+    if(role === 'customer'){
+      const customerId = $('newUserCustomerId').value;
+      const email = $('newUserEmail').value.trim();
+      if(!customerId){ toast('Select the customer record this login belongs to'); return; }
+      if(!email){ toast('Enter an email for this customer login'); return; }
+      $('addUserBtn').disabled = true;
+      try{
+        // Customer logins go through their own Edge Function rather than
+        // admin-create-technician — that function's deployed source isn't
+        // part of this codebase, so its technician-creation logic is left
+        // completely untouched rather than guessed at and extended blind.
+        // See supabase/functions/admin-create-customer/index.ts (new —
+        // needs to be deployed to Supabase before this button will work).
+        const { data, error } = await db.functions.invoke('admin-create-customer', {
+          body: { name, email, password: pin, customerId }
+        });
+        if(error || (data && data.error)){
+          toast((data && data.error) || 'Could not add customer login');
+        }else{
+          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value=''; $('newUserCustomerId').value='';
+          toast('Added customer login for '+name);
+          renderUsersList();
+        }
+      }finally{ $('addUserBtn').disabled = false; }
+      return;
+    }
+
     $('addUserBtn').disabled = true;
     try{
       // Real account creation happens server-side (Edge Function) so it can't
