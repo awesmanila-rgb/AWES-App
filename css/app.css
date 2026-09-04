@@ -450,6 +450,14 @@
   .greet-line{font-size:14px; color:var(--text); line-height:1.5; margin:0 0 4px;}
   .greet-line b{color:var(--green-dark);}
   .greet-date{font-size:12px; color:var(--text-muted); margin:0 0 14px;}
+  .greet-attendance-box{
+    display:flex; flex-wrap:wrap; gap:18px; background:var(--green-light);
+    border:1px solid #C7E3D3; border-radius:10px; padding:14px 16px; margin:0 0 14px;
+  }
+  .greet-attendance-item{display:flex; flex-direction:column; gap:3px;}
+  .greet-attendance-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted);}
+  .greet-attendance-val{font-size:24px; font-weight:800; color:var(--green-dark); line-height:1.1;}
+  .greet-attendance-val-missing{color:var(--amber);}
   .greet-summary-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin:0 0 8px;}
   .greet-summary-list{display:flex; flex-direction:column; gap:8px; margin:0 0 14px;}
   .greet-summary-item{
@@ -462,7 +470,7 @@
   .greet-allclear{font-size:13px; color:var(--text-muted); margin:0 0 14px; font-style:italic;}
   .greet-reminder{
     display:flex; align-items:center; gap:10px; background:#FBF0DC; color:#8A6716;
-    border:1px solid #F0DBA8; border-radius:9px; padding:10px 12px; font-size:13px; font-weight:600; margin:0;
+    border:1px solid #F0DBA8; border-radius:9px; padding:12px 14px; font-size:15px; font-weight:700; margin:0;
   }
   .greet-thanks{font-size:12px; color:var(--text-muted); margin:12px 0 0; text-align:right;}
   .dtr-loc-tag{

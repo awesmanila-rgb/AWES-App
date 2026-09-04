@@ -8651,12 +8651,42 @@
     const timeStr = now.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
     const todayDtr = await dtrGetDay(currentUser.id, todayISO()).catch(()=>null);
     const alreadyTimedIn = !!(todayDtr && todayDtr.timeIn);
+    const alreadyTimedOut = !!(todayDtr && todayDtr.timeOut);
+    const fmt = (iso)=> iso ? new Date(iso).toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'}) : '—';
 
     let html =
       '<p class="greet-line">Good day, <b>'+escapeHtml(currentUser.name)+'</b>!</p>'+
       '<p class="greet-date">Today is '+dateStr+', '+timeStr+'.</p>';
+
+    // Today's attendance log, right in the greeting — big and hard to miss,
+    // so Time In / Time Out isn't something a technician has to remember to
+    // go check the DTR page for.
+    html +=
+      '<div class="greet-attendance-box">'+
+        '<div class="greet-attendance-item">'+
+          '<span class="greet-attendance-label">Time In</span>'+
+          '<span class="greet-attendance-val'+(alreadyTimedIn?'':' greet-attendance-val-missing')+'">'+fmt(todayDtr && todayDtr.timeIn)+'</span>'+
+        '</div>'+
+        '<div class="greet-attendance-item">'+
+          '<span class="greet-attendance-label">Time Out</span>'+
+          '<span class="greet-attendance-val'+(alreadyTimedOut?'':' greet-attendance-val-missing')+'">'+fmt(todayDtr && todayDtr.timeOut)+'</span>'+
+        '</div>'+
+        (todayDtr && todayDtr.otTimeIn ?
+          '<div class="greet-attendance-item">'+
+            '<span class="greet-attendance-label">OT In</span>'+
+            '<span class="greet-attendance-val">'+fmt(todayDtr.otTimeIn)+'</span>'+
+          '</div>'+
+          '<div class="greet-attendance-item">'+
+            '<span class="greet-attendance-label">OT Out</span>'+
+            '<span class="greet-attendance-val'+(todayDtr.otTimeOut?'':' greet-attendance-val-missing')+'">'+fmt(todayDtr.otTimeOut)+'</span>'+
+          '</div>'
+        : '')+
+      '</div>';
+
     if(!alreadyTimedIn){
       html += '<div class="greet-reminder">⏰ Don\'t forget to tap "Time-In" to officially register your attendance.</div>';
+    }else if(!alreadyTimedOut){
+      html += '<div class="greet-reminder">⏰ Don\'t forget to tap "Time-Out" before you head home.</div>';
     }
     html += '<p class="greet-thanks">Thank you!</p>';
     $('homeGreetingText').innerHTML = html;
