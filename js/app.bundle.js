@@ -8672,12 +8672,11 @@
     if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
     card.style.display = '';
 
-    const [tickets, reports, cashAdvances, leaves, todayDtr, unreadCount] = await Promise.all([
+    const [tickets, reports, cashAdvances, leaves, unreadCount] = await Promise.all([
       dtListForWorker(currentUser.id).catch(()=>[]),
       cloudListReports().catch(()=>null),
       caListForUser(currentUser.id).catch(()=>[]),
       leaveListForUser(currentUser.id).catch(()=>[]),
-      dtrGetDay(currentUser.id, todayISO()).catch(()=>null),
       dtCountUnreadMessages().catch(()=>0)
     ]);
 
@@ -8730,21 +8729,6 @@
     }
     $('ovMyFinanceSub').textContent = myFinanceSub;
 
-    // Today's Attendance — straight from Online DTR, no separate storage.
-    if(todayDtr && todayDtr.timeIn){
-      const inTime = new Date(todayDtr.timeIn);
-      const endTime = todayDtr.timeOut ? new Date(todayDtr.timeOut) : new Date();
-      const mins = Math.max(0, Math.round((endTime-inTime)/60000));
-      const hrs = Math.floor(mins/60), rem = mins%60;
-      $('ovMyDtrValue').textContent = inTime.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
-      $('ovMyDtrSub').textContent = todayDtr.timeOut
-        ? ('Timed out — worked '+hrs+'h '+rem+'m')
-        : (hrs+'h '+rem+'m so far today');
-    }else{
-      $('ovMyDtrValue').textContent = '—';
-      $('ovMyDtrSub').textContent = 'Not timed in yet';
-    }
-
     // Next Job Order — the soonest-dated open ticket, so a technician sees
     // what's coming up without opening My Job Order and scanning the list.
     const nextJo = openTickets.filter(t=>t.date).slice()
@@ -8757,35 +8741,9 @@
       $('ovMyNextJoSub').textContent = 'Nothing scheduled';
     }
 
-    // Completed This Month — a light productivity snapshot, from tickets I
-    // marked Completed or Closed with a timestamp falling in the current
-    // calendar month (falls back to the ticket's own date for older records
-    // saved before completedAt/closedAt existed).
-    const monthPrefix = todayISO().slice(0,7);
-    const doneThisMonth = (tickets||[]).filter(t=>{
-      if(t.status!=='completed' && t.status!=='closed') return false;
-      const stamp = t.closedAt || t.completedAt || t.date || '';
-      return stamp.slice(0,7)===monthPrefix;
-    }).length;
-    $('ovMyDoneValue').textContent = String(doneThisMonth);
-    $('ovMyDoneSub').textContent = doneThisMonth+' Job Order'+(doneThisMonth===1?'':'s')+' finished this month';
-
-    // Job Order Messages — unread count across every ticket's inquiry
-    // thread (see dtCountUnreadMessages in dispatch.js). Device-local read
-    // tracking, so this can differ across a technician's own phone/tablet.
-    $('ovMyUnreadValue').textContent = String(unreadCount);
-    $('ovMyUnreadSub').textContent = unreadCount===0 ? 'No unread messages' : unreadCount+' new message'+(unreadCount===1?'':'s')+' on your Job Orders';
-
-    // Leave Days Used (This Year) — approved leave days so far this
-    // calendar year. Deliberately labeled "Used", not "Balance" — the app
-    // doesn't track an annual leave allotment/credit anywhere, so a true
-    // remaining-balance figure isn't something this can honestly show yet.
-    const yearPrefix = todayISO().slice(0,4);
-    const leaveDaysUsed = (leaves||[])
-      .filter(r=> r.status==='approved' && (r.dateFrom||'').slice(0,4)===yearPrefix)
-      .reduce((sum,r)=> sum+(r.days||0), 0);
-    $('ovMyLeaveValue').textContent = String(leaveDaysUsed);
-    $('ovMyLeaveSub').textContent = leaveDaysUsed+' approved leave day'+(leaveDaysUsed===1?'':'s')+' taken in '+yearPrefix;
+    // Job Order Messages unread count still drives the notification bell
+    // and sidebar badge below even though its own overview tile was
+    // removed — see dtCountUnreadMessages in dispatch.js.
 
     // The dashboard top bar's greeting + notification bell are shared with
     // admin (see renderDashboardGreeting/renderHomeOverview) — technicians
