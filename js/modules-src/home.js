@@ -403,16 +403,9 @@
     $('ovReqValue').textContent = String(pendingCA+pendingLiq+pendingLeave);
     $('ovReqSub').textContent = pendingCA+' Cash Advance'+(pendingCA===1?'':'s')+' · '+pendingLiq+' Liquidation'+(pendingLiq===1?'':'s')+' · '+pendingLeave+' Leave Form'+(pendingLeave===1?'':'s');
 
-    // Finance — total cash currently out with technicians and not yet
-    // accounted for (disbursed, but no approved liquidation on file yet).
-    // This is the company's outstanding cash-advance exposure at a glance,
-    // separate from "Pending Requisitions" above, which counts items
-    // awaiting a decision rather than money already handed out.
-    const outstanding = (cashAdvances||[]).filter(r=> r.disbursed && (!r.liquidation || r.liquidation.status!=='approved'));
-    const outstandingTotal = outstanding.reduce((sum,r)=> sum + (r.amountGiven!=null ? r.amountGiven : (r.amount||0)), 0);
-    const outstandingTechs = new Set(outstanding.map(r=> r.userId)).size;
-    $('ovFinanceValue').textContent = caFmtPeso(outstandingTotal);
-    $('ovFinanceSub').textContent = 'Outstanding across '+outstandingTechs+' technician'+(outstandingTechs===1?'':'s')+' · '+pendingLiq+' awaiting review';
+    // Finance overview stat removed from the dashboard (layout revision) —
+    // the underlying cash-advance/liquidation figures are still surfaced
+    // via the "To Settle" stat below and the Finance section pages.
 
     // To Settle — approved liquidations with a return/reimburse balance that
     // hasn't actually been paid back yet either direction. This is distinct

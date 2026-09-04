@@ -283,12 +283,32 @@
   // 11 links + 2 section labels) tends to need this; the shorter one
   // (technician's 8 links + 1 label) keeps full-size rows and just leaves
   // extra space at the bottom, which is fine.
+  // Continuously shrinks the sidebar nav (via the --nav-scale custom
+  // property that css/app.css's .sidebar-nav/.sidebar-link/.sidebar-
+  // section-label rules key off of) until every item fits the available
+  // height with no scrolling — rather than a binary full/compact toggle,
+  // which can't guarantee a fit for every combination of item count and
+  // screen height. Only the permanent desktop sidebar needs this (the
+  // mobile drawer is a full-height off-canvas panel with room to spare);
+  // .sidebar-nav has overflow-y:hidden either way so nothing scrolls.
   function fitSidebarNav(){
     const nav = document.querySelector('.sidebar-nav');
     if(!nav) return;
-    nav.classList.remove('compact');
-    if(nav.scrollHeight > nav.clientHeight + 2){
-      nav.classList.add('compact');
+    const FLOOR = 0.55;
+    let scale = 1;
+    nav.style.setProperty('--nav-scale', scale);
+    // A handful of iterations is enough: each pass measures the real
+    // overflow at the current scale and steps down proportionally, so it
+    // converges in 2-3 passes rather than needing a fine-grained loop.
+    for(let i=0; i<6; i++){
+      const overflow = nav.scrollHeight - nav.clientHeight;
+      if(overflow <= 1) break;
+      // Scale down by roughly the fraction we're overflowing by, with a
+      // minimum step so tiny remaining overflows still make progress.
+      const ratio = nav.clientHeight / nav.scrollHeight;
+      scale = Math.max(FLOOR, scale * Math.min(ratio, 0.97));
+      nav.style.setProperty('--nav-scale', scale);
+      if(scale <= FLOOR) break;
     }
   }
   window.addEventListener('resize', fitSidebarNav);

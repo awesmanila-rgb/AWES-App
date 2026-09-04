@@ -391,11 +391,6 @@ window.awesCss = {
           <div class="overview-stat-value" id="ovReportsValue">—</div>
           <div class="overview-stat-sub" id="ovReportsSub">—</div>
         </div>
-        <div class="overview-stat ov-purple">
-          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
-          <div class="overview-stat-value" id="ovFinanceValue">—</div>
-          <div class="overview-stat-sub" id="ovFinanceSub">—</div>
-        </div>
         <div class="overview-stat ov-teal">
           <div class="overview-stat-head"><span class="overview-stat-title">To Settle</span><span class="overview-stat-icon ov-icon-chip">🤝</span></div>
           <div class="overview-stat-value" id="ovSettleValue">—</div>
@@ -414,19 +409,23 @@ window.awesCss = {
       <button type="button" id="homeCalViewAllBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">Full Calendar ›</button>
     </div>
     <div class="card-body">
-      <div class="cal-toolbar">
-        <div class="cal-nav">
-          <button type="button" class="cal-nav-btn" id="homeCalPrevBtn" aria-label="Previous month">‹</button>
-          <div class="cal-month-label" id="homeCalMonthLabel">—</div>
-          <button type="button" class="cal-nav-btn" id="homeCalNextBtn" aria-label="Next month">›</button>
+      <div class="cal-body-wrap">
+        <div class="cal-grid-col">
+          <div class="cal-toolbar">
+            <div class="cal-nav">
+              <button type="button" class="cal-nav-btn" id="homeCalPrevBtn" aria-label="Previous month">‹</button>
+              <div class="cal-month-label" id="homeCalMonthLabel">—</div>
+              <button type="button" class="cal-nav-btn" id="homeCalNextBtn" aria-label="Next month">›</button>
+            </div>
+            <button type="button" class="btn" id="homeCalTodayBtn">Today</button>
+          </div>
+          <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+          <div class="cal-grid cal-compact" id="homeCalGrid"><div class="empty-state">Loading…</div></div>
         </div>
-        <button type="button" class="btn" id="homeCalTodayBtn">Today</button>
-      </div>
-      <div class="cal-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
-      <div class="cal-grid cal-compact" id="homeCalGrid"><div class="empty-state">Loading…</div></div>
-      <div class="cal-day-detail">
-        <div class="cal-day-detail-head" id="homeCalDayDetailHead">Select a date to view scheduled jobs.</div>
-        <div id="homeCalDayList"></div>
+        <div class="cal-day-detail">
+          <div class="cal-day-detail-head" id="homeCalDayDetailHead">Select a date to view scheduled jobs.</div>
+          <div id="homeCalDayList"></div>
+        </div>
       </div>
     </div>
   </div>

@@ -12,9 +12,21 @@
     --radius:10px;
   }
   *{box-sizing:border-box;}
+  /* App-wide typeface: "Google Sans" first (used automatically wherever the
+     device/OS already has it installed, e.g. Android/ChromeOS), falling back
+     to Roboto — Google Sans' own metrics/shape are based on Roboto, so this
+     is the closest match on devices without the font itself — then the
+     platform system-font stack. Not loaded from a web font CDN on purpose:
+     Google Sans isn't published on Google Fonts for public embedding, and
+     this app works offline/on weak field signal (see loadAwesScript above),
+     so no version of it should require a network fetch just to render text.
+     Applies everywhere via inheritance — nothing below sets its own family
+     except the few explicit font-family:inherit rules, which already inherit
+     this. */
+  html{ font-family:"Google Sans","Product Sans",Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
   body{
     margin:0;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-family:inherit;
     background:var(--bg);
     color:var(--text);
     -webkit-tap-highlight-color:transparent;
@@ -644,7 +656,10 @@
       /* position:fixed (not sticky) so the panel truly never moves, even if
          a future change makes .main-wrap scroll independently; top/bottom
          instead of height:100vh so it always matches the real viewport. */
-      position:fixed; top:0; left:0; bottom:0; overflow-y:auto; transform:none;
+      /* overflow hidden (not auto): fitSidebarNav() below shrinks the nav to
+         fit the available height instead of scrolling, so no scrollbar ever
+         shows on the permanent desktop sidebar. */
+      position:fixed; top:0; left:0; bottom:0; overflow-y:hidden; transform:none;
     }
     /* .admin-sidebar is now position:fixed on desktop too, so it no longer
        occupies space in the .app-shell flex row — reserve that space on the
@@ -688,7 +703,7 @@
      defaults to 1 (full size) until JS measures and adjusts it; the var()
      fallback of 1 covers the instant before that first measurement runs. */
   .sidebar-nav{
-    display:flex; flex-direction:column; flex:1; min-height:0; overflow-y:auto;
+    display:flex; flex-direction:column; flex:1; min-height:0; overflow-y:hidden;
     --nav-scale:1; gap:calc(var(--nav-scale,1) * 4px);
   }
   .sidebar-section-label{
@@ -849,6 +864,12 @@
   .tile-chevron{ display:none; }
 
   /* ---------- Schedule Calendar (dashboard widget + Dispatch > Calendar tab) ---------- */
+  /* Calendar + day detail ("dispatch ticket" list for the selected date):
+     stacked on narrow screens, side-by-side on desktop so the calendar
+     doesn't have to span the whole card width — see the min-width:900px
+     rule below for the two-column split. */
+  .cal-body-wrap{ display:flex; flex-direction:column; gap:14px; }
+  .cal-grid-col{ min-width:0; }
   .cal-toolbar{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
   .cal-nav{ display:flex; align-items:center; gap:10px; }
   .cal-nav-btn{
@@ -893,6 +914,22 @@
   .cal-compact .cal-cell{ min-height:34px; }
   .cal-compact .cal-cell-num{ font-size:11px; }
   .cal-compact .cal-legend{ display:none; }
+
+  /* Desktop: shrink the calendar itself (smaller cells/gaps) and place the
+     day's scheduled-jobs list beside it instead of below, so both fit in
+     the same row without the calendar hogging the full card width. */
+  @media (min-width:900px){
+    .cal-body-wrap{ flex-direction:row; align-items:flex-start; gap:20px; }
+    .cal-grid-col{ flex:0 1 420px; max-width:420px; }
+    .cal-grid{ gap:4px; }
+    .cal-compact .cal-cell{ min-height:44px; padding:4px 4px 3px; }
+    .cal-cell-num{ font-size:11px; }
+    .cal-month-label{ font-size:13px; min-width:110px; }
+    .cal-day-detail{
+      flex:1; min-width:220px; margin-top:0; border-top:none; padding-top:0;
+      border-left:1px solid var(--border); padding-left:20px;
+    }
+  }
   @media (max-width:480px){
     .cal-nav-btn{ width:28px; height:28px; }
     .cal-cell{ min-height:36px; padding:4px 3px 3px; }
