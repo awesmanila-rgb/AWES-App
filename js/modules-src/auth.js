@@ -1,3 +1,30 @@
+// ---------- customer portal login helpers (table: customer_login_links) ----------
+// A customer login can be linked to more than one customers row (an account
+// holder managing several sites/branches) — see
+// supabase/migrations/20260905_customer_portal_multi_link.sql. These two
+// helpers are shared by the login flow below and by session restore.
+  async function fetchCustomerLinks(profileId){
+    try{
+      const { data: links, error } = await db.from('customer_login_links').select('customer_id').eq('profile_id', profileId);
+      if(error) throw error;
+      const ids = (links||[]).map(l=> l.customer_id);
+      if(!ids.length) return [];
+      const { data: custs, error: custErr } = await db.from('customers').select('id, name').in('id', ids);
+      if(custErr) throw custErr;
+      return (custs||[]).slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    }catch(e){ console.error('fetch customer links failed', describeCloudError(e)); return []; }
+  }
+  // Remembers which of a multi-customer login's customers was last being
+  // viewed, per device (see the switcher in customer-portal.js) — falls
+  // back to the first customer (alphabetical) if nothing saved, or if the
+  // saved id is no longer one this login can see.
+  function pickActiveCustomerId(custList, profileId){
+    const ids = custList.map(c=> c.id);
+    let saved = null;
+    try{ saved = localStorage.getItem('cust-active-customer:'+profileId); }catch(e){}
+    return (saved && ids.includes(saved)) ? saved : (ids[0] || null);
+  }
+
 // ---------- technician user accounts (table: profiles, role='technician') ----------
   // Real account creation/password changes go through the admin-create-technician
   // Edge Function (see cloudSetUser callers) — these functions only manage the
@@ -29,6 +56,30 @@
       }catch(e){ console.error('list users failed', describeCloudError(e)); }
     }
     return await localListUsers();
+  }
+  // Customer portal logins (table: profiles, role='customer') — kept
+  // separate from cloudListUsers() above rather than folded in, since their
+  // shape is different (no restrictions/DTR fields, but a set of linked
+  // customer records instead) and mixing the two would make both list
+  // renderers messier for no benefit.
+  async function cloudListCustomerLogins(){
+    if(await ensureCloud()){
+      try{
+        const { data: profs, error } = await db.from('profiles').select('id, name, active').eq('role','customer');
+        if(error) throw error;
+        if(!profs || !profs.length) return [];
+        if(!customersCache || customersCache.length===0) await loadCustomers();
+        const ids = profs.map(p=> p.id);
+        const { data: links, error: linkErr } = await db.from('customer_login_links').select('profile_id, customer_id').in('profile_id', ids);
+        if(linkErr) throw linkErr;
+        const nameOf = (cid)=>{ const c = customersCache.find(x=> String(x.id)===String(cid)); return c ? c.name : '(deleted customer)'; };
+        return profs.map(p=>{
+          const custIds = (links||[]).filter(l=> l.profile_id===p.id).map(l=> l.customer_id);
+          return { id: p.id, name: p.name, active: p.active, customerIds: custIds, customerNames: custIds.map(nameOf) };
+        });
+      }catch(e){ console.error('list customer logins failed', describeCloudError(e)); }
+    }
+    return [];
   }
   // The login screen needs a list of technicians BEFORE anyone is signed in.
   // It used to call cloudListUsers() directly, which required the `profiles`
@@ -474,28 +525,40 @@
       if(error){ submit.disabled = false; renderCustomerLoginForm('Incorrect email or password — try again.'); return; }
       let prof = null;
       try{
-        const res = await db.from('profiles').select('role, customer_id').eq('id', data.user.id).maybeSingle();
+        const res = await db.from('profiles').select('role, name, active').eq('id', data.user.id).maybeSingle();
         prof = res.data;
       }catch(e){}
-      if(!prof || prof.role !== 'customer' || !prof.customer_id){
+      if(!prof || prof.role !== 'customer'){
         submit.disabled = false;
         await db.auth.signOut();
         renderCustomerLoginForm('This account is not set up as a customer portal login.');
         return;
       }
-      let custName = 'there';
-      try{
-        const { data: custRow } = await db.from('customers').select('name').eq('id', prof.customer_id).maybeSingle();
-        if(custRow && custRow.name) custName = custRow.name;
-      }catch(e){}
+      if(prof.active===false){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account has been deactivated. Contact your service provider.');
+        return;
+      }
+      const custList = await fetchCustomerLinks(data.user.id);
+      if(!custList.length){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account is not linked to any customer records yet. Contact your service provider.');
+        return;
+      }
+      const activeId = pickActiveCustomerId(custList, data.user.id);
       submit.disabled = false;
-      currentUser = {id: data.user.id, name: custName, role:'customer', customerId: prof.customer_id};
+      currentUser = {
+        id: data.user.id, name: prof.name || 'there', role:'customer',
+        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
+      };
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       enterApp();
-      toast('Welcome, '+custName);
+      toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
     pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
@@ -632,9 +695,12 @@
       // Falls back to 'tech' — the old, only behavior — if this lookup
       // fails or the row isn't a customer, so nothing changes for tech.
       try{
-        const { data: prof } = await db.from('profiles').select('role, customer_id').eq('id', user.id).maybeSingle();
-        if(prof && prof.role === 'customer' && prof.customer_id){
-          return { id: user.id, email, role: 'customer', customerId: prof.customer_id };
+        const { data: prof } = await db.from('profiles').select('role, active').eq('id', user.id).maybeSingle();
+        if(prof && prof.role === 'customer' && prof.active !== false){
+          // Which specific customers this login can see is fetched by the
+          // caller (checkLoginGate) once it commits to restoring this as a
+          // customer session — no need to duplicate that lookup here.
+          return { id: user.id, email, role: 'customer' };
         }
       }catch(e){}
       return { id: user.id, email, role: 'tech' };
@@ -686,12 +752,26 @@
     // technician if it fell through. Pure insertion: none of this runs
     // unless currentUser.role is 'customer'.
     if(verified && verified.role==='customer'){
-      let custName = 'Customer';
+      const custList = await fetchCustomerLinks(verified.id);
+      if(!custList.length){
+        // Login exists and is active, but isn't linked to any customer
+        // record (admin removed the last one, or it was never finished
+        // being set up) — same treatment as the login-form's own check.
+        localStorage.removeItem('current-user');
+        currentUser = null;
+        await showLoginScreen('This account is not linked to any customer records yet. Contact your service provider.');
+        return;
+      }
+      let custName = 'there';
       try{
-        const { data: custRow } = await db.from('customers').select('name').eq('id', verified.customerId).maybeSingle();
-        if(custRow && custRow.name) custName = custRow.name;
+        const { data: prof } = await db.from('profiles').select('name').eq('id', verified.id).maybeSingle();
+        if(prof && prof.name) custName = prof.name;
       }catch(e){}
-      currentUser = {id: verified.id, name: custName, role:'customer', customerId: verified.customerId};
+      const activeId = pickActiveCustomerId(custList, verified.id);
+      currentUser = {
+        id: verified.id, name: custName, role:'customer',
+        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
+      };
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
@@ -703,7 +783,10 @@
       if(verified===null){
         // Cloud unreachable — trust the cache rather than forcing a login
         // screen on a plain reload, same leniency as the technician branch.
-        currentUser = {id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId};
+        currentUser = {
+          id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId,
+          customerIds:saved.customerIds||[], customerList:saved.customerList||[]
+        };
         updateUserBadge();
         applyUserRestrictions();
         $('loginOverlay').classList.remove('open');

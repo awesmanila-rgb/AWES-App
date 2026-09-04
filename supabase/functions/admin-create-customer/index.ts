@@ -1,6 +1,6 @@
 // admin-create-customer — lets an authenticated Admin create (or reset the
-// password for) a customer-portal login, the same way admin-create-technician
-// does for technicians.
+// password for, or re-assign the linked customers of) a customer-portal
+// login, the same way admin-create-technician does for technicians.
 //
 // WHY A SEPARATE FUNCTION FROM admin-create-technician
 // admin-create-technician's deployed source isn't part of this app codebase
@@ -14,12 +14,19 @@
 //
 // CONTRACT (mirrors admin-create-technician's shape)
 //   Default (create):
-//     body: { name, email, password, customerId }
-//     → creates a Supabase Auth user with that email/password, then a
-//       `profiles` row {id, name, role:'customer', customer_id: customerId}.
-//   Action: 'reset_password'  (parity with admin-create-technician; not yet
-//   wired up from the Manage Users UI since customer logins don't appear in
-//   that list — see the app's reply for why)
+//     body: { name, email, password, customerIds: [uuid, ...] }
+//     → creates a Supabase Auth user with that email/password, a `profiles`
+//       row {id, name, role:'customer'}, and one customer_login_links row
+//       per id in customerIds (a login can see more than one customer's
+//       equipment/reports — see supabase/migrations/20260905_customer_portal_multi_link.sql).
+//       `customerId` (singular) is still accepted for backward compatibility
+//       and treated as a one-item customerIds array.
+//   Action: 'set_customers'  (re-assign which customers an EXISTING login
+//   can see — replaces the full set, doesn't merge)
+//     body: { action:'set_customers', customerLoginId, customerIds: [uuid, ...] }
+//     → deletes that login's current customer_login_links rows and inserts
+//       one per id in customerIds. Requires at least one id.
+//   Action: 'reset_password'  (parity with admin-create-technician)
 //     body: { action:'reset_password', customerLoginId, password }
 //     → updates that auth user's password only.
 //   Response: { id, name } on success, or { error: '...' } — never a raw
@@ -106,9 +113,42 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { name, email, password, customerId } = body;
-    if (!name || !email || !password || !customerId) {
-      return new Response(JSON.stringify({ error: 'name, email, password, and customerId are all required' }), {
+    if (body.action === 'set_customers') {
+      const { customerLoginId, customerIds } = body;
+      const ids: string[] = Array.isArray(customerIds) ? customerIds.filter(Boolean) : [];
+      if (!customerLoginId || ids.length === 0) {
+        return new Response(JSON.stringify({ error: 'customerLoginId and at least one customerId are required' }), {
+          status: 400, headers: { ...cors, 'Content-Type': 'application/json' }
+        });
+      }
+      const { data: foundRows, error: foundErr } = await admin
+        .from('customers').select('id').in('id', ids);
+      if (foundErr) throw foundErr;
+      if (!foundRows || foundRows.length !== ids.length) {
+        return new Response(JSON.stringify({ error: 'One or more selected customer records were not found' }), {
+          status: 400, headers: { ...cors, 'Content-Type': 'application/json' }
+        });
+      }
+      // Replace wholesale rather than diff/merge — simpler and this is
+      // always called with the admin's full intended set from the edit UI.
+      const { error: delErr } = await admin
+        .from('customer_login_links').delete().eq('profile_id', customerLoginId);
+      if (delErr) throw delErr;
+      const { error: insErr } = await admin
+        .from('customer_login_links')
+        .insert(ids.map((id) => ({ profile_id: customerLoginId, customer_id: id })));
+      if (insErr) throw insErr;
+      return new Response(JSON.stringify({ id: customerLoginId }), {
+        headers: { ...cors, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const { name, email, password } = body;
+    const customerIds: string[] = Array.isArray(body.customerIds)
+      ? body.customerIds.filter(Boolean)
+      : (body.customerId ? [body.customerId] : []); // back-compat, singular
+    if (!name || !email || !password || customerIds.length === 0) {
+      return new Response(JSON.stringify({ error: 'name, email, password, and at least one linked customer are required' }), {
         status: 400, headers: { ...cors, 'Content-Type': 'application/json' }
       });
     }
@@ -118,13 +158,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Confirm the linked customer record actually exists before creating a
-    // login that would otherwise silently point nowhere.
-    const { data: custRow, error: custErr } = await admin
-      .from('customers').select('id').eq('id', customerId).maybeSingle();
+    // Confirm every linked customer record actually exists before creating
+    // a login that would otherwise silently point nowhere (or partly
+    // nowhere).
+    const { data: custRows, error: custErr } = await admin
+      .from('customers').select('id').in('id', customerIds);
     if (custErr) throw custErr;
-    if (!custRow) {
-      return new Response(JSON.stringify({ error: 'That customer record was not found' }), {
+    if (!custRows || custRows.length !== customerIds.length) {
+      return new Response(JSON.stringify({ error: 'One or more selected customer records were not found' }), {
         status: 400, headers: { ...cors, 'Content-Type': 'application/json' }
       });
     }
@@ -135,8 +176,11 @@ Deno.serve(async (req) => {
     if (createErr) throw createErr;
     const newId = created.user.id;
 
+    // profiles.customer_id is left null here on purpose — customer_login_links
+    // (inserted right below) is the source of truth for a login's customers
+    // as of supabase/migrations/20260905_customer_portal_multi_link.sql.
     const { error: profErr } = await admin.from('profiles').insert({
-      id: newId, name, role: 'customer', customer_id: customerId
+      id: newId, name, role: 'customer'
     });
     if (profErr) {
       // Insert failed (e.g. the profiles_role_check constraint wasn't
@@ -145,6 +189,17 @@ Deno.serve(async (req) => {
       // no profile row behind.
       await admin.auth.admin.deleteUser(newId).catch(() => {});
       throw profErr;
+    }
+
+    const { error: linkErr } = await admin
+      .from('customer_login_links')
+      .insert(customerIds.map((id) => ({ profile_id: newId, customer_id: id })));
+    if (linkErr) {
+      // Same cleanup reasoning as above — don't leave a login behind that
+      // can't see any customer at all.
+      await admin.from('profiles').delete().eq('id', newId).catch(() => {});
+      await admin.auth.admin.deleteUser(newId).catch(() => {});
+      throw linkErr;
     }
 
     return new Response(JSON.stringify({ id: newId, name }), {

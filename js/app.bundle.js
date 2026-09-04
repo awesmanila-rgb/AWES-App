@@ -580,6 +580,33 @@
   });
 
 
+// ---------- customer portal login helpers (table: customer_login_links) ----------
+// A customer login can be linked to more than one customers row (an account
+// holder managing several sites/branches) — see
+// supabase/migrations/20260905_customer_portal_multi_link.sql. These two
+// helpers are shared by the login flow below and by session restore.
+  async function fetchCustomerLinks(profileId){
+    try{
+      const { data: links, error } = await db.from('customer_login_links').select('customer_id').eq('profile_id', profileId);
+      if(error) throw error;
+      const ids = (links||[]).map(l=> l.customer_id);
+      if(!ids.length) return [];
+      const { data: custs, error: custErr } = await db.from('customers').select('id, name').in('id', ids);
+      if(custErr) throw custErr;
+      return (custs||[]).slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    }catch(e){ console.error('fetch customer links failed', describeCloudError(e)); return []; }
+  }
+  // Remembers which of a multi-customer login's customers was last being
+  // viewed, per device (see the switcher in customer-portal.js) — falls
+  // back to the first customer (alphabetical) if nothing saved, or if the
+  // saved id is no longer one this login can see.
+  function pickActiveCustomerId(custList, profileId){
+    const ids = custList.map(c=> c.id);
+    let saved = null;
+    try{ saved = localStorage.getItem('cust-active-customer:'+profileId); }catch(e){}
+    return (saved && ids.includes(saved)) ? saved : (ids[0] || null);
+  }
+
 // ---------- technician user accounts (table: profiles, role='technician') ----------
   // Real account creation/password changes go through the admin-create-technician
   // Edge Function (see cloudSetUser callers) — these functions only manage the
@@ -611,6 +638,30 @@
       }catch(e){ console.error('list users failed', describeCloudError(e)); }
     }
     return await localListUsers();
+  }
+  // Customer portal logins (table: profiles, role='customer') — kept
+  // separate from cloudListUsers() above rather than folded in, since their
+  // shape is different (no restrictions/DTR fields, but a set of linked
+  // customer records instead) and mixing the two would make both list
+  // renderers messier for no benefit.
+  async function cloudListCustomerLogins(){
+    if(await ensureCloud()){
+      try{
+        const { data: profs, error } = await db.from('profiles').select('id, name, active').eq('role','customer');
+        if(error) throw error;
+        if(!profs || !profs.length) return [];
+        if(!customersCache || customersCache.length===0) await loadCustomers();
+        const ids = profs.map(p=> p.id);
+        const { data: links, error: linkErr } = await db.from('customer_login_links').select('profile_id, customer_id').in('profile_id', ids);
+        if(linkErr) throw linkErr;
+        const nameOf = (cid)=>{ const c = customersCache.find(x=> String(x.id)===String(cid)); return c ? c.name : '(deleted customer)'; };
+        return profs.map(p=>{
+          const custIds = (links||[]).filter(l=> l.profile_id===p.id).map(l=> l.customer_id);
+          return { id: p.id, name: p.name, active: p.active, customerIds: custIds, customerNames: custIds.map(nameOf) };
+        });
+      }catch(e){ console.error('list customer logins failed', describeCloudError(e)); }
+    }
+    return [];
   }
   // The login screen needs a list of technicians BEFORE anyone is signed in.
   // It used to call cloudListUsers() directly, which required the `profiles`
@@ -1056,28 +1107,40 @@
       if(error){ submit.disabled = false; renderCustomerLoginForm('Incorrect email or password — try again.'); return; }
       let prof = null;
       try{
-        const res = await db.from('profiles').select('role, customer_id').eq('id', data.user.id).maybeSingle();
+        const res = await db.from('profiles').select('role, name, active').eq('id', data.user.id).maybeSingle();
         prof = res.data;
       }catch(e){}
-      if(!prof || prof.role !== 'customer' || !prof.customer_id){
+      if(!prof || prof.role !== 'customer'){
         submit.disabled = false;
         await db.auth.signOut();
         renderCustomerLoginForm('This account is not set up as a customer portal login.');
         return;
       }
-      let custName = 'there';
-      try{
-        const { data: custRow } = await db.from('customers').select('name').eq('id', prof.customer_id).maybeSingle();
-        if(custRow && custRow.name) custName = custRow.name;
-      }catch(e){}
+      if(prof.active===false){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account has been deactivated. Contact your service provider.');
+        return;
+      }
+      const custList = await fetchCustomerLinks(data.user.id);
+      if(!custList.length){
+        submit.disabled = false;
+        await db.auth.signOut();
+        renderCustomerLoginForm('This account is not linked to any customer records yet. Contact your service provider.');
+        return;
+      }
+      const activeId = pickActiveCustomerId(custList, data.user.id);
       submit.disabled = false;
-      currentUser = {id: data.user.id, name: custName, role:'customer', customerId: prof.customer_id};
+      currentUser = {
+        id: data.user.id, name: prof.name || 'there', role:'customer',
+        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
+      };
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       enterApp();
-      toast('Welcome, '+custName);
+      toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
     pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
@@ -1214,9 +1277,12 @@
       // Falls back to 'tech' — the old, only behavior — if this lookup
       // fails or the row isn't a customer, so nothing changes for tech.
       try{
-        const { data: prof } = await db.from('profiles').select('role, customer_id').eq('id', user.id).maybeSingle();
-        if(prof && prof.role === 'customer' && prof.customer_id){
-          return { id: user.id, email, role: 'customer', customerId: prof.customer_id };
+        const { data: prof } = await db.from('profiles').select('role, active').eq('id', user.id).maybeSingle();
+        if(prof && prof.role === 'customer' && prof.active !== false){
+          // Which specific customers this login can see is fetched by the
+          // caller (checkLoginGate) once it commits to restoring this as a
+          // customer session — no need to duplicate that lookup here.
+          return { id: user.id, email, role: 'customer' };
         }
       }catch(e){}
       return { id: user.id, email, role: 'tech' };
@@ -1268,12 +1334,26 @@
     // technician if it fell through. Pure insertion: none of this runs
     // unless currentUser.role is 'customer'.
     if(verified && verified.role==='customer'){
-      let custName = 'Customer';
+      const custList = await fetchCustomerLinks(verified.id);
+      if(!custList.length){
+        // Login exists and is active, but isn't linked to any customer
+        // record (admin removed the last one, or it was never finished
+        // being set up) — same treatment as the login-form's own check.
+        localStorage.removeItem('current-user');
+        currentUser = null;
+        await showLoginScreen('This account is not linked to any customer records yet. Contact your service provider.');
+        return;
+      }
+      let custName = 'there';
       try{
-        const { data: custRow } = await db.from('customers').select('name').eq('id', verified.customerId).maybeSingle();
-        if(custRow && custRow.name) custName = custRow.name;
+        const { data: prof } = await db.from('profiles').select('name').eq('id', verified.id).maybeSingle();
+        if(prof && prof.name) custName = prof.name;
       }catch(e){}
-      currentUser = {id: verified.id, name: custName, role:'customer', customerId: verified.customerId};
+      const activeId = pickActiveCustomerId(custList, verified.id);
+      currentUser = {
+        id: verified.id, name: custName, role:'customer',
+        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
+      };
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
@@ -1285,7 +1365,10 @@
       if(verified===null){
         // Cloud unreachable — trust the cache rather than forcing a login
         // screen on a plain reload, same leniency as the technician branch.
-        currentUser = {id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId};
+        currentUser = {
+          id:saved.id, name:saved.name, role:'customer', customerId:saved.customerId,
+          customerIds:saved.customerIds||[], customerList:saved.customerList||[]
+        };
         updateUserBadge();
         applyUserRestrictions();
         $('loginOverlay').classList.remove('open');
@@ -2544,9 +2627,8 @@
     if(users.length===0){
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.textContent = 'No users added yet.';
+      empty.textContent = 'No technicians added yet.';
       body.appendChild(empty);
-      return;
     }
     users.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
       const r = u.restrictions || {};
@@ -2642,6 +2724,119 @@
       });
       card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
         if(!confirm('Remove '+u.name+' completely? Their past reports stay saved, but they will no longer appear anywhere.')) return;
+        const ok = await cloudDeleteUser(u.id);
+        if(ok){ toast('Removed '+u.name); renderUsersList(); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+
+    // ---------- Customer Portal Logins ----------
+    // Rendered in the same list, below the technician cards. Kept as its
+    // own pass (not merged into the users.forEach above) since the card
+    // shape differs — a set of linked customer records to edit instead of
+    // restrictions/DTR device lock.
+    if(!customersCache || customersCache.length===0) await loadCustomers();
+    const custLogins = await cloudListCustomerLogins();
+    const custHeader = document.createElement('div');
+    custHeader.style.cssText = 'font-size:12px; font-weight:700; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--border); color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;';
+    custHeader.textContent = 'Customer Portal Logins';
+    body.appendChild(custHeader);
+    if(custLogins.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No customer portal logins yet — add one below.';
+      body.appendChild(empty);
+    }
+    custLogins.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
+      const active = u.active!==false;
+      const card = document.createElement('div');
+      card.className = 'user-card' + (active ? '' : ' inactive');
+      card.innerHTML =
+        '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(u.name)+'</div>'+
+            '<div class="u-status '+(active?'':'deact')+'">'+
+              (active ? 'Active' : 'Deactivated')+' · '+
+              (u.customerNames.length ? escapeHtml(u.customerNames.join(', ')) : 'No customer records linked')+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="edit" class="primary">Edit</button>'+
+          '<button data-act="toggle">'+(active ? 'Restrict (Deactivate)' : 'Reactivate')+'</button>'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>'+
+        '<div class="user-edit-panel" data-panel="1">'+
+          '<div class="field"><label>Contact Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
+          '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
+          '<div class="field"><label>Linked Customer Record(s)</label>'+
+            '<div class="restrict-group" data-f="custBox" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:8px 10px;">'+
+              customerCheckboxListHtml('edit-'+u.id, u.customerIds)+
+            '</div>'+
+          '</div>'+
+          '<div class="edit-save-row">'+
+            '<button class="cancel-btn" data-act="cancel" type="button">Cancel</button>'+
+            '<button class="save-btn" data-act="save" type="button">Save Changes</button>'+
+          '</div>'+
+        '</div>';
+
+      const panel = card.querySelector('[data-panel="1"]');
+      card.querySelector('[data-act="edit"]').addEventListener('click', ()=>{
+        body.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+        panel.classList.toggle('open');
+      });
+      card.querySelector('[data-act="cancel"]').addEventListener('click', ()=>{
+        panel.classList.remove('open');
+        panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="pw1"]').value = '';
+        panel.querySelector('[data-f="pw2"]').value = '';
+        panel.querySelector('[data-f="custBox"]').innerHTML = customerCheckboxListHtml('edit-'+u.id, u.customerIds);
+      });
+      card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
+        const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const pw1 = panel.querySelector('[data-f="pw1"]').value;
+        const pw2 = panel.querySelector('[data-f="pw2"]').value;
+        const custIds = getCheckedCustomerIds(panel.querySelector('[data-f="custBox"]'));
+        if(!newName){ toast('Name cannot be empty'); return; }
+        if(pw1 || pw2){
+          if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
+          if(pw1 !== pw2){ toast('Passwords do not match'); return; }
+        }
+        if(!custIds.length){ toast('Select at least one linked customer record'); return; }
+        const saveBtn = panel.querySelector('[data-act="save"]');
+        saveBtn.disabled = true;
+        try{
+          const ok1 = await cloudSetUser(u.id, { name: newName });
+          let ok2 = true;
+          if(pw1){
+            const { data, error } = await db.functions.invoke('admin-create-customer', {
+              body: { action:'reset_password', customerLoginId: u.id, password: pw1 }
+            });
+            ok2 = !error && !(data && data.error);
+          }
+          let ok3 = true;
+          const changedCust = custIds.slice().sort().join(',') !== u.customerIds.slice().sort().join(',');
+          if(changedCust){
+            const { data, error } = await db.functions.invoke('admin-create-customer', {
+              body: { action:'set_customers', customerLoginId: u.id, customerIds: custIds }
+            });
+            ok3 = !error && !(data && data.error);
+          }
+          if(ok1 && ok2 && ok3){
+            toast('Saved changes for '+newName);
+            renderUsersList();
+          }else toast('Could not save all changes');
+        } finally { saveBtn.disabled = false; }
+      });
+      card.querySelector('[data-act="toggle"]').addEventListener('click', async ()=>{
+        const ok = await cloudSetUser(u.id, {active: active ? false : true});
+        if(ok){ toast(active ? 'Restricted '+u.name+' (access revoked)' : 'Reactivated '+u.name); renderUsersList(); }
+        else toast('Could not update');
+      });
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove '+u.name+"'s customer portal login completely? They will no longer be able to sign in.")) return;
         const ok = await cloudDeleteUser(u.id);
         if(ok){ toast('Removed '+u.name); renderUsersList(); }
         else toast('Could not remove');
@@ -3217,17 +3412,26 @@
     renderCustomersList('');
   }
 
-  // Populates the "Linked Customer Record" dropdown in Add a User from the
-  // same customers table Manage Customers uses.
+  // Populates the "Linked Customer Record(s)" checkbox list in Add a User
+  // from the same customers table Manage Customers uses. A customer login
+  // can be linked to more than one customer record (an account holder
+  // managing several sites/branches) — the admin ticks as many as apply.
+  function customerCheckboxListHtml(containerId, checkedIds){
+    const checked = new Set((checkedIds||[]).map(String));
+    return customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
+      .map(c=>
+        '<label class="restrict-row"><input type="checkbox" data-cust-check="'+containerId+'" value="'+c.id+'" '+(checked.has(String(c.id))?'checked':'')+'>'+
+          '<span class="rtxt"><span class="rt-title">'+escapeHtml(c.name)+'</span></span></label>'
+      ).join('') || '<div class="empty-state" style="padding:6px 0;">No customer records yet — add one under Manage Customers first.</div>';
+  }
+  function getCheckedCustomerIds(container){
+    return $$('input[type="checkbox"]', container).filter(cb=> cb.checked).map(cb=> cb.value);
+  }
   async function populateNewUserCustomerOptions(){
-    const sel = $('newUserCustomerId');
-    if(!sel) return;
+    const box = $('newUserCustomerOptions');
+    if(!box) return;
     if(!customersCache || customersCache.length===0) await loadCustomers();
-    const current = sel.value;
-    sel.innerHTML = '<option value="">— Select a customer —</option>' +
-      customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
-        .map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
-    sel.value = current;
+    box.innerHTML = customerCheckboxListHtml('newUserCustomerOptions', []);
   }
   $('newUserRole').addEventListener('change', ()=>{
     const isCust = $('newUserRole').value === 'customer';
@@ -3249,9 +3453,9 @@
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
 
     if(role === 'customer'){
-      const customerId = $('newUserCustomerId').value;
+      const customerIds = getCheckedCustomerIds($('newUserCustomerOptions'));
       const email = $('newUserEmail').value.trim();
-      if(!customerId){ toast('Select the customer record this login belongs to'); return; }
+      if(!customerIds.length){ toast('Select at least one customer record this login belongs to'); return; }
       if(!email){ toast('Enter an email for this customer login'); return; }
       $('addUserBtn').disabled = true;
       try{
@@ -3262,12 +3466,13 @@
         // See supabase/functions/admin-create-customer/index.ts (new —
         // needs to be deployed to Supabase before this button will work).
         const { data, error } = await db.functions.invoke('admin-create-customer', {
-          body: { name, email, password: pin, customerId }
+          body: { name, email, password: pin, customerIds }
         });
         if(error || (data && data.error)){
           toast((data && data.error) || 'Could not add customer login');
         }else{
-          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value=''; $('newUserCustomerId').value='';
+          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value='';
+          $$('input[type="checkbox"]', $('newUserCustomerOptions')).forEach(cb=> cb.checked=false);
           toast('Added customer login for '+name);
           renderUsersList();
         }
@@ -8766,7 +8971,20 @@
   }
   $('sbNavDashboard').addEventListener('click', ()=>{ closeMainMenu(); showHome(); });
   $('sbNavTechnicians').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavTechnicians'); showDtrView(); });
-  $('sbNavRequisitions').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavRequisitions'); showCashAdvanceView(); });
+  // The Finance section used to be a single "Requisitions" sidebar item; it's
+  // now three (Cash Advance / Liquidation / Reimbursement) so each opens the
+  // same Cash Advance view already highlighted on the relevant tab.
+  $('sbNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavCashAdvance'); showCashAdvanceView(); });
+  $('sbNavLiquidation').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('sbNavLiquidation');
+    await showCashAdvanceView();
+    caShowTab('liquidate');
+  });
+  $('sbNavReimbursement').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('sbNavReimbursement');
+    await showCashAdvanceView();
+    caShowTab('history');
+  });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
   $('menuManageReports').addEventListener('click', ()=>{
     closeMainMenu();
@@ -8788,11 +9006,16 @@
   // that screen instead of the admin's management view.
   $('techNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDispatch'); showDispatchView(); });
   $('techNavServiceReport').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavServiceReport'); showServiceReport(); });
-  $('techNavRequisition').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavRequisition'); showCashAdvanceView(); });
+  $('techNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavCashAdvance'); showCashAdvanceView(); });
   $('techNavLiquidation').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('techNavLiquidation');
     await showCashAdvanceView();
     if(currentUser && currentUser.role!=='admin') caShowTab('liquidate');
+  });
+  $('techNavReimbursement').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('techNavReimbursement');
+    await showCashAdvanceView();
+    if(currentUser && currentUser.role!=='admin') caShowTab('history');
   });
   $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
   $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });
@@ -9737,15 +9960,43 @@
     });
   }
 
+  // "Viewing: [customer ▾]" switcher — only shown when this login is linked
+  // to more than one customer record (see auth.js: currentUser.customerList,
+  // populated at login/session-restore from customer_login_links). Picking
+  // a different customer re-scopes the whole home screen (equipment,
+  // reports, stat strip) to that customer, and is remembered per device so
+  // it's still selected next time this login signs in here.
+  function cpRenderSwitcher(){
+    const field = $('cpSwitcherField');
+    const sel = $('cpCustomerSwitcher');
+    if(!field || !sel) return;
+    const list = currentUser.customerList || [];
+    if(list.length <= 1){ field.style.display = 'none'; return; }
+    field.style.display = '';
+    sel.innerHTML = list.map(c=> '<option value="'+c.id+'" '+(String(c.id)===String(currentUser.customerId)?'selected':'')+'>'+escapeHtml(c.name)+'</option>').join('');
+  }
+  async function cpSwitchActiveCustomer(customerId){
+    currentUser.customerId = customerId;
+    try{ localStorage.setItem('cust-active-customer:'+currentUser.id, customerId); }catch(e){}
+    try{ localStorage.setItem('current-user', JSON.stringify(currentUser)); }catch(e){}
+    $('cpEquipGrid').innerHTML = '<div class="empty-state">Loading…</div>';
+    $('cpReportsList').innerHTML = '<div class="empty-state">Loading…</div>';
+    await loadCustomerPortalData(customerId);
+    $('cpGreetingName').textContent = currentUser.name || 'there';
+    renderCustomerHome();
+  }
+  $('cpCustomerSwitcher').addEventListener('change', (e)=> cpSwitchActiveCustomer(e.target.value));
+
   // Entry point — call this after a customer logs in and homeScreen (or a
   // dedicated customerHomeScreen, see the HTML snippet) is shown.
-  // currentUser is expected to carry a `customerId` when role==='customer'
-  // (see auth.js note in the integration guide).
+  // currentUser is expected to carry a `customerId` (the one currently
+  // being viewed) and a `customerList` (every customer this login can see)
+  // when role==='customer' — see auth.js.
   async function initCustomerHomeScreen(){
     if(!currentUser || currentUser.role !== 'customer' || !currentUser.customerId) return;
-    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
+    $('cpGreetingName').textContent = currentUser.name || 'there';
+    cpRenderSwitcher();
     await loadCustomerPortalData(currentUser.customerId);
-    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
     renderCustomerHome();
   }
 

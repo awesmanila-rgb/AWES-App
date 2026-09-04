@@ -23,9 +23,8 @@
     if(users.length===0){
       const empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.textContent = 'No users added yet.';
+      empty.textContent = 'No technicians added yet.';
       body.appendChild(empty);
-      return;
     }
     users.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
       const r = u.restrictions || {};
@@ -121,6 +120,119 @@
       });
       card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
         if(!confirm('Remove '+u.name+' completely? Their past reports stay saved, but they will no longer appear anywhere.')) return;
+        const ok = await cloudDeleteUser(u.id);
+        if(ok){ toast('Removed '+u.name); renderUsersList(); }
+        else toast('Could not remove');
+      });
+      body.appendChild(card);
+    });
+
+    // ---------- Customer Portal Logins ----------
+    // Rendered in the same list, below the technician cards. Kept as its
+    // own pass (not merged into the users.forEach above) since the card
+    // shape differs — a set of linked customer records to edit instead of
+    // restrictions/DTR device lock.
+    if(!customersCache || customersCache.length===0) await loadCustomers();
+    const custLogins = await cloudListCustomerLogins();
+    const custHeader = document.createElement('div');
+    custHeader.style.cssText = 'font-size:12px; font-weight:700; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--border); color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px;';
+    custHeader.textContent = 'Customer Portal Logins';
+    body.appendChild(custHeader);
+    if(custLogins.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No customer portal logins yet — add one below.';
+      body.appendChild(empty);
+    }
+    custLogins.sort((a,b)=> (a.name||'').localeCompare(b.name||'')).forEach(u=>{
+      const active = u.active!==false;
+      const card = document.createElement('div');
+      card.className = 'user-card' + (active ? '' : ' inactive');
+      card.innerHTML =
+        '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(u.name)+'</div>'+
+            '<div class="u-status '+(active?'':'deact')+'">'+
+              (active ? 'Active' : 'Deactivated')+' · '+
+              (u.customerNames.length ? escapeHtml(u.customerNames.join(', ')) : 'No customer records linked')+
+            '</div>'+
+          '</div>'+
+        '</div>'+
+        '<div class="user-card-actions">'+
+          '<button data-act="edit" class="primary">Edit</button>'+
+          '<button data-act="toggle">'+(active ? 'Restrict (Deactivate)' : 'Reactivate')+'</button>'+
+          '<button data-act="remove" class="danger">Remove</button>'+
+        '</div>'+
+        '<div class="user-edit-panel" data-panel="1">'+
+          '<div class="field"><label>Contact Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
+          '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
+          '<div class="field"><label>Linked Customer Record(s)</label>'+
+            '<div class="restrict-group" data-f="custBox" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:8px 10px;">'+
+              customerCheckboxListHtml('edit-'+u.id, u.customerIds)+
+            '</div>'+
+          '</div>'+
+          '<div class="edit-save-row">'+
+            '<button class="cancel-btn" data-act="cancel" type="button">Cancel</button>'+
+            '<button class="save-btn" data-act="save" type="button">Save Changes</button>'+
+          '</div>'+
+        '</div>';
+
+      const panel = card.querySelector('[data-panel="1"]');
+      card.querySelector('[data-act="edit"]').addEventListener('click', ()=>{
+        body.querySelectorAll('.user-edit-panel.open').forEach(p=>{ if(p!==panel) p.classList.remove('open'); });
+        panel.classList.toggle('open');
+      });
+      card.querySelector('[data-act="cancel"]').addEventListener('click', ()=>{
+        panel.classList.remove('open');
+        panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="pw1"]').value = '';
+        panel.querySelector('[data-f="pw2"]').value = '';
+        panel.querySelector('[data-f="custBox"]').innerHTML = customerCheckboxListHtml('edit-'+u.id, u.customerIds);
+      });
+      card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
+        const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const pw1 = panel.querySelector('[data-f="pw1"]').value;
+        const pw2 = panel.querySelector('[data-f="pw2"]').value;
+        const custIds = getCheckedCustomerIds(panel.querySelector('[data-f="custBox"]'));
+        if(!newName){ toast('Name cannot be empty'); return; }
+        if(pw1 || pw2){
+          if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
+          if(pw1 !== pw2){ toast('Passwords do not match'); return; }
+        }
+        if(!custIds.length){ toast('Select at least one linked customer record'); return; }
+        const saveBtn = panel.querySelector('[data-act="save"]');
+        saveBtn.disabled = true;
+        try{
+          const ok1 = await cloudSetUser(u.id, { name: newName });
+          let ok2 = true;
+          if(pw1){
+            const { data, error } = await db.functions.invoke('admin-create-customer', {
+              body: { action:'reset_password', customerLoginId: u.id, password: pw1 }
+            });
+            ok2 = !error && !(data && data.error);
+          }
+          let ok3 = true;
+          const changedCust = custIds.slice().sort().join(',') !== u.customerIds.slice().sort().join(',');
+          if(changedCust){
+            const { data, error } = await db.functions.invoke('admin-create-customer', {
+              body: { action:'set_customers', customerLoginId: u.id, customerIds: custIds }
+            });
+            ok3 = !error && !(data && data.error);
+          }
+          if(ok1 && ok2 && ok3){
+            toast('Saved changes for '+newName);
+            renderUsersList();
+          }else toast('Could not save all changes');
+        } finally { saveBtn.disabled = false; }
+      });
+      card.querySelector('[data-act="toggle"]').addEventListener('click', async ()=>{
+        const ok = await cloudSetUser(u.id, {active: active ? false : true});
+        if(ok){ toast(active ? 'Restricted '+u.name+' (access revoked)' : 'Reactivated '+u.name); renderUsersList(); }
+        else toast('Could not update');
+      });
+      card.querySelector('[data-act="remove"]').addEventListener('click', async ()=>{
+        if(!confirm('Remove '+u.name+"'s customer portal login completely? They will no longer be able to sign in.")) return;
         const ok = await cloudDeleteUser(u.id);
         if(ok){ toast('Removed '+u.name); renderUsersList(); }
         else toast('Could not remove');
@@ -696,17 +808,26 @@
     renderCustomersList('');
   }
 
-  // Populates the "Linked Customer Record" dropdown in Add a User from the
-  // same customers table Manage Customers uses.
+  // Populates the "Linked Customer Record(s)" checkbox list in Add a User
+  // from the same customers table Manage Customers uses. A customer login
+  // can be linked to more than one customer record (an account holder
+  // managing several sites/branches) — the admin ticks as many as apply.
+  function customerCheckboxListHtml(containerId, checkedIds){
+    const checked = new Set((checkedIds||[]).map(String));
+    return customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
+      .map(c=>
+        '<label class="restrict-row"><input type="checkbox" data-cust-check="'+containerId+'" value="'+c.id+'" '+(checked.has(String(c.id))?'checked':'')+'>'+
+          '<span class="rtxt"><span class="rt-title">'+escapeHtml(c.name)+'</span></span></label>'
+      ).join('') || '<div class="empty-state" style="padding:6px 0;">No customer records yet — add one under Manage Customers first.</div>';
+  }
+  function getCheckedCustomerIds(container){
+    return $$('input[type="checkbox"]', container).filter(cb=> cb.checked).map(cb=> cb.value);
+  }
   async function populateNewUserCustomerOptions(){
-    const sel = $('newUserCustomerId');
-    if(!sel) return;
+    const box = $('newUserCustomerOptions');
+    if(!box) return;
     if(!customersCache || customersCache.length===0) await loadCustomers();
-    const current = sel.value;
-    sel.innerHTML = '<option value="">— Select a customer —</option>' +
-      customersCache.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''))
-        .map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
-    sel.value = current;
+    box.innerHTML = customerCheckboxListHtml('newUserCustomerOptions', []);
   }
   $('newUserRole').addEventListener('change', ()=>{
     const isCust = $('newUserRole').value === 'customer';
@@ -728,9 +849,9 @@
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
 
     if(role === 'customer'){
-      const customerId = $('newUserCustomerId').value;
+      const customerIds = getCheckedCustomerIds($('newUserCustomerOptions'));
       const email = $('newUserEmail').value.trim();
-      if(!customerId){ toast('Select the customer record this login belongs to'); return; }
+      if(!customerIds.length){ toast('Select at least one customer record this login belongs to'); return; }
       if(!email){ toast('Enter an email for this customer login'); return; }
       $('addUserBtn').disabled = true;
       try{
@@ -741,12 +862,13 @@
         // See supabase/functions/admin-create-customer/index.ts (new —
         // needs to be deployed to Supabase before this button will work).
         const { data, error } = await db.functions.invoke('admin-create-customer', {
-          body: { name, email, password: pin, customerId }
+          body: { name, email, password: pin, customerIds }
         });
         if(error || (data && data.error)){
           toast((data && data.error) || 'Could not add customer login');
         }else{
-          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value=''; $('newUserCustomerId').value='';
+          $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserEmail').value='';
+          $$('input[type="checkbox"]', $('newUserCustomerOptions')).forEach(cb=> cb.checked=false);
           toast('Added customer login for '+name);
           renderUsersList();
         }

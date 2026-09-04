@@ -532,7 +532,20 @@
   }
   $('sbNavDashboard').addEventListener('click', ()=>{ closeMainMenu(); showHome(); });
   $('sbNavTechnicians').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavTechnicians'); showDtrView(); });
-  $('sbNavRequisitions').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavRequisitions'); showCashAdvanceView(); });
+  // The Finance section used to be a single "Requisitions" sidebar item; it's
+  // now three (Cash Advance / Liquidation / Reimbursement) so each opens the
+  // same Cash Advance view already highlighted on the relevant tab.
+  $('sbNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavCashAdvance'); showCashAdvanceView(); });
+  $('sbNavLiquidation').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('sbNavLiquidation');
+    await showCashAdvanceView();
+    caShowTab('liquidate');
+  });
+  $('sbNavReimbursement').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('sbNavReimbursement');
+    await showCashAdvanceView();
+    caShowTab('history');
+  });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
   $('menuManageReports').addEventListener('click', ()=>{
     closeMainMenu();
@@ -554,11 +567,16 @@
   // that screen instead of the admin's management view.
   $('techNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDispatch'); showDispatchView(); });
   $('techNavServiceReport').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavServiceReport'); showServiceReport(); });
-  $('techNavRequisition').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavRequisition'); showCashAdvanceView(); });
+  $('techNavCashAdvance').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavCashAdvance'); showCashAdvanceView(); });
   $('techNavLiquidation').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('techNavLiquidation');
     await showCashAdvanceView();
     if(currentUser && currentUser.role!=='admin') caShowTab('liquidate');
+  });
+  $('techNavReimbursement').addEventListener('click', async ()=>{
+    closeMainMenu(); setSidebarActive('techNavReimbursement');
+    await showCashAdvanceView();
+    if(currentUser && currentUser.role!=='admin') caShowTab('history');
   });
   $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
   $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });

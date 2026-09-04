@@ -200,14 +200,42 @@
     });
   }
 
+  // "Viewing: [customer ▾]" switcher — only shown when this login is linked
+  // to more than one customer record (see auth.js: currentUser.customerList,
+  // populated at login/session-restore from customer_login_links). Picking
+  // a different customer re-scopes the whole home screen (equipment,
+  // reports, stat strip) to that customer, and is remembered per device so
+  // it's still selected next time this login signs in here.
+  function cpRenderSwitcher(){
+    const field = $('cpSwitcherField');
+    const sel = $('cpCustomerSwitcher');
+    if(!field || !sel) return;
+    const list = currentUser.customerList || [];
+    if(list.length <= 1){ field.style.display = 'none'; return; }
+    field.style.display = '';
+    sel.innerHTML = list.map(c=> '<option value="'+c.id+'" '+(String(c.id)===String(currentUser.customerId)?'selected':'')+'>'+escapeHtml(c.name)+'</option>').join('');
+  }
+  async function cpSwitchActiveCustomer(customerId){
+    currentUser.customerId = customerId;
+    try{ localStorage.setItem('cust-active-customer:'+currentUser.id, customerId); }catch(e){}
+    try{ localStorage.setItem('current-user', JSON.stringify(currentUser)); }catch(e){}
+    $('cpEquipGrid').innerHTML = '<div class="empty-state">Loading…</div>';
+    $('cpReportsList').innerHTML = '<div class="empty-state">Loading…</div>';
+    await loadCustomerPortalData(customerId);
+    $('cpGreetingName').textContent = currentUser.name || 'there';
+    renderCustomerHome();
+  }
+  $('cpCustomerSwitcher').addEventListener('change', (e)=> cpSwitchActiveCustomer(e.target.value));
+
   // Entry point — call this after a customer logs in and homeScreen (or a
   // dedicated customerHomeScreen, see the HTML snippet) is shown.
-  // currentUser is expected to carry a `customerId` when role==='customer'
-  // (see auth.js note in the integration guide).
+  // currentUser is expected to carry a `customerId` (the one currently
+  // being viewed) and a `customerList` (every customer this login can see)
+  // when role==='customer' — see auth.js.
   async function initCustomerHomeScreen(){
     if(!currentUser || currentUser.role !== 'customer' || !currentUser.customerId) return;
-    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
+    $('cpGreetingName').textContent = currentUser.name || 'there';
+    cpRenderSwitcher();
     await loadCustomerPortalData(currentUser.customerId);
-    $('cpGreetingName').textContent = cpCustomer && cpCustomer.name ? cpCustomer.name : 'there';
     renderCustomerHome();
   }
