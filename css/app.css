@@ -1081,9 +1081,9 @@
   cursor:pointer; padding:8px 0; margin-bottom:8px;
 }
 
-.cp-spec-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px 16px;}
-@media (max-width:420px){ .cp-spec-grid{grid-template-columns:1fr;} }
+.cp-spec-grid{display:flex; flex-direction:column;}
 .cp-spec-row{display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:6px 0; border-bottom:1px solid var(--border);}
+.cp-spec-row:last-child{border-bottom:none;}
 .cp-spec-k{color:var(--text-muted);}
 .cp-spec-v{font-weight:600; text-align:right;}
 
