@@ -1003,10 +1003,9 @@
     container.innerHTML = '';
 
     const staffRow = document.createElement('div');
-    staffRow.style.cssText = 'display:flex; justify-content:center; gap:22px; margin-bottom:14px;';
-    const staffLinkStyle = 'background:none; border:none; color:var(--text-muted); font-size:12px; font-weight:600; cursor:pointer; padding:4px;';
+    staffRow.className = 'login-staff-row';
     const techLink = document.createElement('button');
-    techLink.type='button'; techLink.style.cssText = staffLinkStyle;
+    techLink.type='button'; techLink.className = 'login-staff-link';
     techLink.textContent = '👷 Technician access';
     techLink.addEventListener('click', async ()=>{
       container.innerHTML = '<div class="empty-state">Loading…</div>';
@@ -1014,7 +1013,7 @@
       renderTechnicianList(users || []);
     });
     const adminLink = document.createElement('button');
-    adminLink.type='button'; adminLink.style.cssText = staffLinkStyle;
+    adminLink.type='button'; adminLink.className = 'login-staff-link';
     adminLink.textContent = '🔑 Admin panel';
     adminLink.addEventListener('click', ()=> renderAdminLoginForm());
     staffRow.appendChild(techLink);
@@ -1022,7 +1021,7 @@
     container.appendChild(staffRow);
 
     const divider = document.createElement('div');
-    divider.style.cssText = 'border-top:1px solid var(--border); margin-bottom:16px;';
+    divider.className = 'login-divider';
     container.appendChild(divider);
 
     if(message){
@@ -1033,7 +1032,7 @@
     }
 
     const tagline = document.createElement('p');
-    tagline.style.cssText = 'font-size:13px; color:var(--text-muted); text-align:center; margin:0 0 16px;';
+    tagline.className = 'login-tagline';
     tagline.textContent = 'Track your service history and request support';
     container.appendChild(tagline);
 
@@ -1107,16 +1106,16 @@
     container.appendChild(submit);
 
     const features = document.createElement('div');
-    features.style.cssText = 'display:flex; justify-content:space-around; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;';
+    features.className = 'login-features';
     features.innerHTML =
-      '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">📋</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Track Requests</span></div>'
-      + '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">⚡</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Fast Service</span></div>'
-      + '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">👤</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Manage Profile</span></div>';
+      '<div class="login-feature"><span class="lf-icon">📋</span><span class="lf-label">Track Requests</span></div>'
+      + '<div class="login-feature"><span class="lf-icon">⚡</span><span class="lf-label">Fast Service</span></div>'
+      + '<div class="login-feature"><span class="lf-icon">👤</span><span class="lf-label">Manage Profile</span></div>';
     container.appendChild(features);
 
     const cloudLink = document.createElement('button');
     cloudLink.type='button';
-    cloudLink.style.cssText = 'width:100%; margin-top:2px; background:none; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer;';
+    cloudLink.className = 'login-cloud-link';
     cloudLink.textContent = cloudReady ? '☁ Connected — Cloud Setup' : '☁ Not connected — tap to set up Shared Cloud';
     cloudLink.addEventListener('click', ()=>{
       const cfg = getCloudConfig();

@@ -63,6 +63,30 @@
     box-shadow:0 4px 14px rgba(0,0,0,.14); margin:0 auto 12px;
   }
   .login-logo img{width:100%; height:100%; object-fit:contain;}
+  .login-sheet{
+    max-width:420px; box-shadow:0 12px 32px rgba(20,28,23,.12); padding:28px 26px 22px;
+  }
+  .login-staff-row{
+    display:flex; justify-content:center; gap:8px; margin-bottom:18px;
+  }
+  .login-staff-link{
+    background:none; border:none; color:var(--text-muted); font-size:12.5px; font-weight:600;
+    cursor:pointer; padding:6px 12px; border-radius:999px; display:flex; align-items:center; gap:5px;
+  }
+  .login-staff-link:hover, .login-staff-link:active{ background:var(--bg); color:var(--text); }
+  .login-divider{ border-top:1px solid var(--border); margin:0 -26px 18px; }
+  .login-tagline{ font-size:13.5px; color:var(--text-muted); text-align:center; margin:0 0 20px; line-height:1.5; }
+  .login-features{
+    display:flex; justify-content:space-around; border-top:1px solid var(--border);
+    padding-top:16px; margin:18px -26px 0;
+  }
+  .login-feature{ display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .login-feature .lf-icon{ font-size:18px; }
+  .login-feature .lf-label{ font-size:11px; color:var(--text-muted); font-weight:600; }
+  .login-cloud-link{
+    width:100%; margin-top:16px; background:none; border:none; color:var(--text-muted);
+    font-size:12px; text-decoration:underline; cursor:pointer; text-align:center;
+  }
   .brand-text .name{font-weight:700; font-size:15px; letter-spacing:.3px;}
   .brand-text .sub{font-size:11px; opacity:.8;}
   .top-actions{
@@ -240,7 +264,7 @@
     margin-bottom:5px; text-transform:uppercase; letter-spacing:.2px;
   }
   .field label .req{color:var(--danger);}
-  input[type=text], input[type=date], input[type=time], input[type=number], textarea, select{
+  input[type=text], input[type=email], input[type=password], input[type=date], input[type=time], input[type=number], textarea, select{
     width:100%; padding:10px 11px; border:1px solid var(--border); border-radius:8px;
     font-size:15px; font-family:inherit; background:#fff; color:var(--text);
   }
