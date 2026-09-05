@@ -1,7 +1,10 @@
-// Bumped to v21 to force every installed device to drop its old cache and
-// re-fetch index.html/css fresh — moved the "Staff Access" link from the
-// top-right of the login screen to bottom-center, below the quick-links.
-const CACHE_NAME = 'awes-sr-v21';
+// Bumped to v23 to force every installed device to drop its old cache and
+// re-fetch index.html/css fresh — "Staff Access" was pinned with
+// margin-top:auto to the literal bottom of the viewport, which stretched
+// into a huge empty gap on tall/desktop screens. Switched to a fixed
+// margin-top so the gap below the quick-links looks the same on any screen
+// size.
+const CACHE_NAME = 'awes-sr-v23';
 
 // Split into two lists on purpose.
 //
