@@ -1,12 +1,7 @@
-// Bumped to v20 to force every installed device to drop its old cache and
-// re-fetch index.html/app.bundle.js fresh — Technician Access and Admin
-// Panel used to be two separate top-bar links, and tapping Technician Access
-// fetched and displayed every active technician's username as a tappable
-// button before asking for a password. Both now go through one "Staff
-// Access" link: pick a role (Technician/Admin) first, then enter
-// username+password (Technician) or password (Admin) — the technician
-// roster is looked up quietly on submit and never rendered as a list.
-const CACHE_NAME = 'awes-sr-v20';
+// Bumped to v21 to force every installed device to drop its old cache and
+// re-fetch index.html/css fresh — moved the "Staff Access" link from the
+// top-right of the login screen to bottom-center, below the quick-links.
+const CACHE_NAME = 'awes-sr-v21';
 
 // Split into two lists on purpose.
 //

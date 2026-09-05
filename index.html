@@ -1695,20 +1695,6 @@ window.awesCss = {
      form, staff role chooser, technician form, admin form); only loginList's
      own content is swapped by JS. -->
 <div class="overlay open login-overlay" id="loginOverlay" style="z-index:80;">
-  <div class="login-topbar">
-    <!-- Single combined entry point for both staff roles. Used to be two
-         separate links here — Technician Access (which listed every active
-         technician's username as a tappable button, exposing the whole
-         roster to anyone who opened the login screen) and Admin Panel. Now
-         both go through one role chooser (see renderStaffRoleChooser in
-         auth.js), and the technician path asks for a username directly
-         instead of showing the list. -->
-    <button type="button" class="login-toplink" id="loginStaffTopBtn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
-      Staff Access
-    </button>
-  </div>
-
   <div class="login-wrap">
     <div class="login-logo"><img src="logo.png" alt="AWES"></div>
     <h3 class="login-heading">Sign In</h3>
@@ -1727,6 +1713,21 @@ window.awesCss = {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         Manage Equipment
       </span>
+    </div>
+    <!-- Single combined entry point for both staff roles. Used to live
+         top-right as its own "login-topbar" row; moved to bottom-center,
+         below the quick-links, per request. Used to be two separate links
+         here — Technician Access (which listed every active technician's
+         username as a tappable button, exposing the whole roster to anyone
+         who opened the login screen) and Admin Panel. Now both go through
+         one role chooser (see renderStaffRoleChooser in auth.js), and the
+         technician path asks for a username directly instead of showing
+         the list. -->
+    <div class="login-topbar">
+      <button type="button" class="login-toplink" id="loginStaffTopBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
+        Staff Access
+      </button>
     </div>
   </div>
 </div>
