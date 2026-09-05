@@ -1544,6 +1544,14 @@
     stopIdleWatch();
     trackerStopBroadcasting();
     trackerAdminTeardown();
+    // This used to only clear the app's OWN 'current-user' flag and never told
+    // Supabase Auth to end the session. The real session cookie/token was left
+    // fully valid, so the login screen showing right after tapping Logout was
+    // cosmetic only — checkLoginGate() runs on every reload, calls
+    // db.auth.getSession(), finds that still-live session, and logs the same
+    // account straight back in, landing on the homepage instead of login.
+    // Signing out of Supabase itself is what actually ends the session.
+    if(db){ try{ await db.auth.signOut(); }catch(e){} }
     currentUser = null;
     localStorage.removeItem('current-user');
     updateUserBadge();
