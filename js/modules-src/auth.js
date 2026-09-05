@@ -32,7 +32,7 @@
   function profileToUser(row){
     if(!row) return null;
     return {
-      id: row.id, name: row.name, active: row.active,
+      id: row.id, name: row.name, username: row.username || '', active: row.active,
       restrictions: { noHistory: row.no_history, noReport: row.no_report, readOnly: row.read_only },
       mustChangePassword: !!row.must_change_password
     };
@@ -86,8 +86,14 @@
   // table to be readable by the anonymous key — meaning anyone holding the
   // public key shipped in this app could dump every staff row, restrictions and
   // must-change-password flags included. This goes through an Edge Function that
-  // returns only {id, name} for active technicians, so anon SELECT on `profiles`
-  // can be revoked (see the migration in supabase/ in this package).
+  // returns only {id, username} for active technicians, so anon SELECT on
+  // `profiles` can be revoked (see the migration in supabase/ in this package).
+  //
+  // As of 20260905_02_technician_username.sql, real names are kept out of this
+  // list entirely — the picker shows `username`, not `name`. The row shape
+  // returned here deliberately has no `name` field; anywhere downstream that
+  // needs the real name (after sign-in) re-fetches it from the authenticated
+  // session instead — see doSubmit() in renderTechnicianPinForm().
   async function publicListTechnicians(){
     const cfg = getCloudConfig();
     if(cfg && navigator.onLine){
@@ -101,7 +107,7 @@
           const rows = Array.isArray(body) ? body : (body.technicians || []);
           // Cache so the login screen still works on a phone with no signal.
           try{ await window.storage.set('tech-roster', JSON.stringify(rows), false); }catch(e){}
-          return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+          return rows.map(r=>({ id: r.id, username: r.username, active: true, restrictions: {}, mustChangePassword: false }));
         }
         console.error('list-technicians failed', res.status);
       }catch(e){ console.error('list-technicians request failed', e); }
@@ -112,10 +118,16 @@
       const cached = await window.storage.get('tech-roster', false);
       if(cached){
         const rows = JSON.parse(cached.value) || [];
-        if(rows.length) return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+        if(rows.length) return rows.map(r=>({ id: r.id, username: r.username, active: true, restrictions: {}, mustChangePassword: false }));
       }
     }catch(e){}
-    return await localListUsers();
+    // Local device-only fallback predates usernames entirely, so it has no
+    // username field to show — fall back to whatever name it has rather
+    // than an empty button label. This path is only ever reached with no
+    // cloud configured at all, i.e. never in the shared-cloud setup this
+    // app is built around.
+    const local = await localListUsers();
+    return local.map(u=> ({ ...u, username: u.username || u.name }));
   }
   async function cloudGetUser(id){
     if(await ensureCloud()){
@@ -128,12 +140,13 @@
     const users = await localListUsers();
     return users.find(u=>u.id===id) || null;
   }
-  // Updates name/active/restrictions only — never password (see admin-create-technician).
+  // Updates name/username/active/restrictions only — never password (see admin-create-technician).
   async function cloudSetUser(id, data){
     if(await ensureCloud()){
       try{
         const patch = {};
         if('name' in data) patch.name = data.name;
+        if('username' in data) patch.username = data.username;
         if('active' in data) patch.active = data.active;
         if(data.restrictions){
           patch.no_history = !!data.restrictions.noHistory;
@@ -625,7 +638,9 @@
       const btn = document.createElement('button');
       btn.type='button';
       btn.className='login-user-btn';
-      btn.textContent = u.name;
+      // Shows the technician's username, never their real name — see
+      // publicListTechnicians() / list-technicians Edge Function.
+      btn.textContent = u.username;
       btn.addEventListener('click', ()=> renderTechnicianPinForm(u));
       container.appendChild(btn);
     });
@@ -652,8 +667,9 @@
     }
     const field = document.createElement('div');
     field.className = 'field';
-    // Technician names are admin-entered free text; escape before injecting.
-    field.innerHTML = '<label>Password for '+escapeHtml(u.name)+'</label>';
+    // Usernames are admin-entered free text; escape before injecting. Real
+    // name is deliberately never available here (pre-login) — see above.
+    field.innerHTML = '<label>Password for '+escapeHtml(u.username)+'</label>';
     const input = document.createElement('input');
     input.type = 'password'; input.id = 'loginTechPin';
     input.placeholder = 'Enter your password';
@@ -669,16 +685,28 @@
       if(!(await ensureCloud())){ renderTechnicianPinForm(u, 'Not connected to the cloud — check Shared Cloud Setup.'); return; }
       submit.disabled = true;
       const { data, error } = await db.auth.signInWithPassword({ email: techEmail(u.id), password: pin });
+      if(error){ submit.disabled = false; renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
+      // The pre-login roster (u) intentionally carries no real name — only a
+      // username, for the picker. Now that we're authenticated, pull the
+      // real profile row (name, restrictions, must_change_password) via the
+      // profiles_select_self_or_admin policy, which lets a signed-in user
+      // read their own row. Everywhere else in the app (reports, DTR, cash
+      // advance, etc.) needs the real name, not the username.
+      const profRow = await cloudGetUser(data.user.id);
       submit.disabled = false;
-      if(error){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
-      currentUser = {id: data.user.id, name:u.name, role:'tech', restrictions: u.restrictions||{}, mustChangePassword: !!u.mustChangePassword};
+      if(!profRow){
+        await db.auth.signOut();
+        renderTechnicianPinForm(u, 'Could not load your account — try again.');
+        return;
+      }
+      currentUser = {id: data.user.id, name: profRow.name || u.username, role:'tech', restrictions: profRow.restrictions||{}, mustChangePassword: !!profRow.mustChangePassword};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
       enterApp();
-      toast('Welcome, '+u.name);
+      toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });

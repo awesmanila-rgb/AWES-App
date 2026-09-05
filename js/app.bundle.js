@@ -614,7 +614,7 @@
   function profileToUser(row){
     if(!row) return null;
     return {
-      id: row.id, name: row.name, active: row.active,
+      id: row.id, name: row.name, username: row.username || '', active: row.active,
       restrictions: { noHistory: row.no_history, noReport: row.no_report, readOnly: row.read_only },
       mustChangePassword: !!row.must_change_password
     };
@@ -668,8 +668,14 @@
   // table to be readable by the anonymous key — meaning anyone holding the
   // public key shipped in this app could dump every staff row, restrictions and
   // must-change-password flags included. This goes through an Edge Function that
-  // returns only {id, name} for active technicians, so anon SELECT on `profiles`
-  // can be revoked (see the migration in supabase/ in this package).
+  // returns only {id, username} for active technicians, so anon SELECT on
+  // `profiles` can be revoked (see the migration in supabase/ in this package).
+  //
+  // As of 20260905_02_technician_username.sql, real names are kept out of this
+  // list entirely — the picker shows `username`, not `name`. The row shape
+  // returned here deliberately has no `name` field; anywhere downstream that
+  // needs the real name (after sign-in) re-fetches it from the authenticated
+  // session instead — see doSubmit() in renderTechnicianPinForm().
   async function publicListTechnicians(){
     const cfg = getCloudConfig();
     if(cfg && navigator.onLine){
@@ -683,7 +689,7 @@
           const rows = Array.isArray(body) ? body : (body.technicians || []);
           // Cache so the login screen still works on a phone with no signal.
           try{ await window.storage.set('tech-roster', JSON.stringify(rows), false); }catch(e){}
-          return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+          return rows.map(r=>({ id: r.id, username: r.username, active: true, restrictions: {}, mustChangePassword: false }));
         }
         console.error('list-technicians failed', res.status);
       }catch(e){ console.error('list-technicians request failed', e); }
@@ -694,10 +700,16 @@
       const cached = await window.storage.get('tech-roster', false);
       if(cached){
         const rows = JSON.parse(cached.value) || [];
-        if(rows.length) return rows.map(r=>({ id: r.id, name: r.name, active: true, restrictions: {}, mustChangePassword: false }));
+        if(rows.length) return rows.map(r=>({ id: r.id, username: r.username, active: true, restrictions: {}, mustChangePassword: false }));
       }
     }catch(e){}
-    return await localListUsers();
+    // Local device-only fallback predates usernames entirely, so it has no
+    // username field to show — fall back to whatever name it has rather
+    // than an empty button label. This path is only ever reached with no
+    // cloud configured at all, i.e. never in the shared-cloud setup this
+    // app is built around.
+    const local = await localListUsers();
+    return local.map(u=> ({ ...u, username: u.username || u.name }));
   }
   async function cloudGetUser(id){
     if(await ensureCloud()){
@@ -710,12 +722,13 @@
     const users = await localListUsers();
     return users.find(u=>u.id===id) || null;
   }
-  // Updates name/active/restrictions only — never password (see admin-create-technician).
+  // Updates name/username/active/restrictions only — never password (see admin-create-technician).
   async function cloudSetUser(id, data){
     if(await ensureCloud()){
       try{
         const patch = {};
         if('name' in data) patch.name = data.name;
+        if('username' in data) patch.username = data.username;
         if('active' in data) patch.active = data.active;
         if(data.restrictions){
           patch.no_history = !!data.restrictions.noHistory;
@@ -1207,7 +1220,9 @@
       const btn = document.createElement('button');
       btn.type='button';
       btn.className='login-user-btn';
-      btn.textContent = u.name;
+      // Shows the technician's username, never their real name — see
+      // publicListTechnicians() / list-technicians Edge Function.
+      btn.textContent = u.username;
       btn.addEventListener('click', ()=> renderTechnicianPinForm(u));
       container.appendChild(btn);
     });
@@ -1234,8 +1249,9 @@
     }
     const field = document.createElement('div');
     field.className = 'field';
-    // Technician names are admin-entered free text; escape before injecting.
-    field.innerHTML = '<label>Password for '+escapeHtml(u.name)+'</label>';
+    // Usernames are admin-entered free text; escape before injecting. Real
+    // name is deliberately never available here (pre-login) — see above.
+    field.innerHTML = '<label>Password for '+escapeHtml(u.username)+'</label>';
     const input = document.createElement('input');
     input.type = 'password'; input.id = 'loginTechPin';
     input.placeholder = 'Enter your password';
@@ -1251,16 +1267,28 @@
       if(!(await ensureCloud())){ renderTechnicianPinForm(u, 'Not connected to the cloud — check Shared Cloud Setup.'); return; }
       submit.disabled = true;
       const { data, error } = await db.auth.signInWithPassword({ email: techEmail(u.id), password: pin });
+      if(error){ submit.disabled = false; renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
+      // The pre-login roster (u) intentionally carries no real name — only a
+      // username, for the picker. Now that we're authenticated, pull the
+      // real profile row (name, restrictions, must_change_password) via the
+      // profiles_select_self_or_admin policy, which lets a signed-in user
+      // read their own row. Everywhere else in the app (reports, DTR, cash
+      // advance, etc.) needs the real name, not the username.
+      const profRow = await cloudGetUser(data.user.id);
       submit.disabled = false;
-      if(error){ renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
-      currentUser = {id: data.user.id, name:u.name, role:'tech', restrictions: u.restrictions||{}, mustChangePassword: !!u.mustChangePassword};
+      if(!profRow){
+        await db.auth.signOut();
+        renderTechnicianPinForm(u, 'Could not load your account — try again.');
+        return;
+      }
+      currentUser = {id: data.user.id, name: profRow.name || u.username, role:'tech', restrictions: profRow.restrictions||{}, mustChangePassword: !!profRow.mustChangePassword};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
       enterApp();
-      toast('Welcome, '+u.name);
+      toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
@@ -2652,6 +2680,13 @@
 
 
 // ---------- Manage Users ----------
+  // Usernames are what the public, pre-login sign-in screen shows instead of
+  // a technician's real name (see list-technicians / publicListTechnicians).
+  // Kept deliberately simple/ASCII so it always renders cleanly as a button
+  // label and is easy for a technician to read back to themselves.
+  const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
+  function normalizeUsername(v){ return (v||'').trim().toLowerCase(); }
+
   function restrictionLabel(r){
     r = r || {};
     const flags = [];
@@ -2691,6 +2726,9 @@
             '<div class="u-status '+(active?'':'deact')+'">'+
               (active ? 'Active' : 'Deactivated')+' · '+escapeHtml(restrictionLabel(r))+
             '</div>'+
+            '<div class="u-status">Sign-in username: '+
+              (u.username ? escapeHtml(u.username) : '<span style="color:var(--amber);">not set — set one below</span>')+
+            '</div>'+
           '</div>'+
         '</div>'+
         '<div class="user-card-actions">'+
@@ -2701,6 +2739,7 @@
         '</div>'+
         '<div class="user-edit-panel" data-panel="1">'+
           '<div class="field"><label>Full Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>Username (shown on the sign-in screen instead of the name)</label><input type="text" data-f="username" autocapitalize="none" autocomplete="off" value="'+escapeHtml(u.username||'')+'"></div>'+
           '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
           '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
           '<div class="restrict-group">'+
@@ -2728,6 +2767,7 @@
         panel.classList.remove('open');
         // reset fields
         panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="username"]').value = u.username||'';
         panel.querySelector('[data-f="pw1"]').value = '';
         panel.querySelector('[data-f="pw2"]').value = '';
         panel.querySelector('[data-f="noHistory"]').checked = !!r.noHistory;
@@ -2736,9 +2776,14 @@
       });
       card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
         const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const newUsername = normalizeUsername(panel.querySelector('[data-f="username"]').value);
         const pw1 = panel.querySelector('[data-f="pw1"]').value;
         const pw2 = panel.querySelector('[data-f="pw2"]').value;
         if(!newName){ toast('Name cannot be empty'); return; }
+        if(!USERNAME_RE.test(newUsername)){
+          toast('Username must be 3-20 characters: letters, numbers, dot, underscore, or hyphen');
+          return;
+        }
         if(pw1 || pw2){
           if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
           if(pw1 !== pw2){ toast('Passwords do not match'); return; }
@@ -2748,7 +2793,7 @@
           noReport: panel.querySelector('[data-f="noReport"]').checked,
           readOnly: panel.querySelector('[data-f="readOnly"]').checked
         };
-        const ok1 = await cloudSetUser(u.id, { name: newName, restrictions });
+        const ok1 = await cloudSetUser(u.id, { name: newName, username: newUsername, restrictions });
         let ok2 = true;
         if(pw1){
           const { data, error } = await db.functions.invoke('admin-create-technician', {
@@ -3486,6 +3531,9 @@
     const isCust = $('newUserRole').value === 'customer';
     $('newUserCustomerField').style.display = isCust ? '' : 'none';
     $('newUserEmail').style.display = isCust ? '' : 'none';
+    // Customer portal logins sign in with an e-mail, not the technician
+    // picker, so there's nothing for a username to hide there.
+    $('newUserUsernameField').style.display = isCust ? 'none' : '';
     $('newUserNameLabel').textContent = isCust ? 'Contact Name' : 'Full Name';
     $('newUserName').placeholder = isCust ? 'e.g. Maria Santos' : 'e.g. Juan Dela Cruz';
     if(isCust) populateNewUserCustomerOptions();
@@ -3494,9 +3542,14 @@
   $('addUserBtn').addEventListener('click', async ()=>{
     const role = $('newUserRole').value;
     const name = $('newUserName').value.trim();
+    const username = normalizeUsername($('newUserUsername').value);
     const pin = $('newUserPin').value;
     const pin2 = $('newUserPin2').value;
     if(!name){ toast(role==='customer' ? 'Enter a contact name' : 'Enter a name'); return; }
+    if(role!=='customer' && !USERNAME_RE.test(username)){
+      toast('Username must be 3-20 characters: letters, numbers, dot, underscore, or hyphen');
+      return;
+    }
     if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
     if(pin !== pin2){ toast('Passwords do not match'); return; }
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
@@ -3533,14 +3586,25 @@
     try{
       // Real account creation happens server-side (Edge Function) so it can't
       // hijack the admin's own browser session — see admin-create-technician.
+      // That function's deployed source isn't part of this codebase (see the
+      // comment on the customer branch above), so `username` isn't passed to
+      // it — it likely wouldn't know what to do with a column it doesn't
+      // expect. Instead the username is saved as a normal follow-up profile
+      // update, the same path Edit already uses for name/restrictions.
       const { data, error } = await db.functions.invoke('admin-create-technician', {
         body: { name, password: pin }
       });
       if(error || (data && data.error)){
         toast((data && data.error) || 'Could not add user');
       }else{
-        $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value='';
-        toast('Added '+name);
+        const newId = data && data.id;
+        const usernameOk = newId ? await cloudSetUser(newId, { username }) : false;
+        $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserUsername').value='';
+        if(usernameOk){
+          toast('Added '+name);
+        }else{
+          toast('Added '+name+', but the username could not be saved (maybe already taken) — set it from Edit.');
+        }
         renderUsersList();
       }
     }finally{ $('addUserBtn').disabled = false; }

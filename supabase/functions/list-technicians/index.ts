@@ -1,7 +1,7 @@
 // list-technicians — public, minimal technician roster for the login screen.
 //
 // WHY THIS EXISTS
-// The login screen needs to show a picker of technician names before anyone has
+// The login screen needs to show a picker of technicians before anyone has
 // signed in. It used to get that list by querying the `profiles` table directly
 // with the anon key, which meant `profiles` had to be readable by the anonymous
 // role. That exposed every column of every row — including each technician's
@@ -10,8 +10,17 @@
 //
 // Now anon SELECT on `profiles` is revoked (see the migration) and this function
 // is the only public path to that data. It runs with the service-role key, which
-// stays server-side, and it deliberately returns nothing but {id, name} for
-// active technicians. No e-mails, no roles, no flags.
+// stays server-side, and it deliberately returns nothing but {id, username} for
+// active technicians. No e-mails, no roles, no flags — and, as of
+// 20260905_02_technician_username.sql, no real names either: the picker shows
+// each technician's `username`, never their `name`. `name` stays server-side
+// and authenticated-only (fetched by the client itself, after sign-in, via the
+// profiles_select_self_or_admin policy), used everywhere a real name is needed
+// (service reports, DTR, cash advance, leave, dispatch, etc.).
+//
+// A technician with no username set yet (e.g. added before this change, or an
+// admin who hasn't gotten to it) gets a short non-identifying placeholder
+// below instead of ever falling back to their real name.
 //
 // DEPLOY
 //   supabase functions deploy list-technicians --no-verify-jwt
@@ -65,16 +74,24 @@ Deno.serve(async (req) => {
 
     // Explicit column list, not select('*') — so that adding a sensitive column
     // to `profiles` later cannot silently start leaking it through this endpoint.
+    // `name` isn't selected at all — this function has no legitimate use for
+    // it, so it can't leak it even by accident.
     const { data, error } = await admin
       .from('profiles')
-      .select('id, name')
+      .select('id, username')
       .eq('role', 'technician')
       .eq('active', true)
-      .order('name', { ascending: true });
+      .order('username', { ascending: true, nullsFirst: false });
 
     if (error) throw error;
 
-    const technicians = (data ?? []).map((r) => ({ id: r.id, name: r.name }));
+    // Real `name` never leaves this function. No username set yet -> a
+    // placeholder built from the id, not the name, so nothing identifying
+    // leaks before an admin gets around to setting a real username.
+    const technicians = (data ?? []).map((r) => ({
+      id: r.id,
+      username: r.username || ('tech-' + String(r.id).slice(0, 8))
+    }));
 
     return new Response(JSON.stringify({ technicians }), {
       headers: {

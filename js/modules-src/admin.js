@@ -1,4 +1,11 @@
 // ---------- Manage Users ----------
+  // Usernames are what the public, pre-login sign-in screen shows instead of
+  // a technician's real name (see list-technicians / publicListTechnicians).
+  // Kept deliberately simple/ASCII so it always renders cleanly as a button
+  // label and is easy for a technician to read back to themselves.
+  const USERNAME_RE = /^[a-z0-9._-]{3,20}$/;
+  function normalizeUsername(v){ return (v||'').trim().toLowerCase(); }
+
   function restrictionLabel(r){
     r = r || {};
     const flags = [];
@@ -38,6 +45,9 @@
             '<div class="u-status '+(active?'':'deact')+'">'+
               (active ? 'Active' : 'Deactivated')+' · '+escapeHtml(restrictionLabel(r))+
             '</div>'+
+            '<div class="u-status">Sign-in username: '+
+              (u.username ? escapeHtml(u.username) : '<span style="color:var(--amber);">not set — set one below</span>')+
+            '</div>'+
           '</div>'+
         '</div>'+
         '<div class="user-card-actions">'+
@@ -48,6 +58,7 @@
         '</div>'+
         '<div class="user-edit-panel" data-panel="1">'+
           '<div class="field"><label>Full Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>Username (shown on the sign-in screen instead of the name)</label><input type="text" data-f="username" autocapitalize="none" autocomplete="off" value="'+escapeHtml(u.username||'')+'"></div>'+
           '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
           '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
           '<div class="restrict-group">'+
@@ -75,6 +86,7 @@
         panel.classList.remove('open');
         // reset fields
         panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="username"]').value = u.username||'';
         panel.querySelector('[data-f="pw1"]').value = '';
         panel.querySelector('[data-f="pw2"]').value = '';
         panel.querySelector('[data-f="noHistory"]').checked = !!r.noHistory;
@@ -83,9 +95,14 @@
       });
       card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
         const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const newUsername = normalizeUsername(panel.querySelector('[data-f="username"]').value);
         const pw1 = panel.querySelector('[data-f="pw1"]').value;
         const pw2 = panel.querySelector('[data-f="pw2"]').value;
         if(!newName){ toast('Name cannot be empty'); return; }
+        if(!USERNAME_RE.test(newUsername)){
+          toast('Username must be 3-20 characters: letters, numbers, dot, underscore, or hyphen');
+          return;
+        }
         if(pw1 || pw2){
           if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
           if(pw1 !== pw2){ toast('Passwords do not match'); return; }
@@ -95,7 +112,7 @@
           noReport: panel.querySelector('[data-f="noReport"]').checked,
           readOnly: panel.querySelector('[data-f="readOnly"]').checked
         };
-        const ok1 = await cloudSetUser(u.id, { name: newName, restrictions });
+        const ok1 = await cloudSetUser(u.id, { name: newName, username: newUsername, restrictions });
         let ok2 = true;
         if(pw1){
           const { data, error } = await db.functions.invoke('admin-create-technician', {
@@ -833,6 +850,9 @@
     const isCust = $('newUserRole').value === 'customer';
     $('newUserCustomerField').style.display = isCust ? '' : 'none';
     $('newUserEmail').style.display = isCust ? '' : 'none';
+    // Customer portal logins sign in with an e-mail, not the technician
+    // picker, so there's nothing for a username to hide there.
+    $('newUserUsernameField').style.display = isCust ? 'none' : '';
     $('newUserNameLabel').textContent = isCust ? 'Contact Name' : 'Full Name';
     $('newUserName').placeholder = isCust ? 'e.g. Maria Santos' : 'e.g. Juan Dela Cruz';
     if(isCust) populateNewUserCustomerOptions();
@@ -841,9 +861,14 @@
   $('addUserBtn').addEventListener('click', async ()=>{
     const role = $('newUserRole').value;
     const name = $('newUserName').value.trim();
+    const username = normalizeUsername($('newUserUsername').value);
     const pin = $('newUserPin').value;
     const pin2 = $('newUserPin2').value;
     if(!name){ toast(role==='customer' ? 'Enter a contact name' : 'Enter a name'); return; }
+    if(role!=='customer' && !USERNAME_RE.test(username)){
+      toast('Username must be 3-20 characters: letters, numbers, dot, underscore, or hyphen');
+      return;
+    }
     if(!pin || pin.length < 4){ toast('Password must be at least 4 characters'); return; }
     if(pin !== pin2){ toast('Passwords do not match'); return; }
     if(!(await ensureCloud())){ toast('Not connected to the cloud'); return; }
@@ -880,14 +905,25 @@
     try{
       // Real account creation happens server-side (Edge Function) so it can't
       // hijack the admin's own browser session — see admin-create-technician.
+      // That function's deployed source isn't part of this codebase (see the
+      // comment on the customer branch above), so `username` isn't passed to
+      // it — it likely wouldn't know what to do with a column it doesn't
+      // expect. Instead the username is saved as a normal follow-up profile
+      // update, the same path Edit already uses for name/restrictions.
       const { data, error } = await db.functions.invoke('admin-create-technician', {
         body: { name, password: pin }
       });
       if(error || (data && data.error)){
         toast((data && data.error) || 'Could not add user');
       }else{
-        $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value='';
-        toast('Added '+name);
+        const newId = data && data.id;
+        const usernameOk = newId ? await cloudSetUser(newId, { username }) : false;
+        $('newUserName').value=''; $('newUserPin').value=''; $('newUserPin2').value=''; $('newUserUsername').value='';
+        if(usernameOk){
+          toast('Added '+name);
+        }else{
+          toast('Added '+name+', but the username could not be saved (maybe already taken) — set it from Edit.');
+        }
         renderUsersList();
       }
     }finally{ $('addUserBtn').disabled = false; }

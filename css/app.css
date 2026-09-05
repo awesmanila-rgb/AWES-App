@@ -69,7 +69,18 @@
      plain .overlay{background:...} rule further down the file regardless of
      source order — both are otherwise equal specificity. */
   .overlay.login-overlay{
+    /* The base .overlay rule (further down this file) sets
+       justify-content:center for its normal bottom-sheet use. That rule's
+       intent doesn't carry over once this compound selector switches to
+       flex-direction:column: with no override here, "center" applies to
+       the column (vertical) axis instead, so the whole login screen —
+       including the Technician Access / Admin Panel links, which are the
+       first thing in it — floats in the middle of the screen instead of
+       being pinned to the top, especially noticeable while content is
+       still loading and the login screen is short. flex-start pins it to
+       the top regardless of how tall the content ends up being. */
     background:var(--portal-green); flex-direction:column; align-items:stretch;
+    justify-content:flex-start;
     overflow-y:auto; padding:18px 18px 36px;
   }
   .login-topbar{
