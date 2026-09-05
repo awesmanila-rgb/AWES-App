@@ -1903,10 +1903,11 @@
     m_qty:{label:'Components — Qty', group:'Components'},
     m_unit:{label:'Components — Unit', group:'Components'},
     servicesDone:{label:'Services Done', group:'Services Done'},
+    scopeOfWork:{label:'Scope of Work', group:'Dispatch'},
     custPrintedName:{label:'Customer Printed Name', group:'Acknowledgment'},
     techName:{label:'Technician Name', group:'Acknowledgment'}
   };
-  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Components','Services Done','Operating Data','Installation Data','Acknowledgment'];
+  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Components','Services Done','Dispatch','Operating Data','Installation Data','Acknowledgment'];
 
   let fieldLists = {};
   let adminMode = false;
@@ -2388,6 +2389,24 @@
       'Replaced fan motor',
       'Performed full preventive maintenance service',
       'Tested unit operation after service — normal cooling confirmed'
+    ],
+    // Used by the Dispatch form's "Default Scope of Works" list and each
+    // equipment item's own "Scope of Service" list — same suggestion-dropdown
+    // mechanism (attachCombo) as Service Report's Findings/Recs/Services Done,
+    // but phrased as planned work (what to do) rather than completed work
+    // (what was done), since these are written before the job is carried out.
+    scopeOfWork: [
+      'General cleaning (air filter, evaporator coil, condenser coil)',
+      'Check and recharge refrigerant to proper level',
+      'Flush and clear condensate drain line',
+      'Check and replace capacitor if needed',
+      'Replace air filter',
+      'Check and tighten electrical connections',
+      'Check and adjust refrigerant pressure',
+      'Check for and repair refrigerant leak',
+      'Check fan motor operation',
+      'Test unit operation after service',
+      'Preventive maintenance / cleaning'
     ],
     coolCap: [
       '0.5 HP (5,000 BTU/hr)', '0.75 HP (7,500 BTU/hr)', '1.0 HP (9,000 BTU/hr)',
@@ -5845,6 +5864,13 @@
   }
 
   // ---- simple repeatable-textarea list (scope items) ----
+  // Mirrors service-report.js's addListRow, including the suggestions
+  // dropdown (attachCombo) — this used to just be a plain textarea with no
+  // suggestions at all, unlike every equivalent list in Service Report
+  // (Findings, Recommendations, Services Done). Both the shared "Default
+  // Scope of Works" list and each equipment item's own "Scope of Service"
+  // list go through this function, so both get suggestions from the same
+  // admin-editable 'scopeOfWork' list (see DEFAULT_LISTS in customers.js).
   function dtAddSimpleRow(containerId, value){
     const wrap = document.createElement('div');
     wrap.className = 'itemrow';
@@ -5856,6 +5882,7 @@
     rm.onclick = () => wrap.remove();
     wrap.appendChild(ta); wrap.appendChild(rm);
     $(containerId).appendChild(wrap);
+    attachCombo(ta, 'scopeOfWork');
   }
   document.querySelectorAll('#dtNewCard .add-row-btn[data-target]').forEach(btn=>{
     btn.addEventListener('click', ()=> dtAddSimpleRow(btn.dataset.target));
@@ -6916,6 +6943,14 @@
       'Assign and track field jobs'
     );
     window.scrollTo({top:0});
+    // customersCache (used by the customer combo below) is only populated by
+    // whichever screen happens to load it first — Service Report's startup
+    // sequence, or Manage Customers. If Dispatch is the first screen opened
+    // after logging in, that cache is still empty here, so the customer
+    // suggestion list had nothing to show — looked exactly like a missing
+    // dropdown. Loading it here too means it's always populated by the time
+    // the combo is set up, regardless of what screen was visited first.
+    if(!customersCache || customersCache.length===0) await loadCustomers();
     dtSetupCustomerCombo();
     if(currentUser && currentUser.role==='admin'){
       $('dispatchTechArea').style.display = 'none';

@@ -1,8 +1,12 @@
-// Bumped to v22 to force every installed device to drop its old cache and
-// re-fetch index.html/css fresh — "Staff Access" moved again: it's now
-// pinned to the very bottom of the login screen (margin-top:auto in the
-// overlay's flex column) instead of sitting just under the quick-links.
-const CACHE_NAME = 'awes-sr-v22';
+// Bumped to v25 to force every installed device to drop its old cache and
+// re-fetch app.bundle.js fresh — includes the v24 fix (customer list loads
+// on Dispatch too) plus: "Default Scope of Works" and each equipment item's
+// "Scope of Service" list now have a suggestions dropdown (same mechanism
+// as Service Report's Findings/Recs/Services Done), backed by a new
+// admin-editable 'scopeOfWork' list under Manage Dropdown Lists → Dispatch.
+// This was simply never wired up before — dtAddSimpleRow() built a plain
+// textarea with no attachCombo() call at all.
+const CACHE_NAME = 'awes-sr-v25';
 
 // Split into two lists on purpose.
 //

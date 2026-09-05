@@ -238,10 +238,11 @@
     m_qty:{label:'Components — Qty', group:'Components'},
     m_unit:{label:'Components — Unit', group:'Components'},
     servicesDone:{label:'Services Done', group:'Services Done'},
+    scopeOfWork:{label:'Scope of Work', group:'Dispatch'},
     custPrintedName:{label:'Customer Printed Name', group:'Acknowledgment'},
     techName:{label:'Technician Name', group:'Acknowledgment'}
   };
-  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Components','Services Done','Operating Data','Installation Data','Acknowledgment'];
+  const GROUP_ORDER = ['Customer Info','Equipment','Report Summary','Components','Services Done','Dispatch','Operating Data','Installation Data','Acknowledgment'];
 
   let fieldLists = {};
   let adminMode = false;

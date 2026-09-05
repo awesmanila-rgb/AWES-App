@@ -83,12 +83,15 @@
     justify-content:flex-start;
     overflow-y:auto; padding:18px 18px 36px;
   }
-  /* Sits as a direct child of .login-overlay (a flex column), not inside
-     .login-wrap — margin-top:auto pushes it all the way to the bottom of
-     the screen instead of sitting right under the quick-links. */
+  /* Sits as a direct child of .login-overlay (a flex column), below
+     .login-wrap. A FIXED top margin (not margin-top:auto) so the gap below
+     the quick-links stays consistent on every screen — auto-margin used to
+     stretch this all the way to the literal bottom of the viewport, which
+     looked fine on a short phone screen but left a huge empty gap on a tall
+     desktop window. */
   .login-topbar{
     display:flex; justify-content:center; gap:8px; flex-wrap:wrap;
-    margin-top:auto; padding-top:18px; flex-shrink:0;
+    margin-top:40px; flex-shrink:0;
   }
   .login-toplink{
     background:none; border:none; color:#fff; font-size:12.5px; font-weight:700;

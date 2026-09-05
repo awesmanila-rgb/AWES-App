@@ -275,6 +275,13 @@
   }
 
   // ---- simple repeatable-textarea list (scope items) ----
+  // Mirrors service-report.js's addListRow, including the suggestions
+  // dropdown (attachCombo) — this used to just be a plain textarea with no
+  // suggestions at all, unlike every equivalent list in Service Report
+  // (Findings, Recommendations, Services Done). Both the shared "Default
+  // Scope of Works" list and each equipment item's own "Scope of Service"
+  // list go through this function, so both get suggestions from the same
+  // admin-editable 'scopeOfWork' list (see DEFAULT_LISTS in customers.js).
   function dtAddSimpleRow(containerId, value){
     const wrap = document.createElement('div');
     wrap.className = 'itemrow';
@@ -286,6 +293,7 @@
     rm.onclick = () => wrap.remove();
     wrap.appendChild(ta); wrap.appendChild(rm);
     $(containerId).appendChild(wrap);
+    attachCombo(ta, 'scopeOfWork');
   }
   document.querySelectorAll('#dtNewCard .add-row-btn[data-target]').forEach(btn=>{
     btn.addEventListener('click', ()=> dtAddSimpleRow(btn.dataset.target));
@@ -1346,6 +1354,14 @@
       'Assign and track field jobs'
     );
     window.scrollTo({top:0});
+    // customersCache (used by the customer combo below) is only populated by
+    // whichever screen happens to load it first — Service Report's startup
+    // sequence, or Manage Customers. If Dispatch is the first screen opened
+    // after logging in, that cache is still empty here, so the customer
+    // suggestion list had nothing to show — looked exactly like a missing
+    // dropdown. Loading it here too means it's always populated by the time
+    // the combo is set up, regardless of what screen was visited first.
+    if(!customersCache || customersCache.length===0) await loadCustomers();
     dtSetupCustomerCombo();
     if(currentUser && currentUser.role==='admin'){
       $('dispatchTechArea').style.display = 'none';

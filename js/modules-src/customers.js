@@ -395,6 +395,24 @@
       'Performed full preventive maintenance service',
       'Tested unit operation after service — normal cooling confirmed'
     ],
+    // Used by the Dispatch form's "Default Scope of Works" list and each
+    // equipment item's own "Scope of Service" list — same suggestion-dropdown
+    // mechanism (attachCombo) as Service Report's Findings/Recs/Services Done,
+    // but phrased as planned work (what to do) rather than completed work
+    // (what was done), since these are written before the job is carried out.
+    scopeOfWork: [
+      'General cleaning (air filter, evaporator coil, condenser coil)',
+      'Check and recharge refrigerant to proper level',
+      'Flush and clear condensate drain line',
+      'Check and replace capacitor if needed',
+      'Replace air filter',
+      'Check and tighten electrical connections',
+      'Check and adjust refrigerant pressure',
+      'Check for and repair refrigerant leak',
+      'Check fan motor operation',
+      'Test unit operation after service',
+      'Preventive maintenance / cleaning'
+    ],
     coolCap: [
       '0.5 HP (5,000 BTU/hr)', '0.75 HP (7,500 BTU/hr)', '1.0 HP (9,000 BTU/hr)',
       '1.5 HP (12,000 BTU/hr)', '2.0 HP (18,000 BTU/hr)', '2.5 HP (21,000 BTU/hr)',
