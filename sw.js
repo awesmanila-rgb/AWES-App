@@ -1,10 +1,8 @@
-// Bumped to v23 to force every installed device to drop its old cache and
-// re-fetch index.html/css fresh — "Staff Access" was pinned with
-// margin-top:auto to the literal bottom of the viewport, which stretched
-// into a huge empty gap on tall/desktop screens. Switched to a fixed
-// margin-top so the gap below the quick-links looks the same on any screen
-// size.
-const CACHE_NAME = 'awes-sr-v23';
+// Bumped to v22 to force every installed device to drop its old cache and
+// re-fetch index.html/css fresh — "Staff Access" moved again: it's now
+// pinned to the very bottom of the login screen (margin-top:auto in the
+// overlay's flex column) instead of sitting just under the quick-links.
+const CACHE_NAME = 'awes-sr-v22';
 
 // Split into two lists on purpose.
 //

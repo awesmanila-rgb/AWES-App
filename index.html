@@ -1714,21 +1714,22 @@ window.awesCss = {
         Manage Equipment
       </span>
     </div>
-    <!-- Single combined entry point for both staff roles. Used to live
-         top-right as its own "login-topbar" row; moved to bottom-center,
-         below the quick-links, per request. Used to be two separate links
-         here — Technician Access (which listed every active technician's
-         username as a tappable button, exposing the whole roster to anyone
-         who opened the login screen) and Admin Panel. Now both go through
-         one role chooser (see renderStaffRoleChooser in auth.js), and the
-         technician path asks for a username directly instead of showing
-         the list. -->
-    <div class="login-topbar">
-      <button type="button" class="login-toplink" id="loginStaffTopBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
-        Staff Access
-      </button>
-    </div>
+  </div>
+  <!-- Single combined entry point for both staff roles. Pinned to the very
+       bottom of the login screen itself (margin-top:auto pushes it to the
+       end of the overlay's flex column), separate from .login-wrap so it
+       stays put at the bottom of the page rather than tucked right under
+       the quick-links. Used to be two separate links here — Technician
+       Access (which listed every active technician's username as a
+       tappable button, exposing the whole roster to anyone who opened the
+       login screen) and Admin Panel. Now both go through one role chooser
+       (see renderStaffRoleChooser in auth.js), and the technician path asks
+       for a username directly instead of showing the list. -->
+  <div class="login-topbar">
+    <button type="button" class="login-toplink" id="loginStaffTopBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
+      Staff Access
+    </button>
   </div>
 </div>
 
