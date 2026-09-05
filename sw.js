@@ -1,8 +1,11 @@
-// Bumped to v17 to force every installed device to drop its old cache and
-// re-fetch app.bundle.js / index.html fresh — this build fixes a bug where a
-// hung sync request (no timeout on the outbox's network calls) could jam the
-// "Sync now" button permanently until the app was force-closed and reopened.
-const CACHE_NAME = 'awes-sr-v17';
+// Bumped to v18 to force every installed device to drop its old cache and
+// re-fetch index.html fresh — the pending-sync banner's "View" button, and the
+// whole detail sheet behind it (list, per-item error, Discard/Discard All),
+// existed only in core.js: the matching HTML (#pendingSyncViewBtn,
+// #pendingSyncOverlay, #pendingSyncList, #closePendingSync,
+// #pendingSyncClearAllBtn) was never added to index.html, so "View" did
+// nothing and there was no way to discard a permanently-stuck item.
+const CACHE_NAME = 'awes-sr-v18';
 
 // Split into two lists on purpose.
 //

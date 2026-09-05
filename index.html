@@ -148,9 +148,33 @@ window.awesCss = {
      the shared cloud yet (see the outbox in js/modules-src/core.js). Before this
      existed, offline work simply disappeared from view as soon as signal came
      back, because History silently switches to cloud data when online. -->
-<div id="pendingSyncBanner" style="display:none; position:fixed; left:0; right:0; top:0; z-index:9998; background:#8A5A00; color:#fff; padding:10px 14px; align-items:center; justify-content:space-between; gap:10px; box-shadow:0 2px 8px rgba(0,0,0,.2);">
+<div id="pendingSyncBanner" style="display:none; position:fixed; left:0; right:0; top:0; z-index:9998; background:#8A5A00; color:#fff; padding:10px 14px; align-items:center; justify-content:space-between; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,.2);">
   <span id="pendingSyncText" style="font-size:12.5px; font-weight:600; line-height:1.35;">Some work is saved on this device only.</span>
-  <button type="button" id="pendingSyncBtn" style="flex:0 0 auto; background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
+  <div style="flex:0 0 auto; display:flex; gap:6px;">
+    <button type="button" id="pendingSyncViewBtn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,.6); border-radius:7px; padding:7px 10px; font-size:12.5px; font-weight:700; cursor:pointer;">View</button>
+    <button type="button" id="pendingSyncBtn" style="background:#fff; color:#8A5A00; border:none; border-radius:7px; padding:7px 12px; font-size:12.5px; font-weight:700; cursor:pointer;">Sync now</button>
+  </div>
+</div>
+
+<!-- Pending-sync detail sheet: lets a technician see exactly what's stuck on this
+     device, why (per-item "Last try failed" reason), and discard an item that
+     can never go through (e.g. corrupted by an old bug) instead of it sitting
+     there forever. Referenced by core.js (renderPendingSyncList / the
+     pendingSyncViewBtn, closePendingSync and pendingSyncClearAllBtn handlers) —
+     this markup used to be missing entirely, which made "View" a dead button. -->
+<div class="overlay" id="pendingSyncOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Pending Sync</h3>
+      <button class="sheet-close" id="closePendingSync">&times;</button>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin-top:0;">
+      Work saved on this device only. It uploads automatically once there's a
+      connection — anything that keeps failing will show the reason below.
+    </p>
+    <div id="pendingSyncList"></div>
+    <button type="button" class="btn" id="pendingSyncClearAllBtn" style="display:none; width:100%; margin-top:10px; background:#fdeceb; color:var(--danger);">Discard All</button>
+  </div>
 </div>
 
 <!-- Admin dashboard shell: a persistent sidebar + main content column.
