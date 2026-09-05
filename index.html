@@ -1690,18 +1690,22 @@ window.awesCss = {
 <!-- Login gate (blocking). Open by default so it covers the page instantly on
      load/reopen, before any JS/network work finishes — prevents a flash of the
      underlying form. checkLoginGate() closes it once a saved session is verified.
-     Staff-access links top-right and the quick-link chips at the bottom are
-     static chrome that stay put across every loginList view (customer form,
-     technician list, admin form); only loginList's own content is swapped by JS. -->
+     The "Staff Access" link top-right and the quick-link chips at the bottom
+     are static chrome that stay put across every loginList view (customer
+     form, staff role chooser, technician form, admin form); only loginList's
+     own content is swapped by JS. -->
 <div class="overlay open login-overlay" id="loginOverlay" style="z-index:80;">
   <div class="login-topbar">
-    <button type="button" class="login-toplink" id="loginTechTopBtn">
+    <!-- Single combined entry point for both staff roles. Used to be two
+         separate links here — Technician Access (which listed every active
+         technician's username as a tappable button, exposing the whole
+         roster to anyone who opened the login screen) and Admin Panel. Now
+         both go through one role chooser (see renderStaffRoleChooser in
+         auth.js), and the technician path asks for a username directly
+         instead of showing the list. -->
+    <button type="button" class="login-toplink" id="loginStaffTopBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
-      Technician Access
-    </button>
-    <button type="button" class="login-toplink" id="loginAdminTopBtn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-      Admin Panel
+      Staff Access
     </button>
   </div>
 

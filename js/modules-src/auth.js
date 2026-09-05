@@ -81,7 +81,9 @@
     }
     return [];
   }
-  // The login screen needs a list of technicians BEFORE anyone is signed in.
+  // Used behind the scenes (not rendered as a picker — see
+  // renderTechnicianLoginForm) purely to resolve a typed username to a
+  // technician id, since Supabase Auth needs an email, not a username.
   // It used to call cloudListUsers() directly, which required the `profiles`
   // table to be readable by the anonymous key — meaning anyone holding the
   // public key shipped in this app could dump every staff row, restrictions and
@@ -90,10 +92,10 @@
   // `profiles` can be revoked (see the migration in supabase/ in this package).
   //
   // As of 20260905_02_technician_username.sql, real names are kept out of this
-  // list entirely — the picker shows `username`, not `name`. The row shape
-  // returned here deliberately has no `name` field; anywhere downstream that
-  // needs the real name (after sign-in) re-fetches it from the authenticated
-  // session instead — see doSubmit() in renderTechnicianPinForm().
+  // list entirely. The row shape returned here deliberately has no `name`
+  // field; anywhere downstream that needs the real name (after sign-in)
+  // re-fetches it from the authenticated session instead — see doSubmit() in
+  // renderTechnicianLoginForm().
   async function publicListTechnicians(){
     const cfg = getCloudConfig();
     if(cfg && navigator.onLine){
@@ -469,9 +471,10 @@
 
   // The login gate's default screen. Customer sign-in is the primary path —
   // its form renders directly here, front and center. Technician access and
-  // Admin panel are one tap away via the static top-bar links (see the
-  // #loginTechTopBtn/#loginAdminTopBtn wiring below); this function only
-  // owns the credentials card itself.
+  // Admin panel are one tap away via the static top-bar "Staff Access" link
+  // (see the #loginStaffTopBtn wiring below), which opens a role chooser
+  // rather than either form directly; this function only owns the
+  // credentials card itself.
   function showRoleChooser(message){
     const container = $('loginList');
     container.innerHTML = '';
@@ -574,7 +577,7 @@
   function renderAdminLoginForm(message){
     const container = $('loginList');
     container.innerHTML = '';
-    container.appendChild(loginBackButton());
+    container.appendChild(loginStaffBackButton());
     if(message){
       const m = document.createElement('div');
       m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
@@ -616,7 +619,25 @@
     setTimeout(()=> input.focus(), 50);
   }
 
-  function renderTechnicianList(users, message){
+  // Back button for the two staff forms (Technician / Admin) — returns to the
+  // role chooser rather than all the way out to the customer sign-in card,
+  // since that's the screen the technician/admin actually came from.
+  function loginStaffBackButton(){
+    const back = document.createElement('button');
+    back.type='button'; back.className='login-user-btn';
+    back.style.cssText = 'background:#EEF1ED; color:var(--text);';
+    back.textContent = '← Back';
+    back.addEventListener('click', ()=> renderStaffRoleChooser());
+    return back;
+  }
+
+  // Staff sign-in used to be two separate top-bar links: "Technician Access"
+  // (which fetched and displayed EVERY active technician's username as a
+  // tappable button before asking for a password) and "Admin Panel". Both
+  // now go through this one combined entry point — pick a role first, then
+  // enter credentials — and the technician roster is never rendered as a
+  // pickable list; see renderTechnicianLoginForm below.
+  function renderStaffRoleChooser(message){
     const container = $('loginList');
     container.innerHTML = '';
     container.appendChild(loginBackButton());
@@ -626,69 +647,86 @@
       m.textContent = message;
       container.appendChild(m);
     }
-    const active = users.filter(u=>u.active!==false);
-    if(active.length===0){
-      const empty = document.createElement('div');
-      empty.className='empty-state';
-      empty.textContent = 'No active technician accounts. Ask your admin to add one.';
-      container.appendChild(empty);
-      return;
-    }
-    active.forEach(u=>{
-      const btn = document.createElement('button');
-      btn.type='button';
-      btn.className='login-user-btn';
-      // Shows the technician's username, never their real name — see
-      // publicListTechnicians() / list-technicians Edge Function.
-      btn.textContent = u.username;
-      btn.addEventListener('click', ()=> renderTechnicianPinForm(u));
-      container.appendChild(btn);
-    });
+    const heading = document.createElement('div');
+    heading.style.cssText = 'font-size:13px; font-weight:700; color:var(--text-muted); margin-bottom:8px; text-align:center;';
+    heading.textContent = 'Sign in as';
+    container.appendChild(heading);
+    const techBtn = document.createElement('button');
+    techBtn.type='button'; techBtn.className='login-user-btn';
+    techBtn.textContent = '👷 Technician';
+    techBtn.addEventListener('click', ()=> renderTechnicianLoginForm());
+    container.appendChild(techBtn);
+    const adminBtn = document.createElement('button');
+    adminBtn.type='button'; adminBtn.className='login-user-btn';
+    adminBtn.textContent = '🔑 Admin';
+    adminBtn.addEventListener('click', ()=> renderAdminLoginForm());
+    container.appendChild(adminBtn);
   }
 
-  function renderTechnicianPinForm(u, message){
+  // Technician sign-in: username + password in a single step. The username is
+  // matched (case-insensitively) against the roster from
+  // publicListTechnicians() purely to look up the internal auth email
+  // (techEmail(id)) Supabase actually needs for signInWithPassword — that
+  // roster is fetched quietly in the background and never rendered, so a
+  // visitor to the login screen no longer sees every technician's username
+  // the way the old picker did. An unknown username and a wrong password
+  // both show the same generic message, so failed attempts can't be used to
+  // fish for which usernames exist.
+  function renderTechnicianLoginForm(message, prefillUsername){
     const container = $('loginList');
     container.innerHTML = '';
-    const back = document.createElement('button');
-    back.type='button'; back.className='login-user-btn';
-    back.style.cssText = 'background:#EEF1ED; color:var(--text);';
-    back.textContent = '← Back';
-    back.addEventListener('click', async ()=>{
-      container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await publicListTechnicians();
-      renderTechnicianList(users || []);
-    });
-    container.appendChild(back);
+    container.appendChild(loginStaffBackButton());
     if(message){
       const m = document.createElement('div');
       m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
       m.textContent = message;
       container.appendChild(m);
     }
-    const field = document.createElement('div');
-    field.className = 'field';
-    // Usernames are admin-entered free text; escape before injecting. Real
-    // name is deliberately never available here (pre-login) — see above.
-    field.innerHTML = '<label>Password for '+escapeHtml(u.username)+'</label>';
-    const input = document.createElement('input');
-    input.type = 'password'; input.id = 'loginTechPin';
-    input.placeholder = 'Enter your password';
-    field.appendChild(input);
-    container.appendChild(field);
+    const userField = document.createElement('div');
+    userField.className = 'field';
+    userField.innerHTML = '<label>Username</label>';
+    const userInput = document.createElement('input');
+    userInput.type = 'text'; userInput.id = 'loginTechUser';
+    userInput.placeholder = 'Enter your username';
+    userInput.autocapitalize = 'none'; userInput.autocomplete = 'username';
+    if(prefillUsername) userInput.value = prefillUsername;
+    userField.appendChild(userInput);
+    container.appendChild(userField);
+
+    const pwField = document.createElement('div');
+    pwField.className = 'field';
+    pwField.innerHTML = '<label>Password</label>';
+    const pwInput = document.createElement('input');
+    pwInput.type = 'password'; pwInput.id = 'loginTechPw';
+    pwInput.placeholder = 'Enter your password';
+    pwField.appendChild(pwInput);
+    container.appendChild(pwField);
 
     const submit = document.createElement('button');
     submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
     submit.textContent = 'Sign In';
     const doSubmit = async ()=>{
-      const pin = input.value;
-      if(!pin){ toast('Enter your password'); return; }
-      if(!(await ensureCloud())){ renderTechnicianPinForm(u, 'Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      const username = (userInput.value||'').trim();
+      const pw = pwInput.value;
+      if(!username || !pw){ toast('Enter your username and password'); return; }
+      if(!(await ensureCloud())){ renderTechnicianLoginForm('Not connected to the cloud — check Shared Cloud Setup.', username); return; }
       submit.disabled = true;
-      const { data, error } = await db.auth.signInWithPassword({ email: techEmail(u.id), password: pin });
-      if(error){ submit.disabled = false; renderTechnicianPinForm(u, 'Incorrect password — try again.'); return; }
-      // The pre-login roster (u) intentionally carries no real name — only a
-      // username, for the picker. Now that we're authenticated, pull the
-      // real profile row (name, restrictions, must_change_password) via the
+      const roster = await publicListTechnicians();
+      const match = (roster||[]).find(u=> (u.username||'').toLowerCase() === username.toLowerCase());
+      if(!match){
+        submit.disabled = false;
+        renderTechnicianLoginForm('Incorrect username or password — try again.', username);
+        return;
+      }
+      const { data, error } = await db.auth.signInWithPassword({ email: techEmail(match.id), password: pw });
+      if(error){
+        submit.disabled = false;
+        renderTechnicianLoginForm('Incorrect username or password — try again.', username);
+        return;
+      }
+      // The roster match above intentionally carries no real name — only a
+      // username. Now that we're authenticated, pull the real profile row
+      // (name, restrictions, must_change_password) via the
       // profiles_select_self_or_admin policy, which lets a signed-in user
       // read their own row. Everywhere else in the app (reports, DTR, cash
       // advance, etc.) needs the real name, not the username.
@@ -696,10 +734,10 @@
       submit.disabled = false;
       if(!profRow){
         await db.auth.signOut();
-        renderTechnicianPinForm(u, 'Could not load your account — try again.');
+        renderTechnicianLoginForm('Could not load your account — try again.', username);
         return;
       }
-      currentUser = {id: data.user.id, name: profRow.name || u.username, role:'tech', restrictions: profRow.restrictions||{}, mustChangePassword: !!profRow.mustChangePassword};
+      currentUser = {id: data.user.id, name: profRow.name || match.username, role:'tech', restrictions: profRow.restrictions||{}, mustChangePassword: !!profRow.mustChangePassword};
       localStorage.setItem('current-user', JSON.stringify(currentUser));
       updateUserBadge();
       applyUserRestrictions();
@@ -709,9 +747,9 @@
       toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
-    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
     container.appendChild(submit);
-    setTimeout(()=> input.focus(), 50);
+    setTimeout(()=> userInput.focus(), 50);
   }
 
   async function showLoginScreen(message){
@@ -937,6 +975,14 @@
     stopIdleWatch();
     trackerStopBroadcasting();
     trackerAdminTeardown();
+    // This used to only clear the app's OWN 'current-user' flag and never told
+    // Supabase Auth to end the session. The real session cookie/token was left
+    // fully valid, so the login screen showing right after tapping Logout was
+    // cosmetic only — checkLoginGate() runs on every reload, calls
+    // db.auth.getSession(), finds that still-live session, and logs the same
+    // account straight back in, landing on the homepage instead of login.
+    // Signing out of Supabase itself is what actually ends the session.
+    if(db){ try{ await db.auth.signOut(); }catch(e){} }
     currentUser = null;
     localStorage.removeItem('current-user');
     updateUserBadge();
@@ -982,17 +1028,11 @@
     $('cfgSupabaseUrl').value = ''; $('cfgSupabaseKey').value = '';
     toast('Disconnected — this device will use local storage only');
   });
-  // Static top-bar staff-access links on the login screen (always visible,
-  // regardless of which loginList view — customer form, tech list, admin
-  // form — is currently showing). Mirrors the taps the old in-card
-  // "👷 Technician access" / "🔑 Admin panel" links used to perform.
-  $('loginTechTopBtn').addEventListener('click', async ()=>{
-    const container = $('loginList');
-    container.innerHTML = '<div class="empty-state">Loading…</div>';
-    const users = await publicListTechnicians();
-    renderTechnicianList(users || []);
-  });
-  $('loginAdminTopBtn').addEventListener('click', ()=> renderAdminLoginForm());
+  // Static top-bar staff-access link on the login screen (always visible,
+  // regardless of which loginList view is currently showing). Used to be two
+  // separate links (Technician / Admin); now it's one combined entry point —
+  // see renderStaffRoleChooser.
+  $('loginStaffTopBtn').addEventListener('click', ()=> renderStaffRoleChooser());
 
   $('migrateBtn').addEventListener('click', async ()=>{
     if(!(await ensureCloud())){ toast('Connect to the cloud first'); return; }

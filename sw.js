@@ -1,10 +1,12 @@
-// Bumped to v19 to force every installed device to drop its old cache and
-// re-fetch app.bundle.js fresh — doLogout() cleared only the app's own
-// 'current-user' flag and never called Supabase's db.auth.signOut(), so the
-// real Auth session stayed valid. On the next reload, checkLoginGate() found
-// that still-live session and signed the same account straight back in
-// instead of staying on the login screen.
-const CACHE_NAME = 'awes-sr-v19';
+// Bumped to v20 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js fresh — Technician Access and Admin
+// Panel used to be two separate top-bar links, and tapping Technician Access
+// fetched and displayed every active technician's username as a tappable
+// button before asking for a password. Both now go through one "Staff
+// Access" link: pick a role (Technician/Admin) first, then enter
+// username+password (Technician) or password (Admin) — the technician
+// roster is looked up quietly on submit and never rendered as a list.
+const CACHE_NAME = 'awes-sr-v20';
 
 // Split into two lists on purpose.
 //
