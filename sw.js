@@ -1,11 +1,10 @@
-// Bumped to v18 to force every installed device to drop its old cache and
-// re-fetch index.html fresh — the pending-sync banner's "View" button, and the
-// whole detail sheet behind it (list, per-item error, Discard/Discard All),
-// existed only in core.js: the matching HTML (#pendingSyncViewBtn,
-// #pendingSyncOverlay, #pendingSyncList, #closePendingSync,
-// #pendingSyncClearAllBtn) was never added to index.html, so "View" did
-// nothing and there was no way to discard a permanently-stuck item.
-const CACHE_NAME = 'awes-sr-v18';
+// Bumped to v19 to force every installed device to drop its old cache and
+// re-fetch app.bundle.js fresh — doLogout() cleared only the app's own
+// 'current-user' flag and never called Supabase's db.auth.signOut(), so the
+// real Auth session stayed valid. On the next reload, checkLoginGate() found
+// that still-live session and signed the same account straight back in
+// instead of staying on the login screen.
+const CACHE_NAME = 'awes-sr-v19';
 
 // Split into two lists on purpose.
 //
