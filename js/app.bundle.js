@@ -992,37 +992,58 @@
     if(menuBtnEl){ menuBtnEl.textContent = '☰ Menu'; menuBtnEl.classList.remove('admin-badge'); }
   }
 
+  // Small inline icon set (Feather-style, stroke=currentColor) shared by the
+  // sign-in form's input fields. Kept as plain SVG markup strings rather than
+  // an icon font/library so the login screen still renders with zero network
+  // dependency on a weak field connection.
+  const LOGIN_ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m2 7 10 6 10-6"></path></svg>';
+  const LOGIN_ICON_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+  const LOGIN_ICON_EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+  const LOGIN_ICON_EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.62 21.62 0 0 1 5.06-5.94"></path><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.16 3.19"></path><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+
+  // Wraps a text/email/password input with a left-side icon (and, for
+  // passwords, a show/hide toggle on the right) inside a .field.
+  function loginFieldWithIcon({label, id, type, placeholder, iconHtml, toggleable}){
+    const field = document.createElement('div');
+    field.className = 'field';
+    const labelEl = document.createElement('label');
+    labelEl.textContent = label;
+    field.appendChild(labelEl);
+    const wrap = document.createElement('div');
+    wrap.className = 'login-input-wrap';
+    const icon = document.createElement('span');
+    icon.className = 'li-icon';
+    icon.innerHTML = iconHtml;
+    wrap.appendChild(icon);
+    const input = document.createElement('input');
+    input.type = type; input.id = id; input.placeholder = placeholder;
+    if(toggleable) input.classList.add('has-toggle');
+    wrap.appendChild(input);
+    if(toggleable){
+      const toggle = document.createElement('button');
+      toggle.type = 'button'; toggle.className = 'li-toggle';
+      toggle.innerHTML = LOGIN_ICON_EYE;
+      toggle.setAttribute('aria-label','Show password');
+      toggle.addEventListener('click', ()=>{
+        const showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        toggle.innerHTML = showing ? LOGIN_ICON_EYE : LOGIN_ICON_EYE_OFF;
+        toggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      });
+      wrap.appendChild(toggle);
+    }
+    field.appendChild(wrap);
+    return {field, input};
+  }
+
   // The login gate's default screen. Customer sign-in is the primary path —
-  // its form renders directly here, front and center, with feature callouts
-  // below it. Technician and Admin are still one tap away, but demoted to a
-  // small quiet link row up top rather than equal-weight buttons, since the
-  // overwhelming majority of people opening this app day-to-day are
-  // customers, not staff.
+  // its form renders directly here, front and center. Technician access and
+  // Admin panel are one tap away via the static top-bar links (see the
+  // #loginTechTopBtn/#loginAdminTopBtn wiring below); this function only
+  // owns the credentials card itself.
   function showRoleChooser(message){
     const container = $('loginList');
     container.innerHTML = '';
-
-    const staffRow = document.createElement('div');
-    staffRow.className = 'login-staff-row';
-    const techLink = document.createElement('button');
-    techLink.type='button'; techLink.className = 'login-staff-link';
-    techLink.textContent = '👷 Technician access';
-    techLink.addEventListener('click', async ()=>{
-      container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await publicListTechnicians();
-      renderTechnicianList(users || []);
-    });
-    const adminLink = document.createElement('button');
-    adminLink.type='button'; adminLink.className = 'login-staff-link';
-    adminLink.textContent = '🔑 Admin panel';
-    adminLink.addEventListener('click', ()=> renderAdminLoginForm());
-    staffRow.appendChild(techLink);
-    staffRow.appendChild(adminLink);
-    container.appendChild(staffRow);
-
-    const divider = document.createElement('div');
-    divider.className = 'login-divider';
-    container.appendChild(divider);
 
     if(message){
       const m = document.createElement('div');
@@ -1031,25 +1052,15 @@
       container.appendChild(m);
     }
 
-    const tagline = document.createElement('p');
-    tagline.className = 'login-tagline';
-    tagline.textContent = 'Track your service history and request support';
-    container.appendChild(tagline);
-
-    const emailField = document.createElement('div');
-    emailField.className = 'field';
-    emailField.innerHTML = '<label>Email</label>';
-    const emailInput = document.createElement('input');
-    emailInput.type = 'email'; emailInput.id = 'loginCustEmail'; emailInput.placeholder = 'you@example.com';
-    emailField.appendChild(emailInput);
+    const { field: emailField, input: emailInput } = loginFieldWithIcon({
+      label:'Email', id:'loginCustEmail', type:'email', placeholder:'you@example.com', iconHtml: LOGIN_ICON_MAIL
+    });
     container.appendChild(emailField);
 
-    const pwField = document.createElement('div');
-    pwField.className = 'field';
-    pwField.innerHTML = '<label>Password</label>';
-    const pwInput = document.createElement('input');
-    pwInput.type = 'password'; pwInput.id = 'loginCustPw'; pwInput.placeholder = 'Enter your password';
-    pwField.appendChild(pwInput);
+    const { field: pwField, input: pwInput } = loginFieldWithIcon({
+      label:'Password', id:'loginCustPw', type:'password', placeholder:'Enter your password',
+      iconHtml: LOGIN_ICON_LOCK, toggleable:true
+    });
     container.appendChild(pwField);
 
     const submit = document.createElement('button');
@@ -1104,14 +1115,6 @@
     submit.addEventListener('click', doSubmit);
     pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
     container.appendChild(submit);
-
-    const features = document.createElement('div');
-    features.className = 'login-features';
-    features.innerHTML =
-      '<div class="login-feature"><span class="lf-icon">📋</span><span class="lf-label">Track Requests</span></div>'
-      + '<div class="login-feature"><span class="lf-icon">⚡</span><span class="lf-label">Fast Service</span></div>'
-      + '<div class="login-feature"><span class="lf-icon">👤</span><span class="lf-label">Manage Profile</span></div>';
-    container.appendChild(features);
 
     const cloudLink = document.createElement('button');
     cloudLink.type='button';
@@ -1533,6 +1536,18 @@
     $('cfgSupabaseUrl').value = ''; $('cfgSupabaseKey').value = '';
     toast('Disconnected — this device will use local storage only');
   });
+  // Static top-bar staff-access links on the login screen (always visible,
+  // regardless of which loginList view — customer form, tech list, admin
+  // form — is currently showing). Mirrors the taps the old in-card
+  // "👷 Technician access" / "🔑 Admin panel" links used to perform.
+  $('loginTechTopBtn').addEventListener('click', async ()=>{
+    const container = $('loginList');
+    container.innerHTML = '<div class="empty-state">Loading…</div>';
+    const users = await publicListTechnicians();
+    renderTechnicianList(users || []);
+  });
+  $('loginAdminTopBtn').addEventListener('click', ()=> renderAdminLoginForm());
+
   $('migrateBtn').addEventListener('click', async ()=>{
     if(!(await ensureCloud())){ toast('Connect to the cloud first'); return; }
     $('migrateBtn').textContent = 'Uploading…'; $('migrateBtn').disabled = true;

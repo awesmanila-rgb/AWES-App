@@ -1665,14 +1665,41 @@ window.awesCss = {
 
 <!-- Login gate (blocking). Open by default so it covers the page instantly on
      load/reopen, before any JS/network work finishes — prevents a flash of the
-     underlying form. checkLoginGate() closes it once a saved session is verified. -->
-<div class="overlay open" id="loginOverlay" style="align-items:center; z-index:80; background:var(--bg);">
-  <div class="sheet login-sheet" style="border-radius:16px; max-height:85vh;">
+     underlying form. checkLoginGate() closes it once a saved session is verified.
+     Staff-access links top-right and the quick-link chips at the bottom are
+     static chrome that stay put across every loginList view (customer form,
+     technician list, admin form); only loginList's own content is swapped by JS. -->
+<div class="overlay open login-overlay" id="loginOverlay" style="z-index:80;">
+  <div class="login-topbar">
+    <button type="button" class="login-toplink" id="loginTechTopBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"></circle><path d="M5.5 21a6.5 6.5 0 0 1 13 0"></path></svg>
+      Technician Access
+    </button>
+    <button type="button" class="login-toplink" id="loginAdminTopBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      Admin Panel
+    </button>
+  </div>
+
+  <div class="login-wrap">
     <div class="login-logo"><img src="logo.png" alt="AWES"></div>
-    <div class="sheet-head" style="justify-content:center; margin-bottom:6px;">
-      <h3>Sign In</h3>
+    <h3 class="login-heading">Sign In</h3>
+    <p class="login-tagline">Track your service history and Schedules</p>
+    <div class="login-card" id="loginList"></div>
+    <div class="login-quicklinks">
+      <span class="login-qlink">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6"></path><path d="M9 16h3"></path><path d="M9 3h6a1 1 0 0 1 1 1v1h1a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h1V4a1 1 0 0 1 1-1Z"></path></svg>
+        Request a Service
+      </span>
+      <span class="login-qlink">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+        View History
+      </span>
+      <span class="login-qlink">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        Manage Equipment
+      </span>
     </div>
-    <div id="loginList"></div>
   </div>
 </div>
 
