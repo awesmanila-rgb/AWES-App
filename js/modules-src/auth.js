@@ -410,38 +410,131 @@
     if(menuBtnEl){ menuBtnEl.textContent = '☰ Menu'; menuBtnEl.classList.remove('admin-badge'); }
   }
 
+  // The login gate's default screen. Customer sign-in is the primary path —
+  // its form renders directly here, front and center, with feature callouts
+  // below it. Technician and Admin are still one tap away, but demoted to a
+  // small quiet link row up top rather than equal-weight buttons, since the
+  // overwhelming majority of people opening this app day-to-day are
+  // customers, not staff.
   function showRoleChooser(message){
     const container = $('loginList');
     container.innerHTML = '';
+
+    const staffRow = document.createElement('div');
+    staffRow.style.cssText = 'display:flex; justify-content:center; gap:22px; margin-bottom:14px;';
+    const staffLinkStyle = 'background:none; border:none; color:var(--text-muted); font-size:12px; font-weight:600; cursor:pointer; padding:4px;';
+    const techLink = document.createElement('button');
+    techLink.type='button'; techLink.style.cssText = staffLinkStyle;
+    techLink.textContent = '👷 Technician access';
+    techLink.addEventListener('click', async ()=>{
+      container.innerHTML = '<div class="empty-state">Loading…</div>';
+      const users = await publicListTechnicians();
+      renderTechnicianList(users || []);
+    });
+    const adminLink = document.createElement('button');
+    adminLink.type='button'; adminLink.style.cssText = staffLinkStyle;
+    adminLink.textContent = '🔑 Admin panel';
+    adminLink.addEventListener('click', ()=> renderAdminLoginForm());
+    staffRow.appendChild(techLink);
+    staffRow.appendChild(adminLink);
+    container.appendChild(staffRow);
+
+    const divider = document.createElement('div');
+    divider.style.cssText = 'border-top:1px solid var(--border); margin-bottom:16px;';
+    container.appendChild(divider);
+
     if(message){
       const m = document.createElement('div');
       m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
       m.textContent = message;
       container.appendChild(m);
     }
-    const techBtn = document.createElement('button');
-    techBtn.type='button'; techBtn.className='login-user-btn';
-    techBtn.textContent = '👷 Technician';
-    techBtn.addEventListener('click', async ()=>{
-      container.innerHTML = '<div class="empty-state">Loading…</div>';
-      const users = await publicListTechnicians();
-      renderTechnicianList(users || []);
-    });
-    const adminLoginBtn = document.createElement('button');
-    adminLoginBtn.type='button'; adminLoginBtn.className='login-user-btn';
-    adminLoginBtn.textContent = '🔑 Admin';
-    adminLoginBtn.addEventListener('click', ()=> renderAdminLoginForm());
-    const customerLoginBtn = document.createElement('button');
-    customerLoginBtn.type='button'; customerLoginBtn.className='login-user-btn';
-    customerLoginBtn.textContent = '🧾 Customer Portal';
-    customerLoginBtn.addEventListener('click', ()=> renderCustomerLoginForm());
-    container.appendChild(techBtn);
-    container.appendChild(adminLoginBtn);
-    container.appendChild(customerLoginBtn);
+
+    const tagline = document.createElement('p');
+    tagline.style.cssText = 'font-size:13px; color:var(--text-muted); text-align:center; margin:0 0 16px;';
+    tagline.textContent = 'Track your service history and request support';
+    container.appendChild(tagline);
+
+    const emailField = document.createElement('div');
+    emailField.className = 'field';
+    emailField.innerHTML = '<label>Email</label>';
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email'; emailInput.id = 'loginCustEmail'; emailInput.placeholder = 'you@example.com';
+    emailField.appendChild(emailInput);
+    container.appendChild(emailField);
+
+    const pwField = document.createElement('div');
+    pwField.className = 'field';
+    pwField.innerHTML = '<label>Password</label>';
+    const pwInput = document.createElement('input');
+    pwInput.type = 'password'; pwInput.id = 'loginCustPw'; pwInput.placeholder = 'Enter your password';
+    pwField.appendChild(pwInput);
+    container.appendChild(pwField);
+
+    const submit = document.createElement('button');
+    submit.type = 'button'; submit.className = 'btn btn-primary';
+    submit.style.cssText = 'width:100%; margin-bottom:16px;';
+    submit.textContent = 'Sign In to Portal';
+    const doSubmit = async ()=>{
+      const email = (emailInput.value||'').trim();
+      const pw = pwInput.value;
+      if(!email || !pw){ toast('Enter your email and password'); return; }
+      if(!(await ensureCloud())){ showRoleChooser('Not connected to the cloud — check Shared Cloud Setup.'); return; }
+      submit.disabled = true;
+      const { data, error } = await db.auth.signInWithPassword({ email, password: pw });
+      if(error){ submit.disabled = false; showRoleChooser('Incorrect email or password — try again.'); return; }
+      let prof = null;
+      try{
+        const res = await db.from('profiles').select('role, name, active').eq('id', data.user.id).maybeSingle();
+        prof = res.data;
+      }catch(e){}
+      if(!prof || prof.role !== 'customer'){
+        submit.disabled = false;
+        await db.auth.signOut();
+        showRoleChooser('This account is not set up as a customer portal login.');
+        return;
+      }
+      if(prof.active===false){
+        submit.disabled = false;
+        await db.auth.signOut();
+        showRoleChooser('This account has been deactivated. Contact your service provider.');
+        return;
+      }
+      const custList = await fetchCustomerLinks(data.user.id);
+      if(!custList.length){
+        submit.disabled = false;
+        await db.auth.signOut();
+        showRoleChooser('This account is not linked to any customer records yet. Contact your service provider.');
+        return;
+      }
+      const activeId = pickActiveCustomerId(custList, data.user.id);
+      submit.disabled = false;
+      currentUser = {
+        id: data.user.id, name: prof.name || 'there', role:'customer',
+        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
+      };
+      localStorage.setItem('current-user', JSON.stringify(currentUser));
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      toast('Welcome, '+currentUser.name);
+    };
+    submit.addEventListener('click', doSubmit);
+    pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
+    container.appendChild(submit);
+
+    const features = document.createElement('div');
+    features.style.cssText = 'display:flex; justify-content:space-around; border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;';
+    features.innerHTML =
+      '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">📋</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Track Requests</span></div>'
+      + '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">⚡</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Fast Service</span></div>'
+      + '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:17px;">👤</span><span style="font-size:11px; color:var(--text-muted); font-weight:600;">Manage Profile</span></div>';
+    container.appendChild(features);
 
     const cloudLink = document.createElement('button');
     cloudLink.type='button';
-    cloudLink.style.cssText = 'width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer;';
+    cloudLink.style.cssText = 'width:100%; margin-top:2px; background:none; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer;';
     cloudLink.textContent = cloudReady ? '☁ Connected — Cloud Setup' : '☁ Not connected — tap to set up Shared Cloud';
     cloudLink.addEventListener('click', ()=>{
       const cfg = getCloudConfig();
@@ -450,6 +543,8 @@
       $('cloudOverlay').classList.add('open');
     });
     container.appendChild(cloudLink);
+
+    setTimeout(()=> emailInput.focus(), 50);
   }
 
   function loginBackButton(){
@@ -504,90 +599,6 @@
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
     container.appendChild(submit);
     setTimeout(()=> input.focus(), 50);
-  }
-
-  // Customer accounts sign in with an email + password an admin set up for
-  // them (see the migration notes for how that account gets created) —
-  // unlike technicians, customers aren't picked from a public roster list,
-  // so this is a plain email/password form like Admin's, not a name-picker.
-  function renderCustomerLoginForm(message){
-    const container = $('loginList');
-    container.innerHTML = '';
-    container.appendChild(loginBackButton());
-    if(message){
-      const m = document.createElement('div');
-      m.style.cssText = 'font-size:13px; color:var(--danger); margin-bottom:10px; text-align:center;';
-      m.textContent = message;
-      container.appendChild(m);
-    }
-    const emailField = document.createElement('div');
-    emailField.className = 'field';
-    emailField.innerHTML = '<label>Email</label>';
-    const emailInput = document.createElement('input');
-    emailInput.type = 'email'; emailInput.id = 'loginCustEmail'; emailInput.placeholder = 'you@example.com';
-    emailField.appendChild(emailInput);
-    container.appendChild(emailField);
-
-    const pwField = document.createElement('div');
-    pwField.className = 'field';
-    pwField.innerHTML = '<label>Password</label>';
-    const pwInput = document.createElement('input');
-    pwInput.type = 'password'; pwInput.id = 'loginCustPw'; pwInput.placeholder = 'Enter your password';
-    pwField.appendChild(pwInput);
-    container.appendChild(pwField);
-
-    const submit = document.createElement('button');
-    submit.type = 'button'; submit.className = 'btn btn-primary'; submit.style.width = '100%';
-    submit.textContent = 'Sign In';
-    const doSubmit = async ()=>{
-      const email = (emailInput.value||'').trim();
-      const pw = pwInput.value;
-      if(!email || !pw){ toast('Enter your email and password'); return; }
-      if(!(await ensureCloud())){ renderCustomerLoginForm('Not connected to the cloud — check Shared Cloud Setup.'); return; }
-      submit.disabled = true;
-      const { data, error } = await db.auth.signInWithPassword({ email, password: pw });
-      if(error){ submit.disabled = false; renderCustomerLoginForm('Incorrect email or password — try again.'); return; }
-      let prof = null;
-      try{
-        const res = await db.from('profiles').select('role, name, active').eq('id', data.user.id).maybeSingle();
-        prof = res.data;
-      }catch(e){}
-      if(!prof || prof.role !== 'customer'){
-        submit.disabled = false;
-        await db.auth.signOut();
-        renderCustomerLoginForm('This account is not set up as a customer portal login.');
-        return;
-      }
-      if(prof.active===false){
-        submit.disabled = false;
-        await db.auth.signOut();
-        renderCustomerLoginForm('This account has been deactivated. Contact your service provider.');
-        return;
-      }
-      const custList = await fetchCustomerLinks(data.user.id);
-      if(!custList.length){
-        submit.disabled = false;
-        await db.auth.signOut();
-        renderCustomerLoginForm('This account is not linked to any customer records yet. Contact your service provider.');
-        return;
-      }
-      const activeId = pickActiveCustomerId(custList, data.user.id);
-      submit.disabled = false;
-      currentUser = {
-        id: data.user.id, name: prof.name || 'there', role:'customer',
-        customerId: activeId, customerIds: custList.map(c=> c.id), customerList: custList
-      };
-      localStorage.setItem('current-user', JSON.stringify(currentUser));
-      updateUserBadge();
-      applyUserRestrictions();
-      $('loginOverlay').classList.remove('open');
-      enterApp();
-      toast('Welcome, '+currentUser.name);
-    };
-    submit.addEventListener('click', doSubmit);
-    pwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') doSubmit(); });
-    container.appendChild(submit);
-    setTimeout(()=> emailInput.focus(), 50);
   }
 
   function renderTechnicianList(users, message){
