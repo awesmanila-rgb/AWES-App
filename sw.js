@@ -1,9 +1,8 @@
-// Bumped to v16 to force every installed device to drop its old cache and
-// re-fetch app.bundle.js / index.html fresh — the batch-sign-multiple-drafts
-// feature (new DOM ids + JS) landed without a matching cache-name bump, so
-// devices that already had a service worker installed had no forced trigger
-// to refresh it.
-const CACHE_NAME = 'awes-sr-v16';
+// Bumped to v17 to force every installed device to drop its old cache and
+// re-fetch app.bundle.js / index.html fresh — this build fixes a bug where a
+// hung sync request (no timeout on the outbox's network calls) could jam the
+// "Sync now" button permanently until the app was force-closed and reopened.
+const CACHE_NAME = 'awes-sr-v17';
 
 // Split into two lists on purpose.
 //

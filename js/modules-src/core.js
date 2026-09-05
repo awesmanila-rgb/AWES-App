@@ -437,10 +437,32 @@
   }
   async function outboxCount(){ return (await outboxList()).length; }
 
+  // Wraps a single outbox handler call with a hard deadline. Without this, a
+  // request that hangs instead of failing cleanly (common on mobile: a
+  // WiFi->cellular handoff mid-request, a weak signal, a captive portal that
+  // silently swallows HTTPS) never resolves AND never rejects — which used to
+  // leave outboxFlushing stuck at true forever, since the surrounding
+  // try/finally never gets to run. Every future call (the 30s timer, the
+  // 'online' event, coming back to the foreground, and the Sync now button)
+  // would then hit the very first line of outboxFlush and bail out silently,
+  // making the button look like it had stopped working — with no way to
+  // recover short of fully restarting the app. Racing each call against a
+  // timeout guarantees the loop always moves on and the lock always clears.
+  const OUTBOX_ITEM_TIMEOUT_MS = 20000;
+  function withTimeout(promise, ms){
+    return new Promise((resolve, reject)=>{
+      const t = setTimeout(()=> reject(new Error('Timed out waiting for a response ('+Math.round(ms/1000)+'s)')), ms);
+      promise.then(
+        (v)=>{ clearTimeout(t); resolve(v); },
+        (e)=>{ clearTimeout(t); reject(e); }
+      );
+    });
+  }
+
   let outboxFlushing = false;
   async function outboxFlush(opts){
     opts = opts || {};
-    if(outboxFlushing) return {sent:0, left:0};
+    if(outboxFlushing) return {sent:0, left:await outboxCount(), stuck:true};
     if(!(await ensureCloud())) return {sent:0, left:await outboxCount()};
     outboxFlushing = true;
     let sent = 0, left = 0, lastError = null;
@@ -450,7 +472,7 @@
         const handler = outboxHandlers[item.kind];
         if(!handler){ left++; continue; }
         let ok = false, errMsg = null;
-        try{ await handler(item.id, item.payload); ok = true; }
+        try{ await withTimeout(handler(item.id, item.payload), OUTBOX_ITEM_TIMEOUT_MS); ok = true; }
         catch(e){ errMsg = describeCloudError(e); console.error('outbox replay failed', item.kind, item.id, errMsg); }
         if(ok){
           sent++;
@@ -514,7 +536,10 @@
   const pendingSyncBtn = $('pendingSyncBtn');
   if(pendingSyncBtn) pendingSyncBtn.addEventListener('click', async ()=>{
     const res = await outboxFlush();
-    if(!res.sent) toast(res.left ? (res.lastError ? 'Upload failed: '+res.lastError : 'Still no connection — will keep trying') : 'Nothing pending');
+    if(!res.sent){
+      if(res.stuck) toast('Still working on a previous sync — try again in a moment');
+      else toast(res.left ? (res.lastError ? 'Upload failed: '+res.lastError : 'Still no connection — will keep trying') : 'Nothing pending');
+    }
   });
 
   // Human-readable labels for each outbox "kind" — used only in the list below.
