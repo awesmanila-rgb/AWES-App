@@ -572,7 +572,8 @@
   @media (max-width:700px){ .greet-today-jo{ flex:1 1 auto; max-width:none; } }
   .greet-today-jo-title{font-size:12px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
   .greet-jo-empty{font-size:13px; color:var(--text-muted); font-style:italic;}
-  .greet-jo-item{background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px;}
+  .greet-jo-item{background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px; cursor:pointer;}
+  .greet-jo-item:active{background:var(--green-light);}
   .greet-jo-item + .greet-jo-item{margin-top:8px;}
   .greet-jo-item-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}
   .greet-jo-no{font-weight:800; font-size:13px; color:var(--text);}

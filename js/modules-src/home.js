@@ -159,22 +159,6 @@
   }
 
   // ---------- Home screen greeting (technicians only) ----------
-  // Today's Job Order card(s) are clickable — tapping one opens the same
-  // ticket detail overlay as "Open Job Order" elsewhere. Delegated once
-  // here since renderHomeGreeting() rebuilds #homeGreetingText's innerHTML
-  // on every call, which would otherwise drop a per-element listener.
-  $('homeGreetingText').addEventListener('click', (e)=>{
-    const item = e.target.closest('[data-jo-open]');
-    if(!item) return;
-    dtOpenTicketOverlay(item.dataset.joOpen);
-  });
-  $('homeGreetingText').addEventListener('keydown', (e)=>{
-    if(e.key!=='Enter' && e.key!==' ') return;
-    const item = e.target.closest('[data-jo-open]');
-    if(!item) return;
-    e.preventDefault();
-    dtOpenTicketOverlay(item.dataset.joOpen);
-  });
   async function renderHomeGreeting(){
     const card = $('homeGreetingCard');
     if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
@@ -238,7 +222,7 @@
     const joBody = todaysJo.length===0
       ? '<div class="greet-jo-empty">No job order scheduled for today.</div>'
       : todaysJo.map(t=>
-          '<div class="greet-jo-item" data-jo-open="'+escapeHtml(t.id)+'" role="button" tabindex="0">'+
+          '<div class="greet-jo-item" data-ticket-id="'+escapeHtml(t.id)+'">'+
             '<div class="greet-jo-item-head">'+
               '<span class="greet-jo-no">'+escapeHtml(t.jobOrderNo||t.id)+'</span>'+
               dtStatusPill(t)+
@@ -847,3 +831,18 @@
   $('tile_materialRequest').addEventListener('click', ()=> flashComingSoonHeader('Material Request Form', 'Material Request Form — coming soon'));
   $('tile_changePassword').addEventListener('click', ()=> showChangePasswordScreen(false));
   $('homeBtn').addEventListener('click', showHome);
+
+  // Today's Job Order card(s) in the home greeting — delegated on the
+  // persistent container since renderHomeGreeting() rebuilds its contents
+  // (via innerHTML) on every call, which would otherwise strip any listener
+  // attached directly to a card. Opens My Job Order and jumps straight to
+  // that ticket, reusing the same highlight-and-expand behavior already
+  // used when a technician is sent here from the Service Report picker
+  // (see srGoAcknowledgeTicket).
+  $('homeGreetingText').addEventListener('click', function(e){
+    const item = e.target.closest('.greet-jo-item');
+    if(!item) return;
+    const ticketId = item.getAttribute('data-ticket-id');
+    if(!ticketId) return;
+    showDispatchView().then(()=> dtHighlightTechCard(ticketId));
+  });
