@@ -6324,7 +6324,7 @@
   }
   function dtStatusPill(r){
     const status = dtEffectiveStatus(r);
-    if(status==='completed') return leaveStatusPill('approved');
+    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Completed</span>';
     if(status==='closed'){
       const hasExceptions = (r.equipmentList||[]).some(it=> it.notDone);
       return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
@@ -6618,7 +6618,7 @@
     const items = dtSortTechTickets(mine);
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
-    if(items.length===0){ list.innerHTML = '<div class="empty-state">No dispatch tickets assigned to you.</div>'; return; }
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">📭 No job orders yet<br><span class="dt-jo-empty-sub">Job orders your admin assigns to you will show up here.</span></div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');
@@ -9335,7 +9335,10 @@
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-PH', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
     const timeStr = now.toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'});
-    const todayDtr = await dtrGetDay(currentUser.id, todayISO()).catch(()=>null);
+    const [todayDtr, myTickets] = await Promise.all([
+      dtrGetDay(currentUser.id, todayISO()).catch(()=>null),
+      dtListForWorker(currentUser.id).catch(()=>[])
+    ]);
     const alreadyTimedIn = !!(todayDtr && todayDtr.timeIn);
     const alreadyTimedOut = !!(todayDtr && todayDtr.timeOut);
     const fmt = (iso)=> iso ? new Date(iso).toLocaleTimeString('en-PH', {hour:'2-digit', minute:'2-digit'}) : '—';
@@ -9375,7 +9378,37 @@
       html += '<div class="greet-reminder">⏰ Don\'t forget to tap "Time-Out" before you head home.</div>';
     }
     html += '<p class="greet-thanks">Thank you!</p>';
-    $('homeGreetingText').innerHTML = html;
+
+    // Today's Job Order(s) — sits to the right of the greeting so it's the
+    // first thing a technician's eye lands on, without having to open My
+    // Job Order and scan for today's date. Matched on scheduled date only
+    // (not status), so a same-day ticket still shows here even once it's
+    // been acknowledged or completed.
+    const todaysJo = (myTickets||[]).filter(t=> t.date===todayISO())
+      .sort((a,b)=> (a.expectedTime||'').localeCompare(b.expectedTime||''));
+    const joBody = todaysJo.length===0
+      ? '<div class="greet-jo-empty">No job order scheduled for today.</div>'
+      : todaysJo.map(t=>
+          '<div class="greet-jo-item">'+
+            '<div class="greet-jo-item-head">'+
+              '<span class="greet-jo-no">'+escapeHtml(t.jobOrderNo||t.id)+'</span>'+
+              dtStatusPill(t)+
+            '</div>'+
+            '<div class="greet-jo-cust">'+escapeHtml(t.custName||'')+'</div>'+
+            (t.expectedTime ? '<div class="greet-jo-time">🕒 '+escapeHtml(t.expectedTime)+'</div>' : '')+
+          '</div>'
+        ).join('');
+    const todayJoHtml =
+      '<div class="greet-today-jo">'+
+        '<div class="greet-today-jo-title">📋 Today\'s Job Order'+(todaysJo.length>1?'s':'')+'</div>'+
+        joBody+
+      '</div>';
+
+    $('homeGreetingText').innerHTML =
+      '<div class="greet-layout">'+
+        '<div class="greet-main">'+html+'</div>'+
+        todayJoHtml+
+      '</div>';
   }
 
   // ---------- Home screen overview (technician only) ----------

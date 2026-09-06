@@ -735,7 +735,7 @@
   }
   function dtStatusPill(r){
     const status = dtEffectiveStatus(r);
-    if(status==='completed') return leaveStatusPill('approved');
+    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Completed</span>';
     if(status==='closed'){
       const hasExceptions = (r.equipmentList||[]).some(it=> it.notDone);
       return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
@@ -1029,7 +1029,7 @@
     const items = dtSortTechTickets(mine);
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
-    if(items.length===0){ list.innerHTML = '<div class="empty-state">No dispatch tickets assigned to you.</div>'; return; }
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">📭 No job orders yet<br><span class="dt-jo-empty-sub">Job orders your admin assigns to you will show up here.</span></div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');

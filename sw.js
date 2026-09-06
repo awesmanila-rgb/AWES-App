@@ -1,16 +1,12 @@
-// Bumped to v27 to force every installed device to drop its old cache and
-// re-fetch index.html/app.bundle.js fresh — adds a whole new Reimbursement
-// flow, separate from Cash Advance + Liquidate, for out-of-pocket expenses a
-// technician paid themselves (no advance involved). Technician: "Reimburse
-// Expense" tab — add one or more expense items (date, description, amount,
-// required receipt), submit as a batch for admin review. Admin: a separate
-// "🧾 Reimbursement" section (Pending / Approved-not-yet-paid / Paid /
-// Disapproved / All) to Approve/Disapprove and then "Record Payment" with
-// the date and amount actually paid. Reuses the cash_advance_requests table
-// (data.kind:'reimbursement') so it inherits the same DB-level protection on
-// status/decision/payment fields and the same offline-outbox handling with
-// no schema changes.
-const CACHE_NAME = 'awes-sr-v30';
+// Bumped to v32 to force every installed device to drop its old cache and
+// re-fetch fresh assets — two fixes: (1) a Completed job order in "My Job
+// Order" was showing an "Approved" pill (borrowed from the Leave/Cash
+// Advance status styling) instead of "Completed", which doesn't match any
+// of the four progressive stages technicians are taught (Open / Acknowledged
+// / Completed / Closed); (2) the technician's home-screen greeting now shows
+// an emphasized "Today's Job Order" panel on the right, listing whichever
+// job order(s) are scheduled for today.
+const CACHE_NAME = 'awes-sr-v32';
 
 // Split into two lists on purpose.
 //
