@@ -374,6 +374,12 @@
       const avatarEl = $('sidebarAvatar'); if(avatarEl) avatarEl.textContent = initial;
       const acctNameEl = $('sidebarAccountName'); if(acctNameEl) acctNameEl.textContent = currentUser.name || '—';
       const acctRoleEl = $('sidebarAccountRole'); if(acctRoleEl) acctRoleEl.textContent = isAdmin ? 'Super Administrator' : isCustomer ? 'Customer' : 'Technician';
+      // The dashboard top bar's greeting was left as static placeholder HTML
+      // ("Good day, Admin! 👋") — nothing ever wrote the real signed-in
+      // name into it, so every role (including technicians and customers)
+      // saw the literal word "Admin" here regardless of who was actually
+      // logged in.
+      const greetTitleEl = $('dtGreetingTitle'); if(greetTitleEl) greetTitleEl.textContent = 'Good day, '+(currentUser.name||'there')+'! 👋';
     }
     // "New" (header shortcut for a blank report) and "Create New" (Service
     // Report tab) both start a fresh, blank report. Technicians already

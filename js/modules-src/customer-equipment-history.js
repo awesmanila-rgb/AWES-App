@@ -116,6 +116,29 @@
     $('customerHomeScreen').style.display = '';
   }
 
+  // Opens a completed report as a PDF preview for a customer — same
+  // preview overlay history.js's "View" action uses for admin/tech, just
+  // reached from the customer portal instead. cpReports only carries the
+  // summary columns customer-portal.js selected (findings/recs/etc. as
+  // plain text lists), not the full row shape buildPdf() needs (before/
+  // after readings, install data, signatures), so this re-fetches the
+  // report fresh via cloudGetReport() rather than reusing the cpReports
+  // entry directly.
+  async function openCustomerReportPreview(sr){
+    try{
+      const d = await cloudGetReport(sr);
+      if(!d){ toast('Could not open this report'); return; }
+      const doc = await buildPdf(d);
+      $('previewOverlay').querySelector('h3').textContent = d.custName ? d.custName : 'Report';
+      $('previewOkBtn').textContent = 'Close';
+      $('previewOverlay').classList.add('open');
+      await renderPdfPreview(doc);
+    }catch(err){
+      console.error('view customer report failed', err);
+      toast('Could not open this report');
+    }
+  }
+
   // ---------- Customer Portal wiring ----------
   // Routes a customer session to the customer home screen, hiding every
   // other view the same way showHome() does for admin/tech — but kept as
