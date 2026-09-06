@@ -570,20 +570,14 @@
     padding:14px; display:flex; flex-direction:column; gap:10px;
   }
   @media (max-width:700px){ .greet-today-jo{ flex:1 1 auto; max-width:none; } }
-  .greet-today-jo-title{font-size:14px; font-weight:900; letter-spacing:.4px; text-transform:uppercase; color:#8A5A00;}
-  .greet-jo-empty{font-size:14px; color:var(--text-muted); font-style:italic;}
-  .greet-jo-item{
-    background:#fff; border:2px solid #F0D9A6; border-radius:10px; padding:12px;
-    cursor:pointer; transition:border-color .15s, box-shadow .15s;
-  }
-  .greet-jo-item:hover, .greet-jo-item:focus-visible{
-    border-color:#B8860B; box-shadow:0 2px 8px rgba(184,134,11,.25); outline:none;
-  }
+  .greet-today-jo-title{font-size:12px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
+  .greet-jo-empty{font-size:13px; color:var(--text-muted); font-style:italic;}
+  .greet-jo-item{background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px;}
   .greet-jo-item + .greet-jo-item{margin-top:8px;}
-  .greet-jo-item-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;}
-  .greet-jo-no{font-weight:900; font-size:17px; color:var(--text); letter-spacing:.2px;}
-  .greet-jo-cust{font-size:15px; color:var(--text); font-weight:700;}
-  .greet-jo-time{font-size:13px; color:var(--text-muted); font-weight:600; margin-top:3px;}
+  .greet-jo-item-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}
+  .greet-jo-no{font-weight:800; font-size:13px; color:var(--text);}
+  .greet-jo-cust{font-size:13px; color:var(--text); font-weight:600;}
+  .greet-jo-time{font-size:12px; color:var(--text-muted); margin-top:2px;}
   .dtr-loc-tag{
     font-size:11px; color:var(--green-dark); background:none; border:none; padding:0; margin-top:2px;
     display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit;
@@ -614,7 +608,7 @@
   .toast{
     position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
     background:var(--green-dark); color:#fff; padding:10px 18px; border-radius:999px;
-    font-size:13px; font-weight:600; z-index:60; opacity:0; transition:opacity .2s; pointer-events:none;
+    font-size:13px; font-weight:600; z-index:9999; opacity:0; transition:opacity .2s; pointer-events:none;
   }
   .toast.show{opacity:1;}
 
