@@ -6617,6 +6617,7 @@
         '<label class="chk"><input type="checkbox" class="dt-notdone-chk" '+checked+'><span>Scope not completed on this unit</span></label>'+
         '<textarea class="dt-notdone-reason" rows="2" placeholder="Reason (e.g. parts needed, access denied, unit not operational)" '+
           'style="display:'+(it.notDone ? '' : 'none')+';">'+escapeHtml(it.notDoneReason||'')+'</textarea>'+
+        '<div class="dt-notdone-error">Reason required — this unit is marked as not completed.</div>'+
       '</div>';
     }).join('');
   }
@@ -6672,11 +6673,28 @@
   $('dtTicketOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtTicketOverlay') dtCloseTicketOverlay(); });
 
   // Toggle a unit's reason textarea as its "not completed" checkbox changes.
+  // Also clears any lingering invalid-state highlight from a previous failed
+  // submit attempt (see dtCloseSubmitBtn below) once the box is hidden again.
   $('dtCloseSection').addEventListener('change', (e)=>{
     if(!e.target.classList.contains('dt-notdone-chk')) return;
     const row = e.target.closest('.dt-close-row');
     const ta = row && row.querySelector('.dt-notdone-reason');
     if(ta) ta.style.display = e.target.checked ? '' : 'none';
+    if(!e.target.checked && row){
+      ta.classList.remove('invalid');
+      const err = row.querySelector('.dt-notdone-error');
+      if(err) err.classList.remove('show');
+    }
+  });
+  // Clear the invalid highlight the moment the technician starts typing a
+  // reason, rather than making them resubmit first to see it clear.
+  $('dtCloseSection').addEventListener('input', (e)=>{
+    if(!e.target.classList.contains('dt-notdone-reason')) return;
+    if(!e.target.value.trim()) return;
+    e.target.classList.remove('invalid');
+    const row = e.target.closest('.dt-close-row');
+    const err = row && row.querySelector('.dt-notdone-error');
+    if(err) err.classList.remove('show');
   });
 
   async function dtCloseTicket(ticketId, equipmentList, remarks){
@@ -6710,17 +6728,35 @@
     if(!dtOverlayTicket) return;
     const rows = $$('#dtCloseChecklist .dt-close-row');
     const equipmentList = (dtOverlayTicket.equipmentList||[]).slice();
+    // Clear any invalid-state highlight left over from a previous attempt
+    // before re-checking, so a row that's now fixed doesn't stay marked red.
+    rows.forEach(row=>{
+      row.querySelector('.dt-notdone-reason').classList.remove('invalid');
+      row.querySelector('.dt-notdone-error').classList.remove('show');
+    });
+    let firstBadRow = null;
     for(let i=0; i<rows.length; i++){
       const chk = rows[i].querySelector('.dt-notdone-chk');
       const reasonEl = rows[i].querySelector('.dt-notdone-reason');
       const notDone = chk.checked;
       const reason = reasonEl.value.trim();
       if(notDone && !reason){
-        toast('Add a reason for every unit marked "not completed"');
-        reasonEl.focus();
-        return;
+        reasonEl.classList.add('invalid');
+        rows[i].querySelector('.dt-notdone-error').classList.add('show');
+        if(!firstBadRow) firstBadRow = reasonEl;
+        continue;
       }
       equipmentList[i] = Object.assign({}, equipmentList[i], { notDone, notDoneReason: notDone ? reason : '' });
+    }
+    if(firstBadRow){
+      // The toast alone used to be the only signal here, and it fades in
+      // ~2s — easy to miss, and tapping Close then looked like it silently
+      // did nothing. The red border + message above stay on screen until
+      // fixed, regardless of whether the toast gets read in time.
+      toast('Add a reason for every unit marked "not completed"');
+      firstBadRow.scrollIntoView({block:'center', behavior:'smooth'});
+      firstBadRow.focus();
+      return;
     }
     const exceptionCount = equipmentList.filter(it=>it.notDone).length;
     const confirmMsg = exceptionCount>0
@@ -7080,14 +7116,28 @@
   // the single most expensive thing the admin screens did, on a mobile
   // connection, every time the tab was opened.
   function caStripAttachments(rec){
-    if(!rec || !rec.liquidation || !Array.isArray(rec.liquidation.items)) return rec;
-    return Object.assign({}, rec, {
-      liquidation: Object.assign({}, rec.liquidation, {
-        items: rec.liquidation.items.map(i=> i && i.attachmentData
+    if(!rec) return rec;
+    let out = rec;
+    if(rec.liquidation && Array.isArray(rec.liquidation.items)){
+      out = Object.assign({}, out, {
+        liquidation: Object.assign({}, rec.liquidation, {
+          items: rec.liquidation.items.map(i=> i && i.attachmentData
+            ? Object.assign({}, i, {attachmentData: null, attachmentTruncated: true})
+            : i)
+        })
+      });
+    }
+    // Reimbursement requests carry their own top-level items[] (no liquidation
+    // wrapper — there's no advance to liquidate). Same reasoning as above:
+    // summary list views shouldn't have to download every receipt photo.
+    if(Array.isArray(rec.items)){
+      out = Object.assign({}, out, {
+        items: rec.items.map(i=> i && i.attachmentData
           ? Object.assign({}, i, {attachmentData: null, attachmentTruncated: true})
           : i)
-      })
-    });
+      });
+    }
+    return out;
   }
   async function caListAll(opts){
     const summary = !(opts && opts.full);
@@ -7160,7 +7210,10 @@
     // Needs the full record: a disapproved liquidation is reloaded into the form
     // so the technician can fix it, receipts included.
     const all = await caListForUser(userId, {full:true});
-    const outstanding = all.filter(caNeedsLiquidation);
+    // Reimbursement requests never go through disbursed/liquidate at all —
+    // exclude them so a pending reimbursement can never be mistaken for an
+    // outstanding cash advance here.
+    const outstanding = all.filter(r=> r.kind!=='reimbursement').filter(caNeedsLiquidation);
     outstanding.sort((a,b)=> (b.disbursedAt||'').localeCompare(a.disbursedAt||''));
     return outstanding[0] || null;
   }
@@ -7169,7 +7222,7 @@
   // multiple asks before admin even sees the first one.
   async function caFindPendingRequest(userId){
     const all = await caListForUser(userId, {full:true});
-    const pending = all.filter(r=> r.status==='pending');
+    const pending = all.filter(r=> r.kind!=='reimbursement' && r.status==='pending');
     pending.sort((a,b)=> (b.submittedAt||'').localeCompare(a.submittedAt||''));
     return pending[0] || null;
   }
@@ -7348,7 +7401,7 @@
     const list = $('caHistoryList');
     if(!currentUser || currentUser.role==='admin') return;
     list.innerHTML = '<div class="empty-state">Loading…</div>';
-    const items = await caListForUser(currentUser.id);
+    const items = (await caListForUser(currentUser.id)).filter(r=> r.kind!=='reimbursement');
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No cash advance requests yet.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
@@ -7395,17 +7448,22 @@
     caActiveTab = which;
     $('caTabNew').classList.toggle('active', which==='new');
     $('caTabLiquidate').classList.toggle('active', which==='liquidate');
+    $('caTabReimburse').classList.toggle('active', which==='reimburse');
     $('caTabHistory').classList.toggle('active', which==='history');
     $('caFormCard').style.display = 'none';
     $('caBlockedCard').style.display = 'none';
     $('caLiquidateCard').style.display = which==='liquidate' ? '' : 'none';
+    $('caReimburseCard').style.display = which==='reimburse' ? '' : 'none';
+    $('caReimbHistoryCard').style.display = which==='reimburse' ? '' : 'none';
     $('caHistoryCard').style.display = which==='history' ? '' : 'none';
     if(which==='new') caCheckBlockedState();
     if(which==='liquidate') caShowLiqTab();
+    if(which==='reimburse'){ caReimbResetForm(); caRenderReimbHistory(); }
     if(which==='history') caRenderHistory();
   }
   $('caTabNew').addEventListener('click', ()=> caShowTab('new'));
   $('caTabLiquidate').addEventListener('click', ()=> caShowTab('liquidate'));
+  $('caTabReimburse').addEventListener('click', ()=> caShowTab('reimburse'));
   $('caTabHistory').addEventListener('click', ()=> caShowTab('history'));
 
   // ================= Liquidation (technician side) =================
@@ -7932,12 +7990,14 @@
     return new Blob([decodeURIComponent(body)], {type: mime});
   }
   // Re-fetches the owning record so a summary-loaded item can still show its
-  // receipt on demand.
+  // receipt on demand. Handles both a liquidation's nested items[] and a
+  // reimbursement request's top-level items[] (no liquidation wrapper).
   async function caLoadAttachmentThenOpen(item){
     const recordId = item.__recordId;
     if(!recordId){ toast('Receipt not available'); return; }
     const full = await caGetRequest(recordId);
-    const match = full && full.liquidation && (full.liquidation.items||[]).find(i=> i.id===item.id);
+    const pool = full && full.kind==='reimbursement' ? (full.items||[]) : (full && full.liquidation ? (full.liquidation.items||[]) : []);
+    const match = pool.find(i=> i.id===item.id);
     if(!match || !match.attachmentData){ toast('Receipt not available'); return; }
     openLiquidationAttachment(Object.assign({}, match, {__recordId: recordId}));
   }
@@ -8226,7 +8286,7 @@
   async function caRenderAdminList(){
     const list = $('caAdminList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
-    const all = await caListAll();
+    const all = (await caListAll()).filter(r=> r.kind!=='reimbursement');
     // Surface this count regardless of which filter tab is currently active —
     // liquidations pending review sit behind a separate tab from the default
     // "Pending" (request-approval) view, so without a badge they're easy for
@@ -8394,7 +8454,7 @@
     $('caTechHistoryArea').style.display = '';
     const list = $('caTechHistoryList');
     list.innerHTML = '<div class="empty-state">Loading…</div>';
-    const items = await caListForUser(userId);
+    const items = (await caListForUser(userId)).filter(r=> r.kind!=='reimbursement');
     if(items.length===0){ list.innerHTML = '<div class="empty-state">No cash advance requests yet.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
@@ -8635,6 +8695,297 @@
     caRenderAdminList();
   }
 
+  // ================= Reimbursement (out-of-pocket expenses) =================
+  // Deliberately independent of the Cash Advance / Liquidate flow above: there
+  // is no advance to account for, just money the technician already spent and
+  // wants back. Reuses the same cash_advance_requests table — data.kind:
+  // 'reimbursement' marks a row apart from a normal advance (undefined/'advance'
+  // kind) — so it inherits the exact same DB trigger protection on status/
+  // decision/payment fields, the same outbox offline handling (caSaveRequest,
+  // the 'cash-advance' outbox handler), and the same admin action functions
+  // (caDecide, caRecordDisbursement) with zero changes to any of them.
+  let caReimbItems = [];        // in-progress: {id, dateIncurred, description, amount, attachmentName, attachmentData, attachmentMime}
+  let caReimbAttachment = null; // {data, mime, name} for the item currently being built
+  function caReimbItemId(){ return 'ri_'+Date.now()+'_'+Math.floor(Math.random()*10000); }
+
+  function caReimbResetForm(){
+    caReimbItems = [];
+    caReimbAttachment = null;
+    $('caReimbDate').value = todayISO();
+    $('caReimbAmount').value = '';
+    $('caReimbDescription').value = '';
+    $('caReimbFileStatus').textContent = '';
+    $('caReimbNotes').value = '';
+    caReimbRenderList();
+  }
+
+  function caReimbRenderList(){
+    const wrap = $('caReimbItemsList');
+    const totalLine = $('caReimbTotalLine');
+    if(caReimbItems.length===0){ wrap.innerHTML = ''; totalLine.style.display = 'none'; return; }
+    wrap.innerHTML = caReimbItems.map(it=>
+      '<div class="card" data-view-item="'+escapeHtml(it.id)+'" style="margin-bottom:8px; box-shadow:none; border:1px solid var(--border); cursor:pointer;">'+
+        '<div class="card-body" style="padding:10px 12px; display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">'+
+          '<div>'+
+            '<div style="font-weight:600;">'+escapeHtml(it.description)+'</div>'+
+            '<div class="u-status">'+leaveFmtDate(it.dateIncurred)+' · 📎 '+escapeHtml(it.attachmentName||'receipt')+'</div>'+
+          '</div>'+
+          '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">'+
+            '<b>'+caFmtPeso(it.amount)+'</b>'+
+            '<button type="button" class="rm-btn" data-act="remove" data-item-id="'+escapeHtml(it.id)+'">\u2212</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>'
+    ).join('');
+    const total = caReimbItems.reduce((s,it)=> s+(Number(it.amount)||0), 0);
+    totalLine.style.display = '';
+    totalLine.textContent = 'Total: '+caFmtPeso(total);
+    caReimbItems.forEach(item=>{
+      const row = wrap.querySelector('[data-view-item="'+CSS.escape(String(item.id))+'"]');
+      if(row) row.addEventListener('click', (e)=>{ if(e.target.closest('[data-act="remove"]')) return; openLiquidationAttachment(item); });
+      const rmBtn = wrap.querySelector('[data-act="remove"][data-item-id="'+CSS.escape(String(item.id))+'"]');
+      if(rmBtn) rmBtn.addEventListener('click', (e)=>{ e.stopPropagation(); caReimbItems = caReimbItems.filter(i=> i.id!==item.id); caReimbRenderList(); });
+    });
+  }
+
+  $('caReimbAttachBtn').addEventListener('click', ()=> $('caReimbFile').click());
+  $('caReimbFile').addEventListener('change', async ()=>{
+    const file = $('caReimbFile').files[0];
+    if(!file) return;
+    try{
+      let dataUrl, mime;
+      if(file.type.startsWith('image/')){
+        dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+        mime = 'image/jpeg';
+      }else{
+        dataUrl = await new Promise((resolve, reject)=>{
+          const r = new FileReader();
+          r.onload = ()=> resolve(r.result);
+          r.onerror = ()=> reject(new Error('read failed'));
+          r.readAsDataURL(file);
+        });
+        mime = file.type || 'application/octet-stream';
+      }
+      if(caAttachmentSize(dataUrl) > CA_ATTACHMENT_MAX_BYTES){
+        toast('That file is too large — take a photo instead of attaching a full-size file');
+        return;
+      }
+      caReimbAttachment = {data: dataUrl, mime, name: file.name};
+      $('caReimbFileStatus').textContent = '📄 '+file.name;
+    }catch(e){ toast('Could not attach that file'); }
+  });
+  $('caReimbAddItemBtn').addEventListener('click', ()=>{
+    const dateIncurred = $('caReimbDate').value;
+    const description = $('caReimbDescription').value.trim();
+    const amount = parseFloat($('caReimbAmount').value) || 0;
+    if(!dateIncurred){ toast('Set the date the expense was incurred'); return; }
+    if(!description){ toast('Describe what the expense was for'); return; }
+    if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+    if(!caReimbAttachment){ toast('Attach a receipt photo or file'); return; }
+    caReimbItems.push({
+      id: caReimbItemId(), dateIncurred, description, amount,
+      attachmentName: caReimbAttachment.name,
+      attachmentData: caReimbAttachment.data,
+      attachmentMime: caReimbAttachment.mime
+    });
+    caReimbAttachment = null;
+    $('caReimbDate').value = todayISO();
+    $('caReimbAmount').value = '';
+    $('caReimbDescription').value = '';
+    $('caReimbFileStatus').textContent = '';
+    caReimbRenderList();
+    toast('Expense added');
+  });
+
+  async function caReimbSubmit(){
+    if(caReimbItems.length===0){ toast('Add at least one expense first'); return; }
+    const totalSize = caReimbItems.reduce((s,it)=> s+caAttachmentSize(it.attachmentData), 0);
+    if(totalSize > CA_RECORD_MAX_BYTES){ toast('These receipts total too much data — remove or retake a few and submit again'); return; }
+    if(!currentUser){ toast('Please sign in again'); return; }
+    const id = caGenId(currentUser.id);
+    const amount = caReimbItems.reduce((s,it)=> s+(Number(it.amount)||0), 0);
+    const data = {
+      id, userId: currentUser.id, userName: currentUser.name, kind: 'reimbursement',
+      items: caReimbItems, amount,
+      notes: ($('caReimbNotes').value||'').trim(),
+      submittedAt: new Date().toISOString(),
+      status: 'pending', comment: '', decidedAt: null, decidedBy: null,
+      disbursed: false, dateGiven: null, amountGiven: null, disbursedAt: null, disbursedBy: null
+    };
+    $('caReimbSubmitBtn').disabled = true;
+    const result = await caSaveRequest(id, data);
+    $('caReimbSubmitBtn').disabled = false;
+    if(result===SAVE_FAILED){ toast('Could not submit — please try again'); return; }
+    toast(result===SAVE_QUEUED ? 'Saved on this device — will submit once online' : 'Reimbursement submitted for approval');
+    caReimbResetForm();
+    caRenderReimbHistory();
+  }
+  $('caReimbSubmitBtn').addEventListener('click', caReimbSubmit);
+
+  // ---- Technician's own reimbursement history ----
+  function caReimbStatusPill(r){
+    if(r.status==='approved' && r.disbursed) return '<span class="status-pill status-given">Paid</span>';
+    return leaveStatusPill(r.status);
+  }
+  async function caRenderReimbHistory(){
+    const list = $('caReimbHistoryList');
+    if(!currentUser || currentUser.role==='admin') return;
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const items = (await caListForUser(currentUser.id)).filter(r=> r.kind==='reimbursement');
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No reimbursement requests yet.</div>'; return; }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'hist-item';
+      row.style.cssText = 'cursor:default; flex-direction:column; align-items:stretch;';
+      const datesLine =
+        '<div class="leave-comment" style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">'+
+          '<div><b>Date Submitted</b>'+leaveFmtWhen(r.submittedAt)+'</div>'+
+          '<div><b>Date Decided</b>'+(r.status!=='pending' ? leaveFmtWhen(r.decidedAt) : '—')+'</div>'+
+          '<div><b>Date Given</b>'+(r.disbursed ? leaveFmtDate(r.dateGiven) : '—')+'</div>'+
+        '</div>';
+      const itemsLine = '<div class="leave-comment"><b>Items ('+(r.items||[]).length+')</b>'+
+        (r.items||[]).map(it=> escapeHtml(it.description)+' — '+caFmtPeso(it.amount)).join('<br>')+
+      '</div>';
+      row.innerHTML =
+        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">'+
+          '<div class="hist-info"><b>'+caFmtPeso(r.amount)+'</b><span>Reimbursement</span></div>'+
+          caReimbStatusPill(r)+
+        '</div>'+
+        datesLine+
+        itemsLine+
+        (r.disbursed ? '<div class="leave-comment"><b>Amount Paid</b>'+caFmtPeso(r.amountGiven)+'</div>' : '')+
+        (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '');
+      $$('[data-view-item]', row).forEach(()=>{}); // no-op, keeps structure consistent with other lists
+      list.appendChild(row);
+    });
+  }
+
+  // ---- Admin: separate list + actions, reusing caDecide/caRecordDisbursement ----
+  let caReimbAdminFilter = 'pending';
+  const caReimbAdminFilterLabels = {pending:'pending', approved:'approved — not yet paid', paid:'paid', disapproved:'disapproved'};
+  async function caRenderReimbAdminList(){
+    const list = $('caReimbAdminList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    const all = (await caListAll()).filter(r=> r.kind==='reimbursement');
+    const pendingBadge = $('caReimbPendingBadge');
+    const pendingCount = all.filter(r=> r.status==='pending').length;
+    pendingBadge.textContent = String(pendingCount);
+    pendingBadge.style.display = pendingCount>0 ? '' : 'none';
+    let items;
+    if(caReimbAdminFilter==='all') items = all;
+    else if(caReimbAdminFilter==='paid') items = all.filter(r=> r.disbursed);
+    else if(caReimbAdminFilter==='approved') items = all.filter(r=> r.status==='approved' && !r.disbursed);
+    else items = all.filter(r=> r.status===caReimbAdminFilter);
+    const searchText = ($('caReimbAdminSearch').value||'').trim().toLowerCase();
+    if(searchText) items = items.filter(r=> (r.userName||'').toLowerCase().includes(searchText));
+    if(items.length===0){
+      const label = caReimbAdminFilterLabels[caReimbAdminFilter];
+      list.innerHTML = '<div class="empty-state">No '+(label?label+' ':'')+'reimbursement requests'+(searchText?' matching "'+escapeHtml(searchText)+'"':'')+'.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    items.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      const paidSummary = r.disbursed
+        ? '<div class="leave-comment" style="background:#EAF5FC; border-color:#C6E2F2;"><b>Paid</b>'+caFmtPeso(r.amountGiven)+' on '+leaveFmtDate(r.dateGiven)+(r.disbursedBy ? (' · recorded by '+escapeHtml(r.disbursedBy)) : '')+'</div>'
+        : '';
+      const itemsSummary = '<div class="leave-comment"><b>Items ('+(r.items||[]).length+')</b>'+
+        (r.items||[]).map(it=> escapeHtml(it.description)+' — '+leaveFmtDate(it.dateIncurred)+' — '+caFmtPeso(it.amount)).join('<br>')+
+      '</div>';
+      card.innerHTML =
+        '<div class="user-card-head">'+
+          '<div>'+
+            '<div class="u-name">'+escapeHtml(r.userName)+' — '+caFmtPeso(r.amount)+'</div>'+
+            '<div class="u-status">Filed '+leaveFmtWhen(r.submittedAt)+(r.notes ? (' · '+escapeHtml(r.notes)) : '')+'</div>'+
+          '</div>'+
+          (r.status==='approved' && r.disbursed ? '<span class="status-pill status-given">Paid</span>' : leaveStatusPill(r.status))+
+        '</div>'+
+        itemsSummary+
+        (r.comment ? '<div class="leave-comment"><b>Admin comment</b>'+escapeHtml(r.comment)+'</div>' : '')+
+        paidSummary+
+        '<div class="user-card-actions">'+
+          (r.status==='cancelled' ? '' : '<button data-act="review" class="primary">'+(r.status==='pending' ? 'Review' : 'Change Decision')+'</button>')+
+          (r.status==='approved' ? '<button data-act="disburse-toggle">'+(r.disbursed ? 'Edit Payment' : 'Record Payment')+'</button>' : '')+
+        '</div>'+
+        (r.status==='cancelled' ? '' :
+        '<div class="user-edit-panel" data-panel="decision">'+
+          '<div class="field"><label>Comment (visible to the technician)</label><textarea data-f="comment" rows="2" placeholder="Optional for approval, recommended for disapproval">'+escapeHtml(r.comment||'')+'</textarea></div>'+
+          '<div class="edit-save-row">'+
+            '<button class="cancel-btn" data-act="disapprove" type="button" style="color:var(--danger); border-color:#F1C4BC;">Disapprove</button>'+
+            '<button class="save-btn" data-act="approve" type="button">Approve</button>'+
+          '</div>'+
+        '</div>')+
+        (r.status==='approved' ?
+          '<div class="user-edit-panel" data-panel="disbursement">'+
+            '<div class="grid2">'+
+              '<div class="field"><label>Date Given</label><input type="date" data-f="dateGiven" value="'+escapeHtml(r.dateGiven || todayISO())+'"></div>'+
+              '<div class="field"><label>Amount Paid (₱)</label><input type="number" min="0" step="0.01" data-f="amountGiven" value="'+(r.amountGiven != null ? r.amountGiven : r.amount)+'"></div>'+
+            '</div>'+
+            '<div class="edit-save-row">'+
+              '<button class="save-btn" data-act="confirm-disburse" type="button">Confirm Paid</button>'+
+            '</div>'+
+          '</div>' : '');
+      const decisionPanel = card.querySelector('[data-panel="decision"]');
+      const disbursePanel = card.querySelector('[data-panel="disbursement"]');
+      const allPanels = [decisionPanel, disbursePanel].filter(Boolean);
+      const reviewBtn = card.querySelector('[data-act="review"]');
+      if(reviewBtn && decisionPanel){
+        reviewBtn.addEventListener('click', ()=>{
+          allPanels.forEach(p=>{ if(p!==decisionPanel) p.classList.remove('open'); });
+          decisionPanel.classList.toggle('open');
+        });
+        card.querySelector('[data-act="approve"]').addEventListener('click', async ()=>{ await caDecide(r.id, 'approved', decisionPanel.querySelector('[data-f="comment"]').value.trim()); caRenderReimbAdminList(); });
+        card.querySelector('[data-act="disapprove"]').addEventListener('click', async ()=>{ await caDecide(r.id, 'disapproved', decisionPanel.querySelector('[data-f="comment"]').value.trim()); caRenderReimbAdminList(); });
+      }
+      const disburseToggleBtn = card.querySelector('[data-act="disburse-toggle"]');
+      if(disburseToggleBtn){
+        disburseToggleBtn.addEventListener('click', ()=>{
+          allPanels.forEach(p=>{ if(p!==disbursePanel) p.classList.remove('open'); });
+          disbursePanel.classList.toggle('open');
+        });
+      }
+      const confirmBtn = card.querySelector('[data-act="confirm-disburse"]');
+      if(confirmBtn){
+        confirmBtn.addEventListener('click', async ()=>{
+          const dateGiven = disbursePanel.querySelector('[data-f="dateGiven"]').value;
+          const amountGiven = parseFloat(disbursePanel.querySelector('[data-f="amountGiven"]').value);
+          await caRecordDisbursement(r.id, dateGiven, amountGiven);
+          caRenderReimbAdminList();
+        });
+      }
+      list.appendChild(card);
+    });
+  }
+  document.querySelectorAll('#caReimbAdminFilterRow button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#caReimbAdminFilterRow button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      caReimbAdminFilter = btn.dataset.filter;
+      caRenderReimbAdminList();
+    });
+  });
+  let caReimbAdminSearchTimer = null;
+  $('caReimbAdminSearch').addEventListener('input', ()=>{
+    clearTimeout(caReimbAdminSearchTimer);
+    caReimbAdminSearchTimer = setTimeout(caRenderReimbAdminList, 200);
+  });
+
+  // Admin-side section toggle: Cash Advance vs Reimbursement. Kept as its own
+  // small switch (not part of caShowTab, which is technician-only) since the
+  // admin area has never had internal tabs before this.
+  function caShowAdminSection(which){
+    $('caAdminSecRequests').classList.toggle('active', which==='requests');
+    $('caAdminSecReimb').classList.toggle('active', which==='reimb');
+    $('caAdminReqSection').style.display = which==='requests' ? '' : 'none';
+    $('caAdminReimbSection').style.display = which==='reimb' ? '' : 'none';
+    if(which==='requests') caRenderAdminList();
+    else caRenderReimbAdminList();
+  }
+  $('caAdminSecRequests').addEventListener('click', ()=> caShowAdminSection('requests'));
+  $('caAdminSecReimb').addEventListener('click', ()=> caShowAdminSection('reimb'));
+
   async function showCashAdvanceView(){
     document.body.classList.remove('dashboard-active');
     $('homeScreen').style.display = 'none';
@@ -8658,7 +9009,7 @@
       $('caTechArea').style.display = 'none';
       $('caAdminArea').style.display = '';
       $('caTechHistoryArea').style.display = 'none';
-      caRenderAdminList();
+      caShowAdminSection('requests');
     }else{
       $('caTechArea').style.display = '';
       $('caAdminArea').style.display = 'none';
@@ -9195,7 +9546,7 @@
   $('sbNavReimbursement').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('sbNavReimbursement');
     await showCashAdvanceView();
-    caShowTab('history');
+    caShowAdminSection('reimb');
   });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
   $('menuManageReports').addEventListener('click', ()=>{
@@ -9227,7 +9578,7 @@
   $('techNavReimbursement').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('techNavReimbursement');
     await showCashAdvanceView();
-    if(currentUser && currentUser.role!=='admin') caShowTab('history');
+    if(currentUser && currentUser.role!=='admin') caShowTab('reimburse');
   });
   $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
   $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });

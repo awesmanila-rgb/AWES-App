@@ -1023,6 +1023,7 @@ window.awesCss = {
     <div class="seg-tabs">
       <button type="button" class="seg-tab active" id="caTabNew">New Request</button>
       <button type="button" class="seg-tab" id="caTabLiquidate">Liquidate <span id="caLiqTabDot" style="display:none;">●</span></button>
+      <button type="button" class="seg-tab" id="caTabReimburse">Reimburse Expense</button>
       <button type="button" class="seg-tab" id="caTabHistory">My Requests</button>
     </div>
 
@@ -1137,11 +1138,65 @@ window.awesCss = {
         <div id="caHistoryList"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
+
+    <!-- Reimburse Expense: out-of-pocket money a technician spent on their own,
+         with NO cash advance behind it — a plumber's fitting bought on the way,
+         parking, a small part the site didn't have. This is deliberately a
+         separate flow from Cash Advance + Liquidate above: there's no advance
+         to account for, just an expense to be paid back. One or more items can
+         be attached to a single reimbursement request; each needs a receipt,
+         same standard as a liquidation item. Reuses the SAME
+         cash_advance_requests table (data.kind:'reimbursement' marks it apart)
+         so it gets the exact same server-side protections on status/decision/
+         payment fields (see guard_cash_decision() in the DB) for free, and the
+         same offline-outbox handling — nothing new needed on either front. -->
+    <div class="card" id="caReimburseCard" style="display:none;">
+      <div class="card-head"><span>🧾 Reimburse an Expense</span></div>
+      <div class="card-body">
+        <div class="leave-note" style="margin-bottom:12px;">
+          For money you already spent out of your own pocket — not tied to any cash advance. Add each expense below, then submit the whole batch for admin approval.
+        </div>
+        <div id="caReimbItemsList"></div>
+        <div id="caReimbTotalLine" style="display:none; text-align:right; font-weight:700; margin:10px 0;"></div>
+
+        <div style="margin:14px 0; border-top:1px dashed var(--border);"></div>
+
+        <div class="card-head" style="padding:0 0 10px 0;"><span>+ Add an Expense</span></div>
+        <div class="grid2">
+          <div class="field"><label>Date Incurred <span class="req">*</span></label><input type="date" id="caReimbDate"></div>
+          <div class="field"><label>Amount (₱) <span class="req">*</span></label><input type="number" min="0" step="0.01" inputmode="decimal" id="caReimbAmount" placeholder="0.00"></div>
+        </div>
+        <div class="field"><label>What was it for <span class="req">*</span></label><textarea id="caReimbDescription" rows="2" placeholder="e.g. Grab fare to Ortigas site, PVC elbow fitting bought at hardware store"></textarea></div>
+        <div class="field">
+          <label>Receipt <span class="req">*</span></label>
+          <button type="button" class="btn btn-secondary" id="caReimbAttachBtn" style="width:100%;">📎 Attach Receipt Photo / File</button>
+          <input type="file" id="caReimbFile" accept="image/*,.pdf" style="display:none;">
+          <div id="caReimbFileStatus" style="font-size:12.5px; color:var(--text-muted); margin-top:6px;"></div>
+        </div>
+        <button type="button" class="btn btn-secondary" id="caReimbAddItemBtn" style="width:100%; margin-top:6px;">+ Add to List</button>
+
+        <div style="margin:18px 0; border-top:1px dashed var(--border);"></div>
+
+        <div class="field"><label>Notes for Admin</label><textarea id="caReimbNotes" rows="2" placeholder="Optional — anything the admin should know"></textarea></div>
+        <button type="button" class="btn btn-primary" id="caReimbSubmitBtn" style="width:100%; margin-top:10px;">Submit for Approval</button>
+      </div>
+    </div>
+
+    <div class="card" id="caReimbHistoryCard" style="display:none;">
+      <div class="card-head"><span>My Reimbursement Requests</span></div>
+      <div class="card-body">
+        <div id="caReimbHistoryList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
   </div>
 
   <!-- Admin: review every technician's requests -->
   <div id="caAdminArea" style="display:none;">
-    <div class="card">
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="caAdminSecRequests">💵 Cash Advance</button>
+      <button type="button" class="seg-tab" id="caAdminSecReimb">🧾 Reimbursement <span id="caReimbPendingBadge" class="status-pill status-rejected" style="display:none; margin-left:4px;">0</span></button>
+    </div>
+    <div class="card" id="caAdminReqSection">
       <div class="card-head"><span>💵 Cash Advance Requests</span></div>
       <div class="card-body">
         <input type="text" id="caAdminSearch" placeholder="Search by technician name…" style="width:100%; margin-bottom:10px;">
@@ -1155,6 +1210,28 @@ window.awesCss = {
           <button type="button" data-filter="all">All</button>
         </div>
         <div id="caAdminList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Out-of-pocket expense reimbursements — a separate list from Cash
+         Advance above, since these never went through a disbursed-advance/
+         liquidate cycle at all. Approve/Reject reuses the exact same
+         caDecide() as Cash Advance; "Record Payment" reuses the exact same
+         caRecordDisbursement() (the DB's data.disbursed/dateGiven/amountGiven
+         fields are repurposed here as "paid"/"date paid"/"amount paid" —
+         same server-side protection, no schema change needed). -->
+    <div class="card" id="caAdminReimbSection" style="display:none;">
+      <div class="card-head"><span>🧾 Reimbursement Requests</span></div>
+      <div class="card-body">
+        <input type="text" id="caReimbAdminSearch" placeholder="Search by technician name…" style="width:100%; margin-bottom:10px;">
+        <div class="leave-filter-row" id="caReimbAdminFilterRow">
+          <button type="button" data-filter="pending" class="active">Pending</button>
+          <button type="button" data-filter="approved">Approved — Not Yet Paid</button>
+          <button type="button" data-filter="paid">Paid</button>
+          <button type="button" data-filter="disapproved">Disapproved</button>
+          <button type="button" data-filter="all">All</button>
+        </div>
+        <div id="caReimbAdminList"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
   </div>

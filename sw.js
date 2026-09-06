@@ -1,12 +1,16 @@
-// Bumped to v25 to force every installed device to drop its old cache and
-// re-fetch app.bundle.js fresh — includes the v24 fix (customer list loads
-// on Dispatch too) plus: "Default Scope of Works" and each equipment item's
-// "Scope of Service" list now have a suggestions dropdown (same mechanism
-// as Service Report's Findings/Recs/Services Done), backed by a new
-// admin-editable 'scopeOfWork' list under Manage Dropdown Lists → Dispatch.
-// This was simply never wired up before — dtAddSimpleRow() built a plain
-// textarea with no attachCombo() call at all.
-const CACHE_NAME = 'awes-sr-v25';
+// Bumped to v27 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js fresh — adds a whole new Reimbursement
+// flow, separate from Cash Advance + Liquidate, for out-of-pocket expenses a
+// technician paid themselves (no advance involved). Technician: "Reimburse
+// Expense" tab — add one or more expense items (date, description, amount,
+// required receipt), submit as a batch for admin review. Admin: a separate
+// "🧾 Reimbursement" section (Pending / Approved-not-yet-paid / Paid /
+// Disapproved / All) to Approve/Disapprove and then "Record Payment" with
+// the date and amount actually paid. Reuses the cash_advance_requests table
+// (data.kind:'reimbursement') so it inherits the same DB-level protection on
+// status/decision/payment fields and the same offline-outbox handling with
+// no schema changes.
+const CACHE_NAME = 'awes-sr-v27';
 
 // Split into two lists on purpose.
 //

@@ -525,7 +525,7 @@
   $('sbNavReimbursement').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('sbNavReimbursement');
     await showCashAdvanceView();
-    caShowTab('history');
+    caShowAdminSection('reimb');
   });
   $('sbNavDispatch').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('sbNavDispatch'); showDispatchView(); });
   $('menuManageReports').addEventListener('click', ()=>{
@@ -557,7 +557,7 @@
   $('techNavReimbursement').addEventListener('click', async ()=>{
     closeMainMenu(); setSidebarActive('techNavReimbursement');
     await showCashAdvanceView();
-    if(currentUser && currentUser.role!=='admin') caShowTab('history');
+    if(currentUser && currentUser.role!=='admin') caShowTab('reimburse');
   });
   $('techNavDtr').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavDtr'); showDtrView(); });
   $('techNavLeave').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('techNavLeave'); showLeaveView(); });
