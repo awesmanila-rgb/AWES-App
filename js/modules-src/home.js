@@ -796,6 +796,56 @@
     }
     window.scrollTo({top:0});
   }
+  // ---------- Remember which screen was open across a refresh ----------
+  // A plain page reload re-runs the whole app from scratch, so without this
+  // every refresh — even just hitting the browser's reload button — landed
+  // back on Home regardless of what the person was actually doing. This
+  // snapshots whichever top-level view is visible right before the page
+  // unloads, and enterApp() (below) tries to reopen that same view instead
+  // of unconditionally calling showHome().
+  const LAST_SCREEN_KEY = 'awes-last-screen';
+  // Screens that need a specific record to reopen correctly (a particular
+  // customer, a particular equipment unit) aren't restorable from just a
+  // screen name alone — restoring to their nearest safe parent instead of
+  // guessing at that record.
+  const RESTORABLE_SCREENS = {
+    homeScreen: {fn: ()=> showHome(), roles: ['admin','tech']},
+    serviceReportView: {fn: ()=> showServiceReport(), roles: ['admin','tech']},
+    dtrView: {fn: ()=> showDtrView(), roles: ['admin','tech']},
+    leaveView: {fn: ()=> showLeaveView(), roles: ['admin','tech']},
+    cashAdvanceView: {fn: ()=> showCashAdvanceView(), roles: ['admin','tech']},
+    dispatchView: {fn: ()=> showDispatchView(), roles: ['admin','tech']},
+    equipmentManagerView: {fn: ()=> showEquipmentManagerView(), roles: ['admin']},
+    customersManagerView: {fn: ()=> showCustomersManagerView(), roles: ['admin']},
+    serviceReportsManagerView: {fn: ()=> showServiceReportsManagerView(), roles: ['admin']},
+    messagesView: {fn: ()=> showMessagesView(), roles: ['admin','tech']},
+    documentsView: {fn: ()=> showDocumentsView(), roles: ['admin','tech']},
+    customerHomeScreen: {fn: ()=> showCustomerHome(), roles: ['customer']},
+    // Needs a customer record to render — fall back to the list it's reached from.
+    customerHistoryView: {fn: ()=> showCustomersManagerView(), roles: ['admin']},
+    // Needs a specific equipment record — fall back to the customer's own home.
+    customerEquipmentDetailScreen: {fn: ()=> showCustomerHome(), roles: ['customer']}
+  };
+  function snapshotCurrentScreen(){
+    try{
+      for(const id of Object.keys(RESTORABLE_SCREENS)){
+        const el = $(id);
+        if(el && el.style.display !== 'none'){ localStorage.setItem(LAST_SCREEN_KEY, id); return; }
+      }
+    }catch(e){}
+  }
+  window.addEventListener('pagehide', snapshotCurrentScreen);
+  window.addEventListener('beforeunload', snapshotCurrentScreen);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') snapshotCurrentScreen(); });
+  function restoreLastScreenOrHome(){
+    let key = null;
+    try{ key = localStorage.getItem(LAST_SCREEN_KEY); }catch(e){}
+    const entry = key && RESTORABLE_SCREENS[key];
+    const role = currentUser && currentUser.role;
+    if(entry && role && entry.roles.indexOf(role)!==-1){ entry.fn(); return; }
+    showHome();
+  }
+
   async function enterApp(){
     // Location sharing follows today's DTR, not just sign-in — see
     // dtrIsOnClock() and the tracker calls inside dtrDoTimeIn/Out and
@@ -814,7 +864,7 @@
     // only sign out via the explicit Logout button; a page reload/refresh
     // never signs anyone out either.
     if(currentUser) startIdleWatch(); else stopIdleWatch();
-    showHome();
+    restoreLastScreenOrHome();
   }
   $('tile_serviceReport').addEventListener('click', showServiceReport);
   $('tile_dtr').addEventListener('click', showDtrView);

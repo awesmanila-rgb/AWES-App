@@ -838,19 +838,29 @@
       enterApp();
       return;
     }
-    // Claimed admin locally. Admin is the one role that never restores from
-    // cache alone — its far more sensitive surface means every reload has to
-    // re-confirm identity against the server, network permitting. If we
-    // simply couldn't check (offline), ask to sign in again rather than
-    // either granting or silently revoking admin access based on a guess.
+    // Claimed admin locally. A positively-confirmed-gone session (verified
+    // ===false, meaning the server was reachable and said there's no valid
+    // session) still forces re-login — admin's sensitive surface means we
+    // don't want to guess our way past an actual revocation. But a plain
+    // reload that simply couldn't reach the server in time (verified===
+    // null) is not the same thing as being logged out, so it now falls
+    // back to the cached session instead of forcing sign-in — matching the
+    // leniency tech/customer sessions already get below, and matching this
+    // file's own stated intent elsewhere that a refresh alone should never
+    // sign anyone out.
     if(saved && saved.role==='admin'){
       if(verified===null){
-        await showLoginScreen('Reconnecting — please sign in again to continue as Admin.');
-      }else{
-        localStorage.removeItem('current-user');
-        currentUser = null;
-        await showLoginScreen('Please sign in again.');
+        currentUser = {id: saved.id, name: saved.name||'Admin', role: 'admin'};
+        enterAdminMode();
+        updateUserBadge();
+        applyUserRestrictions();
+        $('loginOverlay').classList.remove('open');
+        enterApp();
+        return;
       }
+      localStorage.removeItem('current-user');
+      currentUser = null;
+      await showLoginScreen('Please sign in again.');
       return;
     }
     // ---- Customer portal session restore ----
@@ -991,6 +1001,7 @@
     if(db){ try{ await db.auth.signOut(); }catch(e){} }
     currentUser = null;
     localStorage.removeItem('current-user');
+    try{ localStorage.removeItem('awes-last-screen'); }catch(e){}
     updateUserBadge();
     // Belt-and-suspenders: the login overlay is meant to cover everything
     // underneath regardless, but explicitly hiding the home screen (map
