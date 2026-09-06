@@ -159,6 +159,22 @@
   }
 
   // ---------- Home screen greeting (technicians only) ----------
+  // Today's Job Order card(s) are clickable — tapping one opens the same
+  // ticket detail overlay as "Open Job Order" elsewhere. Delegated once
+  // here since renderHomeGreeting() rebuilds #homeGreetingText's innerHTML
+  // on every call, which would otherwise drop a per-element listener.
+  $('homeGreetingText').addEventListener('click', (e)=>{
+    const item = e.target.closest('[data-jo-open]');
+    if(!item) return;
+    dtOpenTicketOverlay(item.dataset.joOpen);
+  });
+  $('homeGreetingText').addEventListener('keydown', (e)=>{
+    if(e.key!=='Enter' && e.key!==' ') return;
+    const item = e.target.closest('[data-jo-open]');
+    if(!item) return;
+    e.preventDefault();
+    dtOpenTicketOverlay(item.dataset.joOpen);
+  });
   async function renderHomeGreeting(){
     const card = $('homeGreetingCard');
     if(!currentUser || currentUser.role==='admin'){ card.style.display = 'none'; return; }
@@ -222,7 +238,7 @@
     const joBody = todaysJo.length===0
       ? '<div class="greet-jo-empty">No job order scheduled for today.</div>'
       : todaysJo.map(t=>
-          '<div class="greet-jo-item">'+
+          '<div class="greet-jo-item" data-jo-open="'+escapeHtml(t.id)+'" role="button" tabindex="0">'+
             '<div class="greet-jo-item-head">'+
               '<span class="greet-jo-no">'+escapeHtml(t.jobOrderNo||t.id)+'</span>'+
               dtStatusPill(t)+

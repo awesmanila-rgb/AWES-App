@@ -1,12 +1,11 @@
-// Bumped to v32 to force every installed device to drop its old cache and
-// re-fetch fresh assets — two fixes: (1) a Completed job order in "My Job
-// Order" was showing an "Approved" pill (borrowed from the Leave/Cash
-// Advance status styling) instead of "Completed", which doesn't match any
-// of the four progressive stages technicians are taught (Open / Acknowledged
-// / Completed / Closed); (2) the technician's home-screen greeting now shows
-// an emphasized "Today's Job Order" panel on the right, listing whichever
-// job order(s) are scheduled for today.
-const CACHE_NAME = 'awes-sr-v32';
+// Bumped to v33 to force every installed device to drop its old cache and
+// re-fetch fresh assets — the Today's Job Order card on the technician home
+// greeting wasn't actually clickable (no handler wired up) and read too
+// small/flat to feel "emphasized". Job order number, customer name, and
+// time are now larger and bolder, the card has a visible border/hover state,
+// and tapping/clicking (or Enter/Space when focused) now opens that ticket
+// in the same detail overlay "Open Job Order" uses elsewhere.
+const CACHE_NAME = 'awes-sr-v33';
 
 // Split into two lists on purpose.
 //
