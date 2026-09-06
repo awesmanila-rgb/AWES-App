@@ -1552,7 +1552,7 @@
     }else{
       $('dispatchAdminArea').style.display = 'none';
       $('dispatchTechArea').style.display = '';
-      dtRenderTechList();
+      await dtRenderTechList();
     }
   }
 

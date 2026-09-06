@@ -7156,7 +7156,7 @@
     }else{
       $('dispatchAdminArea').style.display = 'none';
       $('dispatchTechArea').style.display = '';
-      dtRenderTechList();
+      await dtRenderTechList();
     }
   }
 
@@ -9892,6 +9892,8 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('customerHomeScreen').style.display = 'none';
+    $('customerEquipmentDetailScreen').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
