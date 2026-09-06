@@ -10,7 +10,7 @@
 // (data.kind:'reimbursement') so it inherits the same DB-level protection on
 // status/decision/payment fields and the same offline-outbox handling with
 // no schema changes.
-const CACHE_NAME = 'awes-sr-v27';
+const CACHE_NAME = 'awes-sr-v30';
 
 // Split into two lists on purpose.
 //

@@ -5744,8 +5744,13 @@
     openOnes.forEach(r=>{
       const items = r.equipmentList||[];
       const pending = items.filter(it=>!it.reportSrNo);
+      // A technician must acknowledge a Job Order (see My Job Order / the
+      // Acknowledge button) before they're allowed to file a report against
+      // it — filing implies the visit happened, which shouldn't be possible
+      // for a ticket the technician hasn't even confirmed receiving yet.
+      const alreadyAck = (r.acknowledgedBy||[]).includes(currentUser.id);
       const row = document.createElement('div');
-      row.className = 'user-card';
+      row.className = 'user-card' + (alreadyAck ? '' : ' jo-locked');
       row.innerHTML = '<div class="user-card-head" style="cursor:pointer;">'+
           '<div>'+
             '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
@@ -5753,10 +5758,22 @@
               (r.siteAddress ? (' · '+escapeHtml(r.siteAddress)) : '')+'</div>'+
             '<div class="u-status">'+(items.length-pending.length)+' of '+items.length+' equipment reported</div>'+
           '</div>'+
-          dtStatusPill(r)+
+          (alreadyAck
+            ? dtStatusPill(r)
+            : '<button type="button" class="sr-ack-required-btn">🔒 Acknowledge Required</button>')+
         '</div>'+
-        '<div class="dt-equip-pending" style="display:none; margin-top:8px;"></div>';
+        (alreadyAck
+          ? '<div class="dt-equip-pending" style="display:none; margin-top:8px;"></div>'
+          : '<div class="sr-ack-required-note">Open this Job Order in <b>My Job Order</b> and tap Acknowledge before you can file a report for it.</div>');
       const head = row.querySelector('.user-card-head');
+      if(!alreadyAck){
+        // Locked row: tapping anywhere on it (including the pill button)
+        // sends the technician to acknowledge it, instead of expanding an
+        // equipment picker they're not allowed to use yet.
+        head.addEventListener('click', (e)=>{ e.stopPropagation(); srGoAcknowledgeTicket(r); });
+        list.appendChild(row);
+        return;
+      }
       const pendingWrap = row.querySelector('.dt-equip-pending');
       head.addEventListener('click', ()=>{
         const isOpen = pendingWrap.style.display !== 'none';
@@ -5788,6 +5805,32 @@
       });
       list.appendChild(row);
     });
+  }
+  // Set while a technician is being sent from the Service Report picker to
+  // My Job Order to acknowledge a specific ticket (see srGoAcknowledgeTicket
+  // below). Read by dtRenderTechList to show the "Back to Service Report"
+  // banner and by dtHighlightTechCard to know which card to scroll to.
+  let srAckReturnTicketId = null;
+  function srGoAcknowledgeTicket(ticket){
+    srAckReturnTicketId = ticket.id;
+    toast('Acknowledge '+ticket.jobOrderNo+' to unlock its report');
+    // No filter tabs anymore — every job order is always listed, so the
+    // ticket is guaranteed to be there once the list renders.
+    showDispatchView().then(()=> dtHighlightTechCard(ticket.id));
+  }
+  // Scrolls to and briefly outlines one card in the My Job Order list, and
+  // expands its details — used right after landing here from
+  // srGoAcknowledgeTicket so the technician doesn't have to hunt for the
+  // one ticket they were sent to deal with among everything else assigned
+  // to them.
+  function dtHighlightTechCard(ticketId){
+    const card = $('dtTechList') && $('dtTechList').querySelector('[data-ticket-id="'+CSS.escape(ticketId)+'"]');
+    if(!card) return;
+    const toggleHead = card.querySelector('.jo-card-toggle');
+    if(toggleHead) dtToggleCardBody(toggleHead, true);
+    card.scrollIntoView({behavior:'smooth', block:'center'});
+    card.classList.add('jo-card-flash');
+    setTimeout(()=> card.classList.remove('jo-card-flash'), 1800);
   }
   // Was calling applyCustomerToForm(matched), which kicks off
   // loadCustomerEquipment(...).then(defaultEquipTabForCustomer) without
@@ -6349,7 +6392,21 @@
   // refreshed by whichever render function ran most recently, so a click
   // always resolves against what's currently on screen.
   let dtLastTicketsById = {};
+  // Per-card expand/collapse for the job order list rows — independent
+  // toggles (not an accordion like the Service Report form's collapsible
+  // sections), so a technician can have several open at once while
+  // scanning. Delegated on the same listener as the other row clicks.
+  function dtToggleCardBody(head, forceOpen){
+    const body = head.nextElementSibling;
+    if(!body || !body.classList.contains('jo-card-body')) return;
+    const willOpen = forceOpen!==undefined ? forceOpen : body.style.display==='none';
+    body.style.display = willOpen ? '' : 'none';
+    const caret = head.querySelector('.jo-caret');
+    if(caret) caret.textContent = willOpen ? '▴' : '▾';
+  }
   function dtHandleEquipRowClick(e){
+    const toggleHead = e.target.closest('[data-jo-toggle]');
+    if(toggleHead){ dtToggleCardBody(toggleHead); return; }
     const openBtn = e.target.closest('[data-jo-open]');
     if(openBtn){
       e.stopPropagation();
@@ -6370,22 +6427,78 @@
   // same delegated handler — see dtOpenTicketOverlay, which also seeds
   // dtLastTicketsById with the ticket being viewed.
   $('dtTicketOverlay').addEventListener('click', dtHandleEquipRowClick);
-  function dtCardHtml(r, forAdmin){
-    return '<div class="user-card-head">'+
-        '<div>'+
-          '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
-          '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+' · '+escapeHtml((r.assignedWorkerNames||[]).join(', '))+'</div>'+
-        '</div>'+
-        dtStatusPill(r)+
-      '</div>'+
+  // The header row (job order no., customer, date, status) always stays
+  // visible so a technician can scan the whole list at a glance; everything
+  // below it — address, equipment, remarks, requirements — sits inside a
+  // collapsed "jo-card-body" that opens on tap (see data-jo-toggle handling
+  // in dtHandleEquipRowClick). The final "Open Job Order" button is kept
+  // OUTSIDE that collapsible body, both so it's always reachable without
+  // expanding, and because dtOpenTicketOverlay strips it off the end of
+  // this string with a trailing-anchor regex — moving it inside the body
+  // would break that match. extraBodyHtml (used by the technician's list —
+  // see dtStepperHtml) is inserted at the very top of the body, above the
+  // rest of the ticket's details.
+  function dtCardHtml(r, forAdmin, extraBodyHtml){
+    const detailBody =
+      (extraBodyHtml || '')+
       (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
       (forAdmin && r.reportAllowedWorkerNames && r.reportAllowedWorkerNames.length ? '<div class="leave-comment"><b>Can Create Service Report</b>'+escapeHtml(r.reportAllowedWorkerNames.join(', '))+'</div>' : '')+
       (r.contactName ? '<div class="leave-comment"><b>Contact at Site</b>'+escapeHtml(r.contactName)+(r.contactNo?(' · '+escapeHtml(r.contactNo)):'')+'</div>' : '')+
       dtEquipmentSummaryBlock(r)+
       (r.remarks ? '<div class="leave-comment"><b>Special Instructions</b>'+escapeHtml(r.remarks)+'</div>' : '')+
       '<div class="leave-comment"><b>Requirements</b>'+dtReqSummary(r)+'</div>'+
-      (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '')+
+      (forAdmin ? '<div class="leave-comment"><b>Created by</b>'+escapeHtml(r.createdBy||'Admin')+'</div>' : '');
+    return '<div class="user-card-head jo-card-toggle" data-jo-toggle>'+
+        '<div>'+
+          '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
+          '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+' · '+escapeHtml((r.assignedWorkerNames||[]).join(', '))+'</div>'+
+        '</div>'+
+        '<div style="display:flex; align-items:center;">'+dtStatusPill(r)+'<span class="jo-caret">▾</span></div>'+
+      '</div>'+
+      '<div class="jo-card-body" style="display:none;">'+detailBody+'</div>'+
       '<div style="margin-top:10px;"><button type="button" class="btn" data-jo-open="'+escapeHtml(r.id)+'">Open Job Order</button></div>';
+  }
+  // ---------- Technician list: progressive step tracker ----------
+  // Shown at the top of each expanded job order card in "My Job Order" (not
+  // on admin's list) so a technician can see at a glance where a ticket
+  // stands and exactly what to do next, without reading through the full
+  // detail block below it. Stage is derived from the same acknowledgedBy /
+  // completedBy / status fields the action buttons already use — "Expired"
+  // is deliberately NOT one of the stages: it's a date-based warning (see
+  // dtEffectiveStatus) that can appear at any stage before Closed, not a
+  // step the ticket passes through.
+  function dtStepperHtml(r){
+    const ack = (r.acknowledgedBy||[]).includes(currentUser.id);
+    const doneBySelf = (r.completedBy||[]).includes(currentUser.id);
+    const completed = r.status==='completed';
+    const closed = r.status==='closed';
+    const waitingOnOthers = doneBySelf && !completed;
+    let stage = 0;
+    if(closed) stage = 3;
+    else if(completed) stage = 2;
+    else if(ack) stage = 1;
+    const steps = ['Open','Acknowledged','Completed','Closed'];
+    const stepsHtml = steps.map((label,i)=>{
+      const state = i<stage ? 'done' : (i===stage ? 'current' : 'upcoming');
+      return '<div class="jo-step '+state+'">'+
+          '<span class="jo-step-line"></span>'+
+          '<span class="jo-step-dot">'+(i<stage ? '✓' : (i+1))+'</span>'+
+          '<span class="jo-step-label">'+label+'</span>'+
+        '</div>';
+    }).join('');
+    let nextText;
+    if(closed) nextText = 'Fully closed — no further action needed.';
+    else if(completed) nextText = 'File the Service Report for this ticket, then open it below and run Close Job Order.';
+    else if(waitingOnOthers) nextText = 'Recorded — waiting for the other assigned technician(s) to mark it completed.';
+    else if(ack) nextText = 'You are on site. Tap Mark Completed once the fieldwork is finished.';
+    else nextText = 'New assignment. Tap Acknowledge to accept this job order.';
+    const expiredWarn = dtEffectiveStatus(r)==='expired'
+      ? '<div class="jo-stepper-warn">⚠ Scheduled date already passed. You can still Acknowledge, Complete, or Close this — check with your dispatcher/admin if unsure.</div>'
+      : '';
+    return '<div class="jo-stepper">'+expiredWarn+
+      '<div class="jo-stepper-track">'+stepsHtml+'</div>'+
+      '<div class="jo-stepper-next"><b>Next:</b> '+nextText+'</div>'+
+    '</div>';
   }
   // Best-effort write-back: called after a Service Report tied to one
   // equipment line item is saved, so the ticket's progress ("38 of 100
@@ -6469,27 +6582,55 @@
   $('dtTabAll').addEventListener('click', ()=> dtShowAdminTab('all'));
   $('dtTabCalendar').addEventListener('click', ()=> dtShowAdminTab('calendar'));
 
-  let dtTechFilter = 'open';
+  // No status tabs anymore — every job order assigned to the technician is
+  // always shown. This just orders the list so the ones needing action sit
+  // above ones that don't: unacknowledged first, then acknowledged/in
+  // progress, then completed, then closed last; ties broken by soonest
+  // scheduled date.
+  function dtSortTechTickets(items){
+    function priority(r){
+      const ack = (r.acknowledgedBy||[]).includes(currentUser.id);
+      const doneBySelf = (r.completedBy||[]).includes(currentUser.id);
+      if(r.status==='closed') return 4;
+      if(r.status==='completed') return 3;
+      if(doneBySelf) return 2; // acknowledged + done own part, waiting on others
+      if(ack) return 1;
+      return 0; // not yet acknowledged — most urgent
+    }
+    return items.slice().sort((a,b)=>{
+      const pa = priority(a), pb = priority(b);
+      if(pa!==pb) return pa-pb;
+      return (a.date||'').localeCompare(b.date||'');
+    });
+  }
   async function dtRenderTechList(){
     const list = $('dtTechList');
     if(!currentUser || currentUser.role==='admin') return;
     list.innerHTML = '<div class="empty-state">Loading…</div>';
+    // Fresh render = every card starts collapsed again, so the toolbar
+    // button's label always starts back at "Expand all" too.
+    if($('dtTechExpandAllBtn')){
+      $('dtTechExpandAllBtn').dataset.mode = 'expand';
+      $('dtTechExpandAllBtn').textContent = '⤢ Expand all';
+    }
     const mine = await dtListForWorker(currentUser.id);
-    const items = dtTechFilter==='all' ? mine : mine.filter(r=> dtEffectiveStatus(r)===dtTechFilter);
+    dtRenderBackToSrBanner(mine);
+    const items = dtSortTechTickets(mine);
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
-    if(items.length===0){ list.innerHTML = '<div class="empty-state">No '+(dtTechFilter==='all'?'':dtTechFilter+' ')+'dispatch tickets assigned to you.</div>'; return; }
+    if(items.length===0){ list.innerHTML = '<div class="empty-state">No dispatch tickets assigned to you.</div>'; return; }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');
       card.className = 'user-card';
+      card.dataset.ticketId = r.id;
       // Buttons now follow THIS technician's own progress, not the whole
       // ticket's status. Previously a shared ticket could sit at "open" so a
       // colleague who had already acknowledged never got a Complete button,
       // and one person's Complete closed it for everyone.
       const alreadyAck = (r.acknowledgedBy||[]).includes(currentUser.id);
       const alreadyDone = r.status==='completed' || (r.completedBy||[]).includes(currentUser.id);
-      card.innerHTML = dtCardHtml(r, false) +
+      card.innerHTML = dtCardHtml(r, false, dtStepperHtml(r)) +
         '<div class="user-card-actions">'+
           (!alreadyAck && !alreadyDone ? '<button data-act="ack" class="primary">Acknowledge</button>' : '')+
           (alreadyAck && !alreadyDone ? '<button data-act="complete" class="primary">Mark Completed</button>' : '')+
@@ -6502,14 +6643,48 @@
       list.appendChild(card);
     });
   }
-  document.querySelectorAll('#dtTechFilterRow button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.querySelectorAll('#dtTechFilterRow button').forEach(b=> b.classList.remove('active'));
-      btn.classList.add('active');
-      dtTechFilter = btn.dataset.filter;
-      dtRenderTechList();
+  // Shows/updates the "Back to Service Report" banner when the technician
+  // was sent here specifically to acknowledge one ticket (srAckReturnTicketId
+  // — set by srGoAcknowledgeTicket). Its wording adapts once that ticket
+  // actually becomes acknowledged, but the button works either way: going
+  // back just re-shows the Job Order picker, which re-checks acknowledgment
+  // for itself.
+  function dtRenderBackToSrBanner(mine){
+    const banner = $('dtBackToSrBanner');
+    if(!banner) return;
+    if(!srAckReturnTicketId){ banner.style.display = 'none'; return; }
+    const ticket = (mine||[]).find(t=> t.id===srAckReturnTicketId);
+    const jo = ticket ? ticket.jobOrderNo : 'That Job Order';
+    const nowAck = ticket && currentUser && (ticket.acknowledgedBy||[]).includes(currentUser.id);
+    $('dtBackToSrText').textContent = nowAck
+      ? ('✅ '+jo+' is acknowledged — you can head back now.')
+      : ('📋 Acknowledge '+jo+' below to unlock its Service Report.');
+    banner.style.display = '';
+  }
+  if($('dtBackToSrBtn')){
+    $('dtBackToSrBtn').addEventListener('click', ()=>{
+      srAckReturnTicketId = null;
+      $('dtBackToSrBanner').style.display = 'none';
+      showServiceReport();
     });
-  });
+  }
+  if($('dtBackToSrDismissBtn')){
+    $('dtBackToSrDismissBtn').addEventListener('click', ()=>{
+      srAckReturnTicketId = null;
+      $('dtBackToSrBanner').style.display = 'none';
+    });
+  }
+  // Every render rebuilds #dtTechList with all cards collapsed, so this
+  // button always starts back at "Expand all" too — its own state never
+  // needs to survive a re-render, only reflect what's on screen right now.
+  if($('dtTechExpandAllBtn')){
+    $('dtTechExpandAllBtn').addEventListener('click', function(){
+      const expand = this.dataset.mode === 'expand';
+      $$('#dtTechList .jo-card-toggle', document).forEach(head=> dtToggleCardBody(head, expand));
+      this.dataset.mode = expand ? 'collapse' : 'expand';
+      this.textContent = expand ? '⤡ Collapse all' : '⤢ Expand all';
+    });
+  }
   // Fetches only the ticket being changed, checks the current user is actually
   // assigned to it, and writes a targeted update instead of upserting the whole
   // record — so two technicians acting at once no longer overwrite each other.
@@ -6617,7 +6792,6 @@
         '<label class="chk"><input type="checkbox" class="dt-notdone-chk" '+checked+'><span>Scope not completed on this unit</span></label>'+
         '<textarea class="dt-notdone-reason" rows="2" placeholder="Reason (e.g. parts needed, access denied, unit not operational)" '+
           'style="display:'+(it.notDone ? '' : 'none')+';">'+escapeHtml(it.notDoneReason||'')+'</textarea>'+
-        '<div class="dt-notdone-error">Reason required — this unit is marked as not completed.</div>'+
       '</div>';
     }).join('');
   }
@@ -6641,6 +6815,13 @@
     $('dtTicketSummary').innerHTML = dtCardHtml(rec, currentUser && currentUser.role==='admin')
       // The card's own "Open Job Order" button doesn't belong inside itself.
       .replace(/<div style="margin-top:10px;"><button[^]*?<\/button><\/div>$/, '');
+    // This overlay IS the detail view, so its embedded card summary should
+    // show fully expanded, not the collapsed list-row state — force the
+    // body open and drop the tap-to-toggle affordance from its header.
+    const joSummaryBody = $('dtTicketSummary').querySelector('.jo-card-body');
+    if(joSummaryBody) joSummaryBody.style.display = '';
+    const joSummaryHead = $('dtTicketSummary').querySelector('.jo-card-toggle');
+    if(joSummaryHead){ joSummaryHead.classList.remove('jo-card-toggle'); joSummaryHead.removeAttribute('data-jo-toggle'); }
 
     if(alreadyClosed){
       const closedNote = '<div class="leave-comment"><b>Closed</b>'+
@@ -6673,28 +6854,11 @@
   $('dtTicketOverlay').addEventListener('click', (e)=>{ if(e.target.id==='dtTicketOverlay') dtCloseTicketOverlay(); });
 
   // Toggle a unit's reason textarea as its "not completed" checkbox changes.
-  // Also clears any lingering invalid-state highlight from a previous failed
-  // submit attempt (see dtCloseSubmitBtn below) once the box is hidden again.
   $('dtCloseSection').addEventListener('change', (e)=>{
     if(!e.target.classList.contains('dt-notdone-chk')) return;
     const row = e.target.closest('.dt-close-row');
     const ta = row && row.querySelector('.dt-notdone-reason');
     if(ta) ta.style.display = e.target.checked ? '' : 'none';
-    if(!e.target.checked && row){
-      ta.classList.remove('invalid');
-      const err = row.querySelector('.dt-notdone-error');
-      if(err) err.classList.remove('show');
-    }
-  });
-  // Clear the invalid highlight the moment the technician starts typing a
-  // reason, rather than making them resubmit first to see it clear.
-  $('dtCloseSection').addEventListener('input', (e)=>{
-    if(!e.target.classList.contains('dt-notdone-reason')) return;
-    if(!e.target.value.trim()) return;
-    e.target.classList.remove('invalid');
-    const row = e.target.closest('.dt-close-row');
-    const err = row && row.querySelector('.dt-notdone-error');
-    if(err) err.classList.remove('show');
   });
 
   async function dtCloseTicket(ticketId, equipmentList, remarks){
@@ -6728,35 +6892,17 @@
     if(!dtOverlayTicket) return;
     const rows = $$('#dtCloseChecklist .dt-close-row');
     const equipmentList = (dtOverlayTicket.equipmentList||[]).slice();
-    // Clear any invalid-state highlight left over from a previous attempt
-    // before re-checking, so a row that's now fixed doesn't stay marked red.
-    rows.forEach(row=>{
-      row.querySelector('.dt-notdone-reason').classList.remove('invalid');
-      row.querySelector('.dt-notdone-error').classList.remove('show');
-    });
-    let firstBadRow = null;
     for(let i=0; i<rows.length; i++){
       const chk = rows[i].querySelector('.dt-notdone-chk');
       const reasonEl = rows[i].querySelector('.dt-notdone-reason');
       const notDone = chk.checked;
       const reason = reasonEl.value.trim();
       if(notDone && !reason){
-        reasonEl.classList.add('invalid');
-        rows[i].querySelector('.dt-notdone-error').classList.add('show');
-        if(!firstBadRow) firstBadRow = reasonEl;
-        continue;
+        toast('Add a reason for every unit marked "not completed"');
+        reasonEl.focus();
+        return;
       }
       equipmentList[i] = Object.assign({}, equipmentList[i], { notDone, notDoneReason: notDone ? reason : '' });
-    }
-    if(firstBadRow){
-      // The toast alone used to be the only signal here, and it fades in
-      // ~2s — easy to miss, and tapping Close then looked like it silently
-      // did nothing. The red border + message above stay on screen until
-      // fixed, regardless of whether the toast gets read in time.
-      toast('Add a reason for every unit marked "not completed"');
-      firstBadRow.scrollIntoView({block:'center', behavior:'smooth'});
-      firstBadRow.focus();
-      return;
     }
     const exceptionCount = equipmentList.filter(it=>it.notDone).length;
     const confirmMsg = exceptionCount>0

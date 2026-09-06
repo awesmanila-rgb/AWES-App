@@ -1408,18 +1408,62 @@ window.awesCss = {
 
   <!-- Technician: tickets assigned to me -->
   <div id="dispatchTechArea" style="display:none;">
-    <div class="card">
-      <div class="card-head"><span>🚚 My Job Order</span></div>
-      <div class="card-body">
-        <div class="leave-filter-row" id="dtTechFilterRow">
-          <button type="button" data-filter="open" class="active">Open</button>
-          <button type="button" data-filter="acknowledged">Acknowledged</button>
-          <button type="button" data-filter="completed">Completed</button>
-          <button type="button" data-filter="expired">Expired</button>
-          <button type="button" data-filter="closed">Closed</button>
-          <button type="button" data-filter="all">All</button>
+    <div class="dash-two-col dt-jo-layout">
+      <div class="card dt-jo-list-card">
+        <div class="card-head"><span>🚚 My Job Order</span></div>
+        <div class="card-body">
+          <!-- Shown only when the technician was sent here from the Service
+               Report "From Job Order" picker to acknowledge a specific ticket
+               first (see srGoAcknowledgeTicket in dispatch.js). Lets them jump
+               straight back once done, instead of hunting for the Service
+               Report tile again. -->
+          <div id="dtBackToSrBanner" class="dt-back-to-sr-banner" style="display:none;">
+            <span id="dtBackToSrText"></span>
+            <div class="dt-back-to-sr-actions">
+              <button type="button" id="dtBackToSrBtn">← Back to Service Report</button>
+              <button type="button" id="dtBackToSrDismissBtn" aria-label="Dismiss">✕</button>
+            </div>
+          </div>
+          <!-- No more status tabs — every job order assigned to the
+               technician is listed here, newest/most-actionable first (see
+               dtSortTechTickets in dispatch.js), collapsed by default. -->
+          <div class="dt-jo-list-toolbar">
+            <button type="button" class="dt-jo-toggle-all-btn" id="dtTechExpandAllBtn" data-mode="expand">⤢ Expand all</button>
+          </div>
+          <div id="dtTechList"><div class="empty-state">Loading…</div></div>
         </div>
-        <div id="dtTechList"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <!-- First-time-technician reference: what the status pill and the
+           step tracker (shown once a job order is expanded) mean. Sits
+           beside the list on tablet/desktop widths and drops below it on
+           phones (same responsive rule as .dash-two-col elsewhere). -->
+      <div class="card dt-jo-help-card">
+        <div class="card-head"><span>ℹ️ How Job Orders Work</span></div>
+        <div class="card-body">
+          <p class="dt-jo-help-intro">Every job order goes through the same four stages. Tap a job order below to expand it — a step tracker shows exactly where it stands and what to do next.</p>
+          <div class="dt-jo-help-item">
+            <div class="dt-jo-help-label"><span class="dt-jo-help-dot" style="background:#B8860B;"></span>1. Open</div>
+            <div class="dt-jo-help-desc">A new job order assigned to you that you haven't responded to yet. Tap <b>Acknowledge</b> to accept it.</div>
+          </div>
+          <div class="dt-jo-help-item">
+            <div class="dt-jo-help-label"><span class="dt-jo-help-dot" style="background:var(--green-dark);"></span>2. Acknowledged</div>
+            <div class="dt-jo-help-desc">You've accepted it and should currently be working on site. Tap <b>Mark Completed</b> once the fieldwork is done.</div>
+          </div>
+          <div class="dt-jo-help-item">
+            <div class="dt-jo-help-label"><span class="dt-jo-help-dot" style="background:#1F7A52;"></span>3. Completed</div>
+            <div class="dt-jo-help-desc">Fieldwork is finished. File the Service Report, then open the ticket and run <b>Close Job Order</b>.</div>
+          </div>
+          <div class="dt-jo-help-item">
+            <div class="dt-jo-help-label"><span class="dt-jo-help-dot" style="background:#4A524B;"></span>4. Closed</div>
+            <div class="dt-jo-help-desc">Fully finalized. No further action needed on these.</div>
+          </div>
+          <div class="dt-jo-help-item">
+            <div class="dt-jo-help-label"><span class="dt-jo-help-dot" style="background:#B02A37;"></span>⚠ Expired</div>
+            <div class="dt-jo-help-desc">A warning, not a stage — it just means the scheduled date passed before the job was completed. You can still Acknowledge, Complete, or Close it; check with your dispatcher/admin if unsure.</div>
+          </div>
+          <p class="dt-jo-help-tip">💡 Tip: tap a job order's title bar to expand it and see its step tracker, or use "Expand all" to open everything at once.</p>
+        </div>
       </div>
     </div>
   </div>
