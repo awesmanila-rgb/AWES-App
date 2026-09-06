@@ -465,6 +465,14 @@
     if(outboxFlushing) return {sent:0, left:await outboxCount(), stuck:true};
     if(!(await ensureCloud())) return {sent:0, left:await outboxCount()};
     outboxFlushing = true;
+    // A phone that's been asleep or backgrounded for a while can wake up with
+    // a stale access token — supabase-js only auto-refreshes on a timer that
+    // needs the tab to stay alive, so a long suspension can outlast it. Force
+    // a refresh now, while we know we're online, before replaying anything —
+    // otherwise every item in the queue fails with what looks like a
+    // permissions error (RLS treats an expired token as unauthenticated) even
+    // though the actual problem is just an out-of-date token.
+    try{ await db.auth.refreshSession(); }catch(e){ /* fall through — the per-item attempts below will surface any real auth problem */ }
     let sent = 0, left = 0, lastError = null;
     try{
       const items = await outboxList();
@@ -506,10 +514,17 @@
   async function updateOutboxBadge(){
     const el = $('pendingSyncBanner');
     if(!el) return;
-    const n = await outboxCount();
+    const items = await outboxList();
+    const n = items.length;
     el.style.display = n ? 'flex' : 'none';
     const label = $('pendingSyncText');
-    if(label) label.textContent = n+' item'+(n===1?'':'s')+' saved on this device only — waiting for a connection';
+    if(label){
+      const failing = items.some(it=> it.lastError);
+      label.textContent = failing
+        ? n+' item'+(n===1?'':'s')+' failed to sync — tap View for the reason'
+        : n+' item'+(n===1?'':'s')+' saved on this device only — waiting for a connection';
+      el.style.background = failing ? '#8A2020' : '#8A5A00';
+    }
   }
   window.addEventListener('online', ()=>{ outboxFlush(); });
   // Also retry when the app is brought back to the foreground, since phones
