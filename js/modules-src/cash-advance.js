@@ -1104,6 +1104,43 @@
     }catch(e){ console.error('auto-save liquidation pdf failed', e); }
   }
 
+  // ---------- Progressive step tracker for the Cash Advance/Liquidation flow ----------
+  // Mirrors dtStepperHtml() in dispatch.js (same visual language: jo-stepper /
+  // jo-step classes) so a technician sees, at a glance, where a cash advance
+  // sits between "Requested" and "Settled" without reading every status pill.
+  function caStepperHtml(active){
+    const disapprovedLiq = active.liquidation && active.liquidation.status==='disapproved';
+    const submittedLiq = active.liquidation && active.liquidation.status==='pending';
+    const approvedLiq = active.liquidation && active.liquidation.status==='approved';
+    let stage = 0; // 0=Requested
+    if(active.status==='approved') stage = 1; // Approved
+    if(active.status==='approved' && active.disbursed) stage = 2; // Given
+    if(submittedLiq || disapprovedLiq) stage = 3; // Liquidation Submitted (disapproved sits here too — action needed)
+    if(approvedLiq) stage = 4; // Settled
+    const steps = ['Requested','Approved','Given','Liquidation Submitted','Settled'];
+    const stepsHtml = steps.map((label,i)=>{
+      const state = i<stage ? 'done' : (i===stage ? 'current' : 'upcoming');
+      return '<div class="jo-step '+state+'">'+
+          '<span class="jo-step-line"></span>'+
+          '<span class="jo-step-dot">'+(i<stage ? '\u2713' : (i+1))+'</span>'+
+          '<span class="jo-step-label">'+label+'</span>'+
+        '</div>';
+    }).join('');
+    let nextText;
+    if(approvedLiq) nextText = 'Fully settled — no further action needed.';
+    else if(disapprovedLiq) nextText = 'Disapproved — fix the flagged items below and resubmit.';
+    else if(submittedLiq) nextText = 'Submitted — waiting for your admin to review your liquidation.';
+    else if(stage===2) nextText = 'Cash advance given. Add your itemized expenses below, then Submit Liquidation.';
+    else if(stage===1) nextText = 'Approved. Waiting for your admin to record the disbursement.';
+    else nextText = 'Waiting for your admin to approve this request.';
+    return '<div class="jo-stepper">'+
+      '<div class="jo-stepper-track">'+stepsHtml+'</div>'+
+      '<div class="jo-stepper-next"><b>Next:</b> '+nextText+'</div>'+
+    '</div>';
+  }
+  // caInstructionsHead's click is handled by the global delegated
+  // .collapsible-head listener (see customers.js) — no listener needed here.
+
   async function caShowLiqTab(){
     if(!currentUser || currentUser.role==='admin') return;
     const active = await caFindActiveLiquidationRecord(currentUser.id);
@@ -1115,6 +1152,7 @@
     }
     $('caLiquidateEmpty').style.display = 'none';
     $('caLiquidateActive').style.display = '';
+    $('caStepperContainer').innerHTML = caStepperHtml(active);
 
     // A liquidation that's never been started yet duplicates the reminder
     // card the technician just came from (same amount/date/purpose) — skip

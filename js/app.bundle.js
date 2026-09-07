@@ -1797,6 +1797,7 @@
     pad.off();
     const box = $(padId).closest('.sig-box');
     if(box) box.classList.add('locked');
+    srRenderStepper();
   }
   function unlockSignature(padId){
     const pad = sigPadById()[padId];
@@ -1804,6 +1805,7 @@
     sigLocked[padId] = false;
     const box = $(padId).closest('.sig-box');
     if(box) box.classList.remove('locked');
+    srRenderStepper();
   }
   function setupSigPad(canvasId, phId){
     const canvas = $(canvasId);
@@ -3748,6 +3750,193 @@
     toast('Password updated');
   }
 
+  // ========================================================================
+  // Technician Profile — photo + records for attendance, leaves, violations
+  // and admin-uploaded memos, reached from the Technicians attendance table
+  // ("View Profile", wired in history.js) via techOpenProfile(u).
+  // ========================================================================
+  let tpCurrentUser = null;
+
+  function tpSwitchTab(tab){
+    ['Attendance','Leaves','Violations','Documents'].forEach(t=>{
+      $('tpTab'+t).classList.toggle('active', t===tab);
+      $('tp'+t+'Card').style.display = t===tab ? '' : 'none';
+    });
+    if(tab==='Leaves') tpRenderLeaves();
+    if(tab==='Violations') tpRenderViolations();
+    if(tab==='Documents') tpRenderDocuments();
+  }
+  $('tpTabAttendance').addEventListener('click', ()=> tpSwitchTab('Attendance'));
+  $('tpTabLeaves').addEventListener('click', ()=> tpSwitchTab('Leaves'));
+  $('tpTabViolations').addEventListener('click', ()=> tpSwitchTab('Violations'));
+  $('tpTabDocuments').addEventListener('click', ()=> tpSwitchTab('Documents'));
+
+  $('tpViewFullDtrBtn').addEventListener('click', ()=>{
+    if(!tpCurrentUser) return;
+    $('techProfileOverlay').classList.remove('open');
+    dtrShowTechnicianDetail(tpCurrentUser);
+  });
+
+  async function tpLoadPhoto(){
+    $('techProfilePhoto').style.display = 'none';
+    $('techProfilePhotoPlaceholder').style.display = 'flex';
+    if(!(await ensureCloud())) return;
+    try{
+      const { data, error } = await db.from('profiles').select('photo_data').eq('id', tpCurrentUser.id).maybeSingle();
+      if(error) throw error;
+      if(data && data.photo_data){
+        $('techProfilePhoto').src = data.photo_data;
+        $('techProfilePhoto').style.display = '';
+        $('techProfilePhotoPlaceholder').style.display = 'none';
+      }
+    }catch(e){ console.error('load technician photo failed', describeCloudError(e)); }
+  }
+  $('techProfilePhotoInput').addEventListener('change', async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if(!file || !tpCurrentUser) return;
+    try{
+      const dataUrl = await compressImageToDataURL(file, 500, 0.7);
+      if(!(await ensureCloud())){ toast('Photo needs an internet connection to save'); return; }
+      const { error } = await db.from('profiles').update({ photo_data: dataUrl }).eq('id', tpCurrentUser.id);
+      if(error) throw error;
+      toast('Photo updated');
+      tpLoadPhoto();
+    }catch(e){ console.error('upload technician photo failed', describeCloudError(e)); toast('Could not upload photo'); }
+  });
+
+  async function tpRenderLeaves(){
+    const list = $('tpLeavesList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const rows = await leaveListForUser(tpCurrentUser.id);
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No leave requests on file.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row"><div>'+
+          '<div class="u-name">'+escapeHtml(r.leaveType||'Leave')+'</div>'+
+          '<div class="u-status">'+leaveFmtDate(r.dateFrom)+' – '+leaveFmtDate(r.dateTo)+' ('+r.days+(r.days===1?' day':' days')+')</div>'+
+        '</div>'+leaveStatusPill(r.status)+'</div>'
+      ).join('');
+    }catch(e){ console.error('load technician leaves failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load leave records.</div>'; }
+  }
+
+  async function tpRenderViolations(){
+    const list = $('tpViolationsList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const { data, error } = await db.from('technician_violations').select('*').eq('technician_id', tpCurrentUser.id).order('occurred_on', {ascending:false});
+      if(error) throw error;
+      const rows = data || [];
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No violations on file.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row" data-vid="'+r.id+'"><div>'+
+          '<div class="u-name">'+leaveFmtDate(r.occurred_on)+'</div>'+
+          '<div class="u-status">'+escapeHtml(r.description)+'</div>'+
+        '</div><div class="u-actions"><button type="button" data-remove-violation="'+r.id+'">Remove</button></div></div>'
+      ).join('');
+      list.querySelectorAll('[data-remove-violation]').forEach(btn=>{
+        btn.addEventListener('click', ()=> tpDeleteViolation(btn.dataset.removeViolation));
+      });
+    }catch(e){ console.error('load violations failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load violations.</div>'; }
+  }
+  $('tpAddViolationBtn').addEventListener('click', async ()=>{
+    const date = $('tpViolationDate').value;
+    const desc = $('tpViolationDesc').value.trim();
+    if(!date || !desc){ toast('Enter a date and description'); return; }
+    if(!(await ensureCloud())){ toast('Needs an internet connection'); return; }
+    $('tpAddViolationBtn').disabled = true;
+    try{
+      const { error } = await db.from('technician_violations').insert({
+        technician_id: tpCurrentUser.id, occurred_on: date, description: desc, created_by: currentUser.id
+      });
+      if(error) throw error;
+      $('tpViolationDate').value = ''; $('tpViolationDesc').value = '';
+      toast('Violation recorded');
+      tpRenderViolations();
+    }catch(e){ console.error('add violation failed', describeCloudError(e)); toast('Could not save violation'); }
+    finally{ $('tpAddViolationBtn').disabled = false; }
+  });
+  async function tpDeleteViolation(id){
+    if(!confirm('Remove this violation record?')) return;
+    try{
+      const { error } = await db.from('technician_violations').delete().eq('id', id);
+      if(error) throw error;
+      tpRenderViolations();
+    }catch(e){ console.error('delete violation failed', describeCloudError(e)); toast('Could not remove violation'); }
+  }
+
+  async function tpRenderDocuments(){
+    const list = $('tpDocumentsList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const { data, error } = await db.from('technician_documents').select('id,title,file_data,created_at').eq('technician_id', tpCurrentUser.id).order('created_at', {ascending:false});
+      if(error) throw error;
+      const rows = data || [];
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No documents uploaded.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row"><div>'+
+          '<div class="u-name">'+escapeHtml(r.title)+'</div>'+
+          '<div class="u-status">'+leaveFmtWhen(r.created_at)+'</div>'+
+        '</div><div class="u-actions">'+
+          '<a href="'+r.file_data+'" download="'+escapeHtml(r.title)+'" style="border:1px solid var(--border); background:#fff; border-radius:6px; padding:6px 10px; font-size:12px; text-decoration:none; color:var(--text);">Download</a>'+
+          '<button type="button" data-remove-doc="'+r.id+'">Remove</button>'+
+        '</div></div>'
+      ).join('');
+      list.querySelectorAll('[data-remove-doc]').forEach(btn=>{
+        btn.addEventListener('click', ()=> tpDeleteDocument(btn.dataset.removeDoc));
+      });
+    }catch(e){ console.error('load documents failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load documents.</div>'; }
+  }
+  $('tpAddDocBtn').addEventListener('click', async ()=>{
+    const title = $('tpDocTitle').value.trim();
+    const file = $('tpDocFile').files && $('tpDocFile').files[0];
+    if(!title || !file){ toast('Enter a title and choose a file'); return; }
+    if(!(await ensureCloud())){ toast('Needs an internet connection'); return; }
+    $('tpAddDocBtn').disabled = true;
+    try{
+      // Images are downscaled like the photo above; PDFs are kept as-is
+      // (already compact for a one- or two-page memo) and just read as a
+      // base64 data URL so they can be stored in the same text column.
+      const dataUrl = file.type.startsWith('image/')
+        ? await compressImageToDataURL(file, 1400, 0.7)
+        : await new Promise((resolve, reject)=>{
+            const reader = new FileReader();
+            reader.onerror = ()=> reject(new Error('read failed'));
+            reader.onload = ()=> resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+      const { error } = await db.from('technician_documents').insert({
+        technician_id: tpCurrentUser.id, title, file_data: dataUrl, uploaded_by: currentUser.id
+      });
+      if(error) throw error;
+      $('tpDocTitle').value = ''; $('tpDocFile').value = '';
+      toast('Memo uploaded');
+      tpRenderDocuments();
+    }catch(e){ console.error('upload document failed', describeCloudError(e)); toast('Could not upload memo'); }
+    finally{ $('tpAddDocBtn').disabled = false; }
+  });
+  async function tpDeleteDocument(id){
+    if(!confirm('Remove this document?')) return;
+    try{
+      const { error } = await db.from('technician_documents').delete().eq('id', id);
+      if(error) throw error;
+      tpRenderDocuments();
+    }catch(e){ console.error('delete document failed', describeCloudError(e)); toast('Could not remove document'); }
+  }
+
+  function techOpenProfile(u){
+    tpCurrentUser = u;
+    $('techProfileName').textContent = u.name;
+    tpSwitchTab('Attendance');
+    tpLoadPhoto();
+    $('techProfileOverlay').classList.add('open');
+  }
+  $('closeTechProfile').addEventListener('click', ()=> $('techProfileOverlay').classList.remove('open'));
+  $('techProfileOverlay').addEventListener('click', (e)=>{ if(e.target.id==='techProfileOverlay') $('techProfileOverlay').classList.remove('open'); });
+
 
 // ---------- EmailJS settings ----------
   let emailCfg = {publicKey:'', serviceId:'', templateId:'', officeEmail:''};
@@ -3860,6 +4049,11 @@
   // time, before dispatch.js's own module code has executed.
   let srCurrentTicketId = null;
   let srCurrentEquipId = null;
+  // Set instead of srCurrentEquipId when a technician has picked MULTIPLE
+  // equipment items off one Job Order to batch-sign — see
+  // srApplyJobOrderBatch() (dispatch.js) and the submit loop in pdf.js.
+  // Each entry is one equipment item off the ticket's equipmentList.
+  let srBatchEquipItems = null;
   function resetForm(){
     // Scoped to the Service Report view only. This used to select every text,
     // number, textarea and checkbox on the page, so starting a new report also
@@ -3901,11 +4095,59 @@
     currentTechnicianId = null;
     srCurrentTicketId = null;
     srCurrentEquipId = null;
+    srBatchEquipItems = null;
+    if($('srBatchBanner')) $('srBatchBanner').style.display = 'none';
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();
+    srRenderStepper();
   }
   resetForm();
+  // ---------- progressive step tracker ----------
+  // Same jo-stepper visual language as the Job Order / Cash Advance
+  // trackers. Re-rendered at every state change below rather than on every
+  // keystroke — resetForm, applying a Job Order (single or batch), signing,
+  // and submitting all call this directly.
+  function srRenderStepper(){
+    const container = $('srStepperContainer');
+    if(!container) return;
+    const isAdmin = currentUser && currentUser.role==='admin';
+    const step1Done = isAdmin || !!srCurrentTicketId;
+    const step2Done = step1Done && !!$('custName').value.trim() && !!$('svcDate').value;
+    const custSigned = !!(sigCustomerPad && !sigCustomerPad.isEmpty());
+    const techSigned = !!(sigTechPad && !sigTechPad.isEmpty());
+    const step3Done = step2Done && custSigned && techSigned;
+    const step4Done = step3Done && $('statusPill').textContent==='Completed';
+    let stage = 0;
+    if(step1Done) stage = 1;
+    if(step2Done) stage = 2;
+    if(step3Done) stage = 3;
+    if(step4Done) stage = 4;
+    const isBatch = srBatchEquipItems && srBatchEquipItems.length > 1;
+    const labels = isBatch
+      ? ['Job Order Selected','Details Filled','Signed Once','All Reports Submitted']
+      : ['Job Order Selected','Details Filled','Signed','Submitted'];
+    const stepsHtml = labels.map((label,i)=>{
+      const state = i<stage ? 'done' : (i===stage ? 'current' : 'upcoming');
+      return '<div class="jo-step '+state+'">'+
+          '<span class="jo-step-line"></span>'+
+          '<span class="jo-step-dot">'+(i<stage ? '\u2713' : (i+1))+'</span>'+
+          '<span class="jo-step-label">'+label+'</span>'+
+        '</div>';
+    }).join('');
+    let nextText;
+    if(step4Done) nextText = isBatch ? 'All reports for this batch were generated.' : 'Report submitted.';
+    else if(step3Done) nextText = 'Tap "Generate & Share Report" below to submit'+(isBatch ? ' every report in this batch.' : '.');
+    else if(step2Done) nextText = 'Sign in Section 8 to continue (both customer and technician).';
+    else if(step1Done) nextText = "Fill in Customer's Information and the sections below.";
+    else nextText = 'Select a Job Order above to get started.';
+    container.innerHTML = '<div class="jo-stepper">'+
+      '<div class="jo-stepper-track">'+stepsHtml+'</div>'+
+      '<div class="jo-stepper-next"><b>Next:</b> '+nextText+'</div>'+
+    '</div>';
+  }
+  ['custName','svcDate'].forEach(id=>{ const el = $(id); if(el){ el.addEventListener('input', srRenderStepper); el.addEventListener('change', srRenderStepper); } });
+  srRenderStepper();
   // Auto-fills the Technician Name field from the logged-in account (still
   // editable, in case a different technician actually performed the work).
   function applyTechNameDefault(){
@@ -4420,11 +4662,64 @@
     showHome();
   });
 
+  // Batch-sign submit path (2+ equipment items selected off one Job Order,
+  // see srApplyJobOrderBatch in dispatch.js). Everything gathered from the
+  // form — including the one signature — is shared across every report;
+  // only the equipment-identity fields (EQUIP_FIELD_KEYS) differ, pulled
+  // straight from each selected item rather than the (hidden) form fields.
+  async function submitBatchReports(){
+    const items = srBatchEquipItems;
+    const ticketId = srCurrentTicketId;
+    const baseData = await gatherDataForOutput();
+    let savedCount = 0, failedCount = 0;
+    const toShare = [];
+    for(const item of items){
+      const srNo = await nextSrNo();
+      const data = Object.assign({}, baseData, { srNo, completed:true });
+      EQUIP_FIELD_KEYS.forEach(k=> data[k] = item[k] || '');
+      if(item.scope && item.scope.length) data.troubleCall = item.scope.join('; ');
+      const saveResult = await saveReport(srNo, data);
+      if(saveResult===SAVE_FAILED){ failedCount++; continue; }
+      savedCount++;
+      await dtMarkEquipmentReported(ticketId, item.id, srNo);
+      const doc = await buildPdf(data);
+      toShare.push({ srNo, doc, data });
+    }
+    if(savedCount===0){
+      toast('Could not save any of the '+items.length+' reports — fix the connection or free up space, then try again');
+      return;
+    }
+    $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
+    $('metaSrNo').textContent = savedCount+' reports (batch)';
+    srRenderStepper();
+    // Send/share each generated PDF in turn — there is no single combined
+    // file, so this is N separate emails (silent, no UI per one) or N
+    // share/download prompts (the browser/OS share sheet, one after another).
+    let emailedCount = 0;
+    for(const {srNo, doc, data} of toShare){
+      const filename = srNo+'.pdf';
+      if(emailConfigured()){
+        const emailResult = await sendEmailWithPdf(doc, data, filename);
+        if(emailResult.ok) emailedCount++;
+        else await shareOrDownloadPdf(doc, filename);
+      }else{
+        await shareOrDownloadPdf(doc, filename);
+      }
+    }
+    let summary = savedCount+' of '+items.length+' reports generated'+(failedCount ? ' ('+failedCount+' failed to save — retry those individually)' : '')+'.';
+    summary += emailConfigured() ? (' '+emailedCount+' emailed to the customer.') : ' Shared/downloaded to this device.';
+    showShareSuccess(summary);
+  }
+
   $('genPdfBtn').addEventListener('click', async ()=>{
     if(!validate()){ toast('Please fill required fields'); return; }
     $('genPdfBtn').disabled = true;
     $('genPdfBtn').textContent = 'Building PDF…';
     try{
+      if(srBatchEquipItems && srBatchEquipItems.length > 0){
+        await submitBatchReports();
+        return;
+      }
       if(!currentSrNo){ currentSrNo = await nextSrNo(); $('metaSrNo').textContent = currentSrNo; }
       const data = await gatherDataForOutput();
       Object.assign(data, {completed:true});
@@ -4441,6 +4736,7 @@
       // fails the report save itself.
       if(srCurrentTicketId && srCurrentEquipId) await dtMarkEquipmentReported(srCurrentTicketId, srCurrentEquipId, currentSrNo);
       $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
+      srRenderStepper();
       const doc = await buildPdf(data);
       const filename = (currentSrNo||'service-report')+'.pdf';
 
@@ -5305,8 +5601,10 @@
         '<td>'+escapeHtml(otInTxt)+'</td>'+
         '<td>'+escapeHtml(otOutTxt)+'</td>'+
         '<td>'+escapeHtml(otHoursTxt)+'</td>'+
-        '<td><button type="button" class="att-view-btn">View DTR</button></td>';
-      row.querySelector('.att-view-btn').addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
+        '<td><button type="button" class="att-view-btn">View DTR</button> <button type="button" class="att-view-btn">View Profile</button></td>';
+      const [viewDtrBtn, viewProfileBtn] = row.querySelectorAll('.att-view-btn');
+      viewDtrBtn.addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
+      viewProfileBtn.addEventListener('click', ()=> techOpenProfile({id:u.id, name:u.name}));
       body.appendChild(row);
     });
     if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+otCount+' On Overtime · '+absentCount+' Absent · '+active.length+' Total';
@@ -5807,36 +6105,95 @@
         return;
       }
       const pendingWrap = row.querySelector('.dt-equip-pending');
+      function renderSinglePickList(){
+        pendingWrap.innerHTML = '';
+        if(pending.length===0){
+          pendingWrap.innerHTML = '<div class="empty-state">All equipment on this ticket already has a report.</div>';
+          return;
+        }
+        pending.forEach(it=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'combo-item';
+          btn.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
+          // A pending item with a draftSrNo already has a Service Report
+          // started for it (just not completed yet). Flag it clearly so a
+          // technician re-opening this ticket doesn't start a second,
+          // duplicate report for the same unit — tapping it below resumes
+          // the existing draft instead of blanking the form.
+          btn.innerHTML = '<span>'+escapeHtml(dtEquipSummaryLine(it))+'</span>'+
+            (it.draftSrNo ? '<span class="status-pill status-draft" style="flex-shrink:0;">Draft Saved</span>' : '');
+          btn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            if(it.draftSrNo) srResumeDraft(r, it);
+            else srApplyJobOrder(r, it);
+          });
+          pendingWrap.appendChild(btn);
+        });
+        // Batch signing entry point — only worth offering with 2+ items
+        // still pending on this ticket (see srApplyJobOrderBatch below).
+        if(pending.length >= 2){
+          const batchLink = document.createElement('button');
+          batchLink.type = 'button';
+          batchLink.className = 'sr-batch-toggle-link';
+          batchLink.style.cssText = 'width:100%; text-align:center; background:none; border:none; color:var(--green-dark); font-size:12px; font-weight:600; padding:8px 0 2px; cursor:pointer;';
+          batchLink.textContent = '☑ Select multiple to batch sign →';
+          batchLink.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            srRenderBatchPicker(pendingWrap, r, pending, renderSinglePickList);
+          });
+          pendingWrap.appendChild(batchLink);
+        }
+      }
       head.addEventListener('click', ()=>{
         const isOpen = pendingWrap.style.display !== 'none';
         pendingWrap.style.display = isOpen ? 'none' : '';
-        if(!isOpen && pendingWrap.childElementCount===0){
-          if(pending.length===0){
-            pendingWrap.innerHTML = '<div class="empty-state">All equipment on this ticket already has a report.</div>';
-          }
-          pending.forEach(it=>{
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'combo-item';
-            btn.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
-            // A pending item with a draftSrNo already has a Service Report
-            // started for it (just not completed yet). Flag it clearly so a
-            // technician re-opening this ticket doesn't start a second,
-            // duplicate report for the same unit — tapping it below resumes
-            // the existing draft instead of blanking the form.
-            btn.innerHTML = '<span>'+escapeHtml(dtEquipSummaryLine(it))+'</span>'+
-              (it.draftSrNo ? '<span class="status-pill status-draft" style="flex-shrink:0;">Draft Saved</span>' : '');
-            btn.addEventListener('click', (e)=>{
-              e.stopPropagation();
-              if(it.draftSrNo) srResumeDraft(r, it);
-              else srApplyJobOrder(r, it);
-            });
-            pendingWrap.appendChild(btn);
-          });
-        }
+        if(!isOpen && pendingWrap.childElementCount===0) renderSinglePickList();
       });
       list.appendChild(row);
     });
+  }
+  // Checkbox multi-select shown in place of the single-tap list above, once
+  // a technician taps "Select multiple to batch sign". Replaces
+  // pendingWrap's contents; tapping "Cancel" restores the single-tap list
+  // via the onCancel callback (renderSinglePickList, passed in above) rather
+  // than re-deriving it here.
+  function srRenderBatchPicker(pendingWrap, ticket, pending, onCancel){
+    pendingWrap.innerHTML = '<div class="leave-note" style="margin-bottom:8px;">Check every unit you serviced on this visit, then continue — you\'ll fill the shared details once and sign once for all of them.</div>';
+    const checks = [];
+    pending.forEach(it=>{
+      const label = document.createElement('label');
+      label.className = 'chk';
+      label.style.cssText = 'display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = it.id;
+      label.appendChild(cb);
+      const span = document.createElement('span');
+      span.textContent = dtEquipSummaryLine(it) + (it.draftSrNo ? ' (Draft Saved — will be overwritten)' : '');
+      label.appendChild(span);
+      pendingWrap.appendChild(label);
+      checks.push({cb, item:it});
+    });
+    const actionRow = document.createElement('div');
+    actionRow.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+    const continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'btn btn-primary';
+    continueBtn.style.cssText = 'flex:1;';
+    continueBtn.textContent = 'Continue with Selected';
+    continueBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const selected = checks.filter(c=> c.cb.checked).map(c=> c.item);
+      if(selected.length===0){ toast('Check at least one unit first'); return; }
+      srApplyJobOrderBatch(ticket, selected);
+    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', (e)=>{ e.stopPropagation(); onCancel(); });
+    actionRow.appendChild(continueBtn); actionRow.appendChild(cancelBtn);
+    pendingWrap.appendChild(actionRow);
   }
   // Set while a technician is being sent from the Service Report picker to
   // My Job Order to acknowledge a specific ticket (see srGoAcknowledgeTicket
@@ -5910,6 +6267,49 @@
     srCurrentEquipId = equipItem ? equipItem.id : null;
     toast('Job Order '+ticket.jobOrderNo+' applied — check the fields below');
     $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
+    srRenderStepper();
+  }
+
+  // Batch-sign entry point: fills Customer's Information ONCE for every
+  // selected equipment item (same ticket, so same customer/site), then
+  // hides Section 2 (Equipment Description) — it has no single answer when
+  // several different units are involved, so each unit's own equipment
+  // fields (EQUIP_FIELD_KEYS) are pulled straight off its ticket record at
+  // submit time instead (see the batch loop in pdf.js). Sections 3-8 are
+  // filled once and shared verbatim across every report this generates.
+  async function srApplyJobOrderBatch(ticket, equipItems){
+    resetForm();
+    $('sec1Card').style.display = '';
+    const matched = customersCache.find(c=> c.name.toLowerCase() === (ticket.custName||'').trim().toLowerCase());
+    if(matched){
+      $('custName').value = matched.name;
+      $('custAddress').value = matched.address||'';
+      $('contactNo').value = matched.contactNo||'';
+      $('contactPerson').value = matched.contactPerson||'';
+      $('custEmail').value = matched.email||'';
+      revealSectionsAfterCustomer();
+    }else{
+      $('custName').value = ticket.custName||'';
+      revealSectionsAfterCustomer();
+    }
+    if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
+    if(ticket.contactName) $('contactPerson').value = ticket.contactName;
+    if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
+    // Section 2 doesn't apply in batch mode — each report's equipment
+    // fields come from its own item at submit time, not from this form.
+    if($('sec2Card')) $('sec2Card').style.display = 'none';
+    srCurrentTicketId = ticket.id;
+    srCurrentEquipId = null;
+    srBatchEquipItems = equipItems;
+    $('srBatchBanner').style.display = '';
+    $('srBatchList').innerHTML = equipItems.map(it=>
+      '<div class="leave-note" style="margin-bottom:4px;">• '+escapeHtml(dtEquipSummaryLine(it))+'</div>'
+    ).join('');
+    const scopes = Array.from(new Set(equipItems.flatMap(it=> it.scope||[])));
+    if(scopes.length) $('troubleCall').value = scopes.join('; ');
+    toast('Job Order '+ticket.jobOrderNo+' applied for batch signing — fill in the shared details below, then sign once');
+    $('srBatchBanner').scrollIntoView({behavior:'smooth', block:'start'});
+    srRenderStepper();
   }
 
   // Re-opens an equipment item that already has a draft Service Report
@@ -6356,14 +6756,14 @@
   }
   function dtStatusPill(r){
     const status = dtEffectiveStatus(r);
-    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Completed</span>';
+    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Status: Completed</span>';
     if(status==='closed'){
       const hasExceptions = (r.equipmentList||[]).some(it=> it.notDone);
-      return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
+      return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Status: Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
     }
-    if(status==='expired') return '<span class="status-pill" style="background:#F8D7DA; color:#B02A37;">Expired</span>';
-    if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Acknowledged</span>';
-    return '<span class="status-pill status-draft">Open</span>';
+    if(status==='expired') return '<span class="status-pill" style="background:#F8D7DA; color:#B02A37;">Status: Expired</span>';
+    if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Status: Acknowledged</span>';
+    return '<span class="status-pill status-draft">Status: Open</span>';
   }
   // Shows every equipment item on the ticket with its own scope and
   // report status, capped so a 100-unit ticket doesn't blow up the card —
@@ -6438,7 +6838,26 @@
   }
   function dtHandleEquipRowClick(e){
     const toggleHead = e.target.closest('[data-jo-toggle]');
-    if(toggleHead){ dtToggleCardBody(toggleHead); return; }
+    if(toggleHead){
+      // Everywhere else, each Job Order card expands/collapses independently
+      // (a technician scanning several open tickets can leave more than one
+      // expanded). The Schedule Calendar's day list is the one place that
+      // should behave like an accordion — opening one Job Order there closes
+      // any other one already open, so the day list stays scannable. This is
+      // scoped to #dtCalDayList / #homeCalDayList only via e.currentTarget,
+      // the list the listener is actually attached to.
+      const listEl = e.currentTarget;
+      const isCalendarList = listEl && (listEl.id==='dtCalDayList' || listEl.id==='homeCalDayList');
+      if(isCalendarList){
+        const body = toggleHead.nextElementSibling;
+        const willOpen = !!(body && body.classList.contains('jo-card-body') && body.style.display==='none');
+        listEl.querySelectorAll('.jo-card-toggle').forEach(h=>{ if(h!==toggleHead) dtToggleCardBody(h, false); });
+        dtToggleCardBody(toggleHead, willOpen);
+      }else{
+        dtToggleCardBody(toggleHead);
+      }
+      return;
+    }
     const openBtn = e.target.closest('[data-jo-open]');
     if(openBtn){
       e.stopPropagation();
@@ -8314,6 +8733,43 @@
     }catch(e){ console.error('auto-save liquidation pdf failed', e); }
   }
 
+  // ---------- Progressive step tracker for the Cash Advance/Liquidation flow ----------
+  // Mirrors dtStepperHtml() in dispatch.js (same visual language: jo-stepper /
+  // jo-step classes) so a technician sees, at a glance, where a cash advance
+  // sits between "Requested" and "Settled" without reading every status pill.
+  function caStepperHtml(active){
+    const disapprovedLiq = active.liquidation && active.liquidation.status==='disapproved';
+    const submittedLiq = active.liquidation && active.liquidation.status==='pending';
+    const approvedLiq = active.liquidation && active.liquidation.status==='approved';
+    let stage = 0; // 0=Requested
+    if(active.status==='approved') stage = 1; // Approved
+    if(active.status==='approved' && active.disbursed) stage = 2; // Given
+    if(submittedLiq || disapprovedLiq) stage = 3; // Liquidation Submitted (disapproved sits here too — action needed)
+    if(approvedLiq) stage = 4; // Settled
+    const steps = ['Requested','Approved','Given','Liquidation Submitted','Settled'];
+    const stepsHtml = steps.map((label,i)=>{
+      const state = i<stage ? 'done' : (i===stage ? 'current' : 'upcoming');
+      return '<div class="jo-step '+state+'">'+
+          '<span class="jo-step-line"></span>'+
+          '<span class="jo-step-dot">'+(i<stage ? '\u2713' : (i+1))+'</span>'+
+          '<span class="jo-step-label">'+label+'</span>'+
+        '</div>';
+    }).join('');
+    let nextText;
+    if(approvedLiq) nextText = 'Fully settled — no further action needed.';
+    else if(disapprovedLiq) nextText = 'Disapproved — fix the flagged items below and resubmit.';
+    else if(submittedLiq) nextText = 'Submitted — waiting for your admin to review your liquidation.';
+    else if(stage===2) nextText = 'Cash advance given. Add your itemized expenses below, then Submit Liquidation.';
+    else if(stage===1) nextText = 'Approved. Waiting for your admin to record the disbursement.';
+    else nextText = 'Waiting for your admin to approve this request.';
+    return '<div class="jo-stepper">'+
+      '<div class="jo-stepper-track">'+stepsHtml+'</div>'+
+      '<div class="jo-stepper-next"><b>Next:</b> '+nextText+'</div>'+
+    '</div>';
+  }
+  // caInstructionsHead's click is handled by the global delegated
+  // .collapsible-head listener (see customers.js) — no listener needed here.
+
   async function caShowLiqTab(){
     if(!currentUser || currentUser.role==='admin') return;
     const active = await caFindActiveLiquidationRecord(currentUser.id);
@@ -8325,6 +8781,7 @@
     }
     $('caLiquidateEmpty').style.display = 'none';
     $('caLiquidateActive').style.display = '';
+    $('caStepperContainer').innerHTML = caStepperHtml(active);
 
     // A liquidation that's never been started yet duplicates the reminder
     // card the technician just came from (same amount/date/purpose) — skip
@@ -9569,6 +10026,8 @@
       card.style.display = 'none';
       const trackerCard = $('homeTrackerCard');
       if(trackerCard) trackerCard.style.display = 'none';
+      const techListCard = $('homeTechListCard');
+      if(techListCard) techListCard.style.display = 'none';
       const actCard = $('homeActivityCard');
       if(actCard) actCard.style.display = 'none';
       const calCard = $('homeScheduleCalendarCard');
@@ -10424,6 +10883,8 @@
     const card = $('homeTrackerCard');
     if(!card) return;
     card.style.display = '';
+    const techListCard = $('homeTechListCard');
+    if(techListCard) techListCard.style.display = '';
 
     if(!trackerMap){
       try{ await trackerEnsureLeaflet(); }

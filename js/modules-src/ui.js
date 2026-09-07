@@ -10,6 +10,11 @@
   // time, before dispatch.js's own module code has executed.
   let srCurrentTicketId = null;
   let srCurrentEquipId = null;
+  // Set instead of srCurrentEquipId when a technician has picked MULTIPLE
+  // equipment items off one Job Order to batch-sign — see
+  // srApplyJobOrderBatch() (dispatch.js) and the submit loop in pdf.js.
+  // Each entry is one equipment item off the ticket's equipmentList.
+  let srBatchEquipItems = null;
   function resetForm(){
     // Scoped to the Service Report view only. This used to select every text,
     // number, textarea and checkbox on the page, so starting a new report also
@@ -51,11 +56,59 @@
     currentTechnicianId = null;
     srCurrentTicketId = null;
     srCurrentEquipId = null;
+    srBatchEquipItems = null;
+    if($('srBatchBanner')) $('srBatchBanner').style.display = 'none';
     $('metaSrNo').textContent='—';
     clearInvalid();
     applyTechNameDefault();
+    srRenderStepper();
   }
   resetForm();
+  // ---------- progressive step tracker ----------
+  // Same jo-stepper visual language as the Job Order / Cash Advance
+  // trackers. Re-rendered at every state change below rather than on every
+  // keystroke — resetForm, applying a Job Order (single or batch), signing,
+  // and submitting all call this directly.
+  function srRenderStepper(){
+    const container = $('srStepperContainer');
+    if(!container) return;
+    const isAdmin = currentUser && currentUser.role==='admin';
+    const step1Done = isAdmin || !!srCurrentTicketId;
+    const step2Done = step1Done && !!$('custName').value.trim() && !!$('svcDate').value;
+    const custSigned = !!(sigCustomerPad && !sigCustomerPad.isEmpty());
+    const techSigned = !!(sigTechPad && !sigTechPad.isEmpty());
+    const step3Done = step2Done && custSigned && techSigned;
+    const step4Done = step3Done && $('statusPill').textContent==='Completed';
+    let stage = 0;
+    if(step1Done) stage = 1;
+    if(step2Done) stage = 2;
+    if(step3Done) stage = 3;
+    if(step4Done) stage = 4;
+    const isBatch = srBatchEquipItems && srBatchEquipItems.length > 1;
+    const labels = isBatch
+      ? ['Job Order Selected','Details Filled','Signed Once','All Reports Submitted']
+      : ['Job Order Selected','Details Filled','Signed','Submitted'];
+    const stepsHtml = labels.map((label,i)=>{
+      const state = i<stage ? 'done' : (i===stage ? 'current' : 'upcoming');
+      return '<div class="jo-step '+state+'">'+
+          '<span class="jo-step-line"></span>'+
+          '<span class="jo-step-dot">'+(i<stage ? '\u2713' : (i+1))+'</span>'+
+          '<span class="jo-step-label">'+label+'</span>'+
+        '</div>';
+    }).join('');
+    let nextText;
+    if(step4Done) nextText = isBatch ? 'All reports for this batch were generated.' : 'Report submitted.';
+    else if(step3Done) nextText = 'Tap "Generate & Share Report" below to submit'+(isBatch ? ' every report in this batch.' : '.');
+    else if(step2Done) nextText = 'Sign in Section 8 to continue (both customer and technician).';
+    else if(step1Done) nextText = "Fill in Customer's Information and the sections below.";
+    else nextText = 'Select a Job Order above to get started.';
+    container.innerHTML = '<div class="jo-stepper">'+
+      '<div class="jo-stepper-track">'+stepsHtml+'</div>'+
+      '<div class="jo-stepper-next"><b>Next:</b> '+nextText+'</div>'+
+    '</div>';
+  }
+  ['custName','svcDate'].forEach(id=>{ const el = $(id); if(el){ el.addEventListener('input', srRenderStepper); el.addEventListener('change', srRenderStepper); } });
+  srRenderStepper();
   // Auto-fills the Technician Name field from the logged-in account (still
   // editable, in case a different technician actually performed the work).
   function applyTechNameDefault(){

@@ -950,3 +950,190 @@
     if(error){ toast('Could not update password: '+error.message); return; }
     toast('Password updated');
   }
+
+  // ========================================================================
+  // Technician Profile — photo + records for attendance, leaves, violations
+  // and admin-uploaded memos, reached from the Technicians attendance table
+  // ("View Profile", wired in history.js) via techOpenProfile(u).
+  // ========================================================================
+  let tpCurrentUser = null;
+
+  function tpSwitchTab(tab){
+    ['Attendance','Leaves','Violations','Documents'].forEach(t=>{
+      $('tpTab'+t).classList.toggle('active', t===tab);
+      $('tp'+t+'Card').style.display = t===tab ? '' : 'none';
+    });
+    if(tab==='Leaves') tpRenderLeaves();
+    if(tab==='Violations') tpRenderViolations();
+    if(tab==='Documents') tpRenderDocuments();
+  }
+  $('tpTabAttendance').addEventListener('click', ()=> tpSwitchTab('Attendance'));
+  $('tpTabLeaves').addEventListener('click', ()=> tpSwitchTab('Leaves'));
+  $('tpTabViolations').addEventListener('click', ()=> tpSwitchTab('Violations'));
+  $('tpTabDocuments').addEventListener('click', ()=> tpSwitchTab('Documents'));
+
+  $('tpViewFullDtrBtn').addEventListener('click', ()=>{
+    if(!tpCurrentUser) return;
+    $('techProfileOverlay').classList.remove('open');
+    dtrShowTechnicianDetail(tpCurrentUser);
+  });
+
+  async function tpLoadPhoto(){
+    $('techProfilePhoto').style.display = 'none';
+    $('techProfilePhotoPlaceholder').style.display = 'flex';
+    if(!(await ensureCloud())) return;
+    try{
+      const { data, error } = await db.from('profiles').select('photo_data').eq('id', tpCurrentUser.id).maybeSingle();
+      if(error) throw error;
+      if(data && data.photo_data){
+        $('techProfilePhoto').src = data.photo_data;
+        $('techProfilePhoto').style.display = '';
+        $('techProfilePhotoPlaceholder').style.display = 'none';
+      }
+    }catch(e){ console.error('load technician photo failed', describeCloudError(e)); }
+  }
+  $('techProfilePhotoInput').addEventListener('change', async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if(!file || !tpCurrentUser) return;
+    try{
+      const dataUrl = await compressImageToDataURL(file, 500, 0.7);
+      if(!(await ensureCloud())){ toast('Photo needs an internet connection to save'); return; }
+      const { error } = await db.from('profiles').update({ photo_data: dataUrl }).eq('id', tpCurrentUser.id);
+      if(error) throw error;
+      toast('Photo updated');
+      tpLoadPhoto();
+    }catch(e){ console.error('upload technician photo failed', describeCloudError(e)); toast('Could not upload photo'); }
+  });
+
+  async function tpRenderLeaves(){
+    const list = $('tpLeavesList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const rows = await leaveListForUser(tpCurrentUser.id);
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No leave requests on file.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row"><div>'+
+          '<div class="u-name">'+escapeHtml(r.leaveType||'Leave')+'</div>'+
+          '<div class="u-status">'+leaveFmtDate(r.dateFrom)+' – '+leaveFmtDate(r.dateTo)+' ('+r.days+(r.days===1?' day':' days')+')</div>'+
+        '</div>'+leaveStatusPill(r.status)+'</div>'
+      ).join('');
+    }catch(e){ console.error('load technician leaves failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load leave records.</div>'; }
+  }
+
+  async function tpRenderViolations(){
+    const list = $('tpViolationsList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const { data, error } = await db.from('technician_violations').select('*').eq('technician_id', tpCurrentUser.id).order('occurred_on', {ascending:false});
+      if(error) throw error;
+      const rows = data || [];
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No violations on file.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row" data-vid="'+r.id+'"><div>'+
+          '<div class="u-name">'+leaveFmtDate(r.occurred_on)+'</div>'+
+          '<div class="u-status">'+escapeHtml(r.description)+'</div>'+
+        '</div><div class="u-actions"><button type="button" data-remove-violation="'+r.id+'">Remove</button></div></div>'
+      ).join('');
+      list.querySelectorAll('[data-remove-violation]').forEach(btn=>{
+        btn.addEventListener('click', ()=> tpDeleteViolation(btn.dataset.removeViolation));
+      });
+    }catch(e){ console.error('load violations failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load violations.</div>'; }
+  }
+  $('tpAddViolationBtn').addEventListener('click', async ()=>{
+    const date = $('tpViolationDate').value;
+    const desc = $('tpViolationDesc').value.trim();
+    if(!date || !desc){ toast('Enter a date and description'); return; }
+    if(!(await ensureCloud())){ toast('Needs an internet connection'); return; }
+    $('tpAddViolationBtn').disabled = true;
+    try{
+      const { error } = await db.from('technician_violations').insert({
+        technician_id: tpCurrentUser.id, occurred_on: date, description: desc, created_by: currentUser.id
+      });
+      if(error) throw error;
+      $('tpViolationDate').value = ''; $('tpViolationDesc').value = '';
+      toast('Violation recorded');
+      tpRenderViolations();
+    }catch(e){ console.error('add violation failed', describeCloudError(e)); toast('Could not save violation'); }
+    finally{ $('tpAddViolationBtn').disabled = false; }
+  });
+  async function tpDeleteViolation(id){
+    if(!confirm('Remove this violation record?')) return;
+    try{
+      const { error } = await db.from('technician_violations').delete().eq('id', id);
+      if(error) throw error;
+      tpRenderViolations();
+    }catch(e){ console.error('delete violation failed', describeCloudError(e)); toast('Could not remove violation'); }
+  }
+
+  async function tpRenderDocuments(){
+    const list = $('tpDocumentsList');
+    list.innerHTML = '<div class="empty-state">Loading…</div>';
+    if(!(await ensureCloud())){ list.innerHTML = '<div class="empty-state">Needs an internet connection.</div>'; return; }
+    try{
+      const { data, error } = await db.from('technician_documents').select('id,title,file_data,created_at').eq('technician_id', tpCurrentUser.id).order('created_at', {ascending:false});
+      if(error) throw error;
+      const rows = data || [];
+      if(!rows.length){ list.innerHTML = '<div class="empty-state">No documents uploaded.</div>'; return; }
+      list.innerHTML = rows.map(r=>
+        '<div class="user-row"><div>'+
+          '<div class="u-name">'+escapeHtml(r.title)+'</div>'+
+          '<div class="u-status">'+leaveFmtWhen(r.created_at)+'</div>'+
+        '</div><div class="u-actions">'+
+          '<a href="'+r.file_data+'" download="'+escapeHtml(r.title)+'" style="border:1px solid var(--border); background:#fff; border-radius:6px; padding:6px 10px; font-size:12px; text-decoration:none; color:var(--text);">Download</a>'+
+          '<button type="button" data-remove-doc="'+r.id+'">Remove</button>'+
+        '</div></div>'
+      ).join('');
+      list.querySelectorAll('[data-remove-doc]').forEach(btn=>{
+        btn.addEventListener('click', ()=> tpDeleteDocument(btn.dataset.removeDoc));
+      });
+    }catch(e){ console.error('load documents failed', describeCloudError(e)); list.innerHTML = '<div class="empty-state">Could not load documents.</div>'; }
+  }
+  $('tpAddDocBtn').addEventListener('click', async ()=>{
+    const title = $('tpDocTitle').value.trim();
+    const file = $('tpDocFile').files && $('tpDocFile').files[0];
+    if(!title || !file){ toast('Enter a title and choose a file'); return; }
+    if(!(await ensureCloud())){ toast('Needs an internet connection'); return; }
+    $('tpAddDocBtn').disabled = true;
+    try{
+      // Images are downscaled like the photo above; PDFs are kept as-is
+      // (already compact for a one- or two-page memo) and just read as a
+      // base64 data URL so they can be stored in the same text column.
+      const dataUrl = file.type.startsWith('image/')
+        ? await compressImageToDataURL(file, 1400, 0.7)
+        : await new Promise((resolve, reject)=>{
+            const reader = new FileReader();
+            reader.onerror = ()=> reject(new Error('read failed'));
+            reader.onload = ()=> resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+      const { error } = await db.from('technician_documents').insert({
+        technician_id: tpCurrentUser.id, title, file_data: dataUrl, uploaded_by: currentUser.id
+      });
+      if(error) throw error;
+      $('tpDocTitle').value = ''; $('tpDocFile').value = '';
+      toast('Memo uploaded');
+      tpRenderDocuments();
+    }catch(e){ console.error('upload document failed', describeCloudError(e)); toast('Could not upload memo'); }
+    finally{ $('tpAddDocBtn').disabled = false; }
+  });
+  async function tpDeleteDocument(id){
+    if(!confirm('Remove this document?')) return;
+    try{
+      const { error } = await db.from('technician_documents').delete().eq('id', id);
+      if(error) throw error;
+      tpRenderDocuments();
+    }catch(e){ console.error('delete document failed', describeCloudError(e)); toast('Could not remove document'); }
+  }
+
+  function techOpenProfile(u){
+    tpCurrentUser = u;
+    $('techProfileName').textContent = u.name;
+    tpSwitchTab('Attendance');
+    tpLoadPhoto();
+    $('techProfileOverlay').classList.add('open');
+  }
+  $('closeTechProfile').addEventListener('click', ()=> $('techProfileOverlay').classList.remove('open'));
+  $('techProfileOverlay').addEventListener('click', (e)=>{ if(e.target.id==='techProfileOverlay') $('techProfileOverlay').classList.remove('open'); });

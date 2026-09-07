@@ -323,6 +323,8 @@
     const card = $('homeTrackerCard');
     if(!card) return;
     card.style.display = '';
+    const techListCard = $('homeTechListCard');
+    if(techListCard) techListCard.style.display = '';
 
     if(!trackerMap){
       try{ await trackerEnsureLeaflet(); }

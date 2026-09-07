@@ -100,6 +100,7 @@
     pad.off();
     const box = $(padId).closest('.sig-box');
     if(box) box.classList.add('locked');
+    srRenderStepper();
   }
   function unlockSignature(padId){
     const pad = sigPadById()[padId];
@@ -107,6 +108,7 @@
     sigLocked[padId] = false;
     const box = $(padId).closest('.sig-box');
     if(box) box.classList.remove('locked');
+    srRenderStepper();
   }
   function setupSigPad(canvasId, phId){
     const canvas = $(canvasId);

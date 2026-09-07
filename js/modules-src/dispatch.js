@@ -186,36 +186,95 @@
         return;
       }
       const pendingWrap = row.querySelector('.dt-equip-pending');
+      function renderSinglePickList(){
+        pendingWrap.innerHTML = '';
+        if(pending.length===0){
+          pendingWrap.innerHTML = '<div class="empty-state">All equipment on this ticket already has a report.</div>';
+          return;
+        }
+        pending.forEach(it=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'combo-item';
+          btn.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
+          // A pending item with a draftSrNo already has a Service Report
+          // started for it (just not completed yet). Flag it clearly so a
+          // technician re-opening this ticket doesn't start a second,
+          // duplicate report for the same unit — tapping it below resumes
+          // the existing draft instead of blanking the form.
+          btn.innerHTML = '<span>'+escapeHtml(dtEquipSummaryLine(it))+'</span>'+
+            (it.draftSrNo ? '<span class="status-pill status-draft" style="flex-shrink:0;">Draft Saved</span>' : '');
+          btn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            if(it.draftSrNo) srResumeDraft(r, it);
+            else srApplyJobOrder(r, it);
+          });
+          pendingWrap.appendChild(btn);
+        });
+        // Batch signing entry point — only worth offering with 2+ items
+        // still pending on this ticket (see srApplyJobOrderBatch below).
+        if(pending.length >= 2){
+          const batchLink = document.createElement('button');
+          batchLink.type = 'button';
+          batchLink.className = 'sr-batch-toggle-link';
+          batchLink.style.cssText = 'width:100%; text-align:center; background:none; border:none; color:var(--green-dark); font-size:12px; font-weight:600; padding:8px 0 2px; cursor:pointer;';
+          batchLink.textContent = '☑ Select multiple to batch sign →';
+          batchLink.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            srRenderBatchPicker(pendingWrap, r, pending, renderSinglePickList);
+          });
+          pendingWrap.appendChild(batchLink);
+        }
+      }
       head.addEventListener('click', ()=>{
         const isOpen = pendingWrap.style.display !== 'none';
         pendingWrap.style.display = isOpen ? 'none' : '';
-        if(!isOpen && pendingWrap.childElementCount===0){
-          if(pending.length===0){
-            pendingWrap.innerHTML = '<div class="empty-state">All equipment on this ticket already has a report.</div>';
-          }
-          pending.forEach(it=>{
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'combo-item';
-            btn.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px; background:none;';
-            // A pending item with a draftSrNo already has a Service Report
-            // started for it (just not completed yet). Flag it clearly so a
-            // technician re-opening this ticket doesn't start a second,
-            // duplicate report for the same unit — tapping it below resumes
-            // the existing draft instead of blanking the form.
-            btn.innerHTML = '<span>'+escapeHtml(dtEquipSummaryLine(it))+'</span>'+
-              (it.draftSrNo ? '<span class="status-pill status-draft" style="flex-shrink:0;">Draft Saved</span>' : '');
-            btn.addEventListener('click', (e)=>{
-              e.stopPropagation();
-              if(it.draftSrNo) srResumeDraft(r, it);
-              else srApplyJobOrder(r, it);
-            });
-            pendingWrap.appendChild(btn);
-          });
-        }
+        if(!isOpen && pendingWrap.childElementCount===0) renderSinglePickList();
       });
       list.appendChild(row);
     });
+  }
+  // Checkbox multi-select shown in place of the single-tap list above, once
+  // a technician taps "Select multiple to batch sign". Replaces
+  // pendingWrap's contents; tapping "Cancel" restores the single-tap list
+  // via the onCancel callback (renderSinglePickList, passed in above) rather
+  // than re-deriving it here.
+  function srRenderBatchPicker(pendingWrap, ticket, pending, onCancel){
+    pendingWrap.innerHTML = '<div class="leave-note" style="margin-bottom:8px;">Check every unit you serviced on this visit, then continue — you\'ll fill the shared details once and sign once for all of them.</div>';
+    const checks = [];
+    pending.forEach(it=>{
+      const label = document.createElement('label');
+      label.className = 'chk';
+      label.style.cssText = 'display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:10px;';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = it.id;
+      label.appendChild(cb);
+      const span = document.createElement('span');
+      span.textContent = dtEquipSummaryLine(it) + (it.draftSrNo ? ' (Draft Saved — will be overwritten)' : '');
+      label.appendChild(span);
+      pendingWrap.appendChild(label);
+      checks.push({cb, item:it});
+    });
+    const actionRow = document.createElement('div');
+    actionRow.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+    const continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'btn btn-primary';
+    continueBtn.style.cssText = 'flex:1;';
+    continueBtn.textContent = 'Continue with Selected';
+    continueBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const selected = checks.filter(c=> c.cb.checked).map(c=> c.item);
+      if(selected.length===0){ toast('Check at least one unit first'); return; }
+      srApplyJobOrderBatch(ticket, selected);
+    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', (e)=>{ e.stopPropagation(); onCancel(); });
+    actionRow.appendChild(continueBtn); actionRow.appendChild(cancelBtn);
+    pendingWrap.appendChild(actionRow);
   }
   // Set while a technician is being sent from the Service Report picker to
   // My Job Order to acknowledge a specific ticket (see srGoAcknowledgeTicket
@@ -289,6 +348,49 @@
     srCurrentEquipId = equipItem ? equipItem.id : null;
     toast('Job Order '+ticket.jobOrderNo+' applied — check the fields below');
     $('sec1Head').scrollIntoView({behavior:'smooth', block:'start'});
+    srRenderStepper();
+  }
+
+  // Batch-sign entry point: fills Customer's Information ONCE for every
+  // selected equipment item (same ticket, so same customer/site), then
+  // hides Section 2 (Equipment Description) — it has no single answer when
+  // several different units are involved, so each unit's own equipment
+  // fields (EQUIP_FIELD_KEYS) are pulled straight off its ticket record at
+  // submit time instead (see the batch loop in pdf.js). Sections 3-8 are
+  // filled once and shared verbatim across every report this generates.
+  async function srApplyJobOrderBatch(ticket, equipItems){
+    resetForm();
+    $('sec1Card').style.display = '';
+    const matched = customersCache.find(c=> c.name.toLowerCase() === (ticket.custName||'').trim().toLowerCase());
+    if(matched){
+      $('custName').value = matched.name;
+      $('custAddress').value = matched.address||'';
+      $('contactNo').value = matched.contactNo||'';
+      $('contactPerson').value = matched.contactPerson||'';
+      $('custEmail').value = matched.email||'';
+      revealSectionsAfterCustomer();
+    }else{
+      $('custName').value = ticket.custName||'';
+      revealSectionsAfterCustomer();
+    }
+    if(ticket.siteAddress) $('custAddress').value = ticket.siteAddress;
+    if(ticket.contactName) $('contactPerson').value = ticket.contactName;
+    if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
+    // Section 2 doesn't apply in batch mode — each report's equipment
+    // fields come from its own item at submit time, not from this form.
+    if($('sec2Card')) $('sec2Card').style.display = 'none';
+    srCurrentTicketId = ticket.id;
+    srCurrentEquipId = null;
+    srBatchEquipItems = equipItems;
+    $('srBatchBanner').style.display = '';
+    $('srBatchList').innerHTML = equipItems.map(it=>
+      '<div class="leave-note" style="margin-bottom:4px;">• '+escapeHtml(dtEquipSummaryLine(it))+'</div>'
+    ).join('');
+    const scopes = Array.from(new Set(equipItems.flatMap(it=> it.scope||[])));
+    if(scopes.length) $('troubleCall').value = scopes.join('; ');
+    toast('Job Order '+ticket.jobOrderNo+' applied for batch signing — fill in the shared details below, then sign once');
+    $('srBatchBanner').scrollIntoView({behavior:'smooth', block:'start'});
+    srRenderStepper();
   }
 
   // Re-opens an equipment item that already has a draft Service Report
@@ -735,14 +837,14 @@
   }
   function dtStatusPill(r){
     const status = dtEffectiveStatus(r);
-    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Completed</span>';
+    if(status==='completed') return '<span class="status-pill" style="background:#DCEFE5; color:#1F7A52;">Status: Completed</span>';
     if(status==='closed'){
       const hasExceptions = (r.equipmentList||[]).some(it=> it.notDone);
-      return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
+      return '<span class="status-pill" style="background:#E4E7E4; color:#4A524B;">Status: Closed'+(hasExceptions ? ' \u26A0' : '')+'</span>';
     }
-    if(status==='expired') return '<span class="status-pill" style="background:#F8D7DA; color:#B02A37;">Expired</span>';
-    if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Acknowledged</span>';
-    return '<span class="status-pill status-draft">Open</span>';
+    if(status==='expired') return '<span class="status-pill" style="background:#F8D7DA; color:#B02A37;">Status: Expired</span>';
+    if(status==='acknowledged') return '<span class="status-pill" style="background:#DCEAE0; color:var(--green-dark);">Status: Acknowledged</span>';
+    return '<span class="status-pill status-draft">Status: Open</span>';
   }
   // Shows every equipment item on the ticket with its own scope and
   // report status, capped so a 100-unit ticket doesn't blow up the card —
@@ -817,7 +919,26 @@
   }
   function dtHandleEquipRowClick(e){
     const toggleHead = e.target.closest('[data-jo-toggle]');
-    if(toggleHead){ dtToggleCardBody(toggleHead); return; }
+    if(toggleHead){
+      // Everywhere else, each Job Order card expands/collapses independently
+      // (a technician scanning several open tickets can leave more than one
+      // expanded). The Schedule Calendar's day list is the one place that
+      // should behave like an accordion — opening one Job Order there closes
+      // any other one already open, so the day list stays scannable. This is
+      // scoped to #dtCalDayList / #homeCalDayList only via e.currentTarget,
+      // the list the listener is actually attached to.
+      const listEl = e.currentTarget;
+      const isCalendarList = listEl && (listEl.id==='dtCalDayList' || listEl.id==='homeCalDayList');
+      if(isCalendarList){
+        const body = toggleHead.nextElementSibling;
+        const willOpen = !!(body && body.classList.contains('jo-card-body') && body.style.display==='none');
+        listEl.querySelectorAll('.jo-card-toggle').forEach(h=>{ if(h!==toggleHead) dtToggleCardBody(h, false); });
+        dtToggleCardBody(toggleHead, willOpen);
+      }else{
+        dtToggleCardBody(toggleHead);
+      }
+      return;
+    }
     const openBtn = e.target.closest('[data-jo-open]');
     if(openBtn){
       e.stopPropagation();

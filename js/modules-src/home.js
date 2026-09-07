@@ -370,6 +370,8 @@
       card.style.display = 'none';
       const trackerCard = $('homeTrackerCard');
       if(trackerCard) trackerCard.style.display = 'none';
+      const techListCard = $('homeTechListCard');
+      if(techListCard) techListCard.style.display = 'none';
       const actCard = $('homeActivityCard');
       if(actCard) actCard.style.display = 'none';
       const calCard = $('homeScheduleCalendarCard');

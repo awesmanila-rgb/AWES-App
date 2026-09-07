@@ -442,18 +442,23 @@ window.awesCss = {
       <div class="card-head"><span>🛰️ Technician Live Tracker</span></div>
       <div class="card-body">
         <div class="tracker-topline">
-          <span>Live location of technicians currently signed in and sharing their position. Tap a name below to see their path for today.</span>
+          <span>Live location of technicians currently signed in and sharing their position. Tap a name on the right to see their path for today.</span>
           <span class="tracker-badge" id="trackerCount">— sharing</span>
         </div>
         <div id="trackerMapEl" class="tracker-map"></div>
+      </div>
+    </div>
+    <div class="card" id="homeTechListCard" style="display:none; margin-bottom:16px;">
+      <div class="card-head"><span>👷 Technicians</span></div>
+      <div class="card-body">
         <div class="tracker-list" id="trackerList"></div>
       </div>
     </div>
-    <div class="card" id="homeActivityCard" style="display:none; margin-bottom:16px;">
-      <div class="card-head"><span>⚡ Recent Activity</span></div>
-      <div class="card-body">
-        <div id="recentActivityList"><div class="empty-state">No recent activity yet.</div></div>
-      </div>
+  </div>
+  <div class="card" id="homeActivityCard" style="display:none; margin-bottom:16px;">
+    <div class="card-head"><span>⚡ Recent Activity</span></div>
+    <div class="card-body">
+      <div id="recentActivityList"><div class="empty-state">No recent activity yet.</div></div>
     </div>
   </div>
   <div class="card" id="homeIntroCard" style="margin-bottom:16px;">
@@ -1020,6 +1025,20 @@ window.awesCss = {
 
   <!-- Technician: file + track -->
   <div id="caTechArea">
+    <div class="card" id="caInstructionsCard" style="margin-bottom:14px;">
+      <div class="card-head collapsible-head" id="caInstructionsHead">
+        <span>ℹ️ How this works</span><span class="card-caret">▾</span>
+      </div>
+      <div class="card-body" id="caInstructionsBody" style="display:none;">
+        <div class="leave-note" style="margin:0;">
+          <b>1. New Request</b> — Fill in the amount, purpose, and dates, then Submit for Approval. Wait for your admin's decision under "My Requests".<br><br>
+          <b>2. Once approved and given to you</b> — the request moves to the <b>Liquidate</b> tab automatically. You cannot start a new request until this one is liquidated.<br><br>
+          <b>3. Liquidate</b> — Add every item you spent on with its receipt photo, then Submit Liquidation. If your admin disapproves it, fix the flagged items and resubmit.<br><br>
+          <b>4. Done</b> — once your admin approves the liquidation, any remaining balance (to return or to be reimbursed) is settled and the cycle is complete.<br><br>
+          <b>Reimburse Expense</b> is separate — use it only for money you already spent out of your own pocket that was never tied to a cash advance.
+        </div>
+      </div>
+    </div>
     <div class="seg-tabs">
       <button type="button" class="seg-tab active" id="caTabNew">New Request</button>
       <button type="button" class="seg-tab" id="caTabLiquidate">Liquidate <span id="caLiqTabDot" style="display:none;">●</span></button>
@@ -1088,6 +1107,7 @@ window.awesCss = {
         <div id="caLiquidateEmpty" class="empty-state" style="display:none;">Nothing to liquidate right now — you're all clear!</div>
 
         <div id="caLiquidateActive" style="display:none;">
+          <div id="caStepperContainer" style="margin-bottom:14px;"></div>
           <div id="caLiquidateSummary" style="margin-bottom:14px;"></div>
 
           <!-- Read-only view: shown once submitted (pending/approved) or
@@ -1502,6 +1522,36 @@ window.awesCss = {
 
   <div id="srNewPanel">
 
+  <div class="card" id="srInstructionsCard" style="margin-bottom:14px;">
+    <div class="card-head collapsible-head" id="srInstructionsHead">
+      <span>ℹ️ How to file a Service Report</span><span class="card-caret">▾</span>
+    </div>
+    <div class="card-body" id="srInstructionsBody" style="display:none;">
+      <div class="leave-note" style="margin:0;">
+        <b>Single report (one unit)</b> — Tap the Job Order below, then tap the one equipment item you serviced.
+        Fill in Sections 1–7, then sign in Section 8. That's one Service Report.<br><br>
+        <b>Multiple reports, one signing (batch)</b> — If you serviced several units on the same visit for the
+        same customer, open the Job Order and tap <b>"Select multiple to batch sign"</b> instead of a single item.
+        Check every unit you serviced, then tap <b>Continue with Selected</b>. Fill in the shared details once
+        (findings, services done, etc.) and sign <b>once</b> in Section 8 — the app automatically creates one
+        properly-numbered Service Report per unit you checked, each carrying that same signature.
+      </div>
+    </div>
+  </div>
+
+  <div id="srStepperContainer" style="margin-bottom:14px;"></div>
+
+  <div class="card" id="srBatchBanner" style="display:none; margin-bottom:14px; border-color:var(--green-dark);">
+    <div class="card-head"><span>🖊️ Batch Signing Mode</span></div>
+    <div class="card-body">
+      <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
+        Equipment details below are pulled automatically per unit — Section 2 is skipped in this mode.
+        Fill in the shared details once, then sign in Section 8 to generate every report below at once.
+      </p>
+      <div id="srBatchList"></div>
+    </div>
+  </div>
+
   <!-- Pick up an assigned Job Order to auto-fill the fields below (technicians only) -->
   <div class="card" id="srJobOrderCard" style="display:none;">
     <div class="card-head collapsible-head open" id="srJobOrderHead"><span>📋 Select From Job Order</span><span class="card-caret">▾</span></div>
@@ -1509,6 +1559,7 @@ window.awesCss = {
       <div id="srJobOrderList"><div class="empty-state">Loading…</div></div>
     </div>
   </div>
+
 
   <!-- 1. Customer Information -->
   <div class="card" id="sec1Card" style="display:none;">
@@ -1891,6 +1942,60 @@ window.awesCss = {
     </div>
   </div>
 </div>
+
+<!-- Technician Profile — photo, and records for attendance, leaves,
+     violations, and admin-uploaded memos, all for one technician. Reached
+     via "View Profile" on the Technicians attendance table (history.js). -->
+<div class="overlay" id="techProfileOverlay" style="z-index:55;">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="techProfileName">Technician Profile</h3>
+      <button class="sheet-close" id="closeTechProfile">&times;</button>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:16px;">
+      <img id="techProfilePhoto" alt="" style="width:72px; height:72px; border-radius:50%; object-fit:cover; display:none; flex-shrink:0;">
+      <div id="techProfilePhotoPlaceholder" style="width:72px; height:72px; border-radius:50%; background:var(--border); display:flex; align-items:center; justify-content:center; font-size:26px; flex-shrink:0;">👤</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">Profile photo</div>
+        <input type="file" id="techProfilePhotoInput" accept="image/*" style="font-size:12px; max-width:100%;">
+      </div>
+    </div>
+    <div class="seg-tabs">
+      <button type="button" class="seg-tab active" id="tpTabAttendance">Attendance</button>
+      <button type="button" class="seg-tab" id="tpTabLeaves">Leaves</button>
+      <button type="button" class="seg-tab" id="tpTabViolations">Violations</button>
+      <button type="button" class="seg-tab" id="tpTabDocuments">Documents</button>
+    </div>
+    <div id="tpAttendanceCard">
+      <p style="font-size:12px; color:var(--text-muted); margin-top:10px;">
+        Time in/out, overtime, and 30-day history for this technician.
+      </p>
+      <button type="button" class="btn btn-secondary" id="tpViewFullDtrBtn" style="width:100%;">Open Full DTR &amp; History</button>
+    </div>
+    <div id="tpLeavesCard" style="display:none; margin-top:10px;">
+      <div id="tpLeavesList"><div class="empty-state">Loading…</div></div>
+    </div>
+    <div id="tpViolationsCard" style="display:none; margin-top:10px;">
+      <div id="tpViolationsList" style="margin-bottom:14px;"><div class="empty-state">Loading…</div></div>
+      <div style="border-top:1px solid var(--border); padding-top:12px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Record a violation</div>
+        <div class="field"><label>Date</label><input type="date" id="tpViolationDate"></div>
+        <div class="field"><label>Description</label><textarea id="tpViolationDesc" placeholder="What happened"></textarea></div>
+        <button type="button" class="btn btn-primary" id="tpAddViolationBtn" style="width:100%;">Add Violation</button>
+      </div>
+    </div>
+    <div id="tpDocumentsCard" style="display:none; margin-top:10px;">
+      <div id="tpDocumentsList" style="margin-bottom:14px;"><div class="empty-state">Loading…</div></div>
+      <div style="border-top:1px solid var(--border); padding-top:12px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;">Upload a memo</div>
+        <div class="field"><label>Title</label><input type="text" id="tpDocTitle" placeholder="e.g. Memo — Late Attendance"></div>
+        <div class="field"><label>File (PDF or image)</label><input type="file" id="tpDocFile" accept="application/pdf,image/*"></div>
+        <button type="button" class="btn btn-primary" id="tpAddDocBtn" style="width:100%;">Upload Memo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- Manage Customers — full page (admin-only), reached via the "Customers"
      sidebar nav item. Was previously a popup sheet; now its own dedicated

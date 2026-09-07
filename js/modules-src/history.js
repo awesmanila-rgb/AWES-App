@@ -828,8 +828,10 @@
         '<td>'+escapeHtml(otInTxt)+'</td>'+
         '<td>'+escapeHtml(otOutTxt)+'</td>'+
         '<td>'+escapeHtml(otHoursTxt)+'</td>'+
-        '<td><button type="button" class="att-view-btn">View DTR</button></td>';
-      row.querySelector('.att-view-btn').addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
+        '<td><button type="button" class="att-view-btn">View DTR</button> <button type="button" class="att-view-btn">View Profile</button></td>';
+      const [viewDtrBtn, viewProfileBtn] = row.querySelectorAll('.att-view-btn');
+      viewDtrBtn.addEventListener('click', ()=> dtrShowTechnicianDetail({id:u.id, name:u.name}));
+      viewProfileBtn.addEventListener('click', ()=> techOpenProfile({id:u.id, name:u.name}));
       body.appendChild(row);
     });
     if(summaryEl) summaryEl.textContent = presentCount+' Present · '+completedCount+' Completed · '+otCount+' On Overtime · '+absentCount+' Absent · '+active.length+' Total';

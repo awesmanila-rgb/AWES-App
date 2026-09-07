@@ -369,11 +369,64 @@
     showHome();
   });
 
+  // Batch-sign submit path (2+ equipment items selected off one Job Order,
+  // see srApplyJobOrderBatch in dispatch.js). Everything gathered from the
+  // form — including the one signature — is shared across every report;
+  // only the equipment-identity fields (EQUIP_FIELD_KEYS) differ, pulled
+  // straight from each selected item rather than the (hidden) form fields.
+  async function submitBatchReports(){
+    const items = srBatchEquipItems;
+    const ticketId = srCurrentTicketId;
+    const baseData = await gatherDataForOutput();
+    let savedCount = 0, failedCount = 0;
+    const toShare = [];
+    for(const item of items){
+      const srNo = await nextSrNo();
+      const data = Object.assign({}, baseData, { srNo, completed:true });
+      EQUIP_FIELD_KEYS.forEach(k=> data[k] = item[k] || '');
+      if(item.scope && item.scope.length) data.troubleCall = item.scope.join('; ');
+      const saveResult = await saveReport(srNo, data);
+      if(saveResult===SAVE_FAILED){ failedCount++; continue; }
+      savedCount++;
+      await dtMarkEquipmentReported(ticketId, item.id, srNo);
+      const doc = await buildPdf(data);
+      toShare.push({ srNo, doc, data });
+    }
+    if(savedCount===0){
+      toast('Could not save any of the '+items.length+' reports — fix the connection or free up space, then try again');
+      return;
+    }
+    $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
+    $('metaSrNo').textContent = savedCount+' reports (batch)';
+    srRenderStepper();
+    // Send/share each generated PDF in turn — there is no single combined
+    // file, so this is N separate emails (silent, no UI per one) or N
+    // share/download prompts (the browser/OS share sheet, one after another).
+    let emailedCount = 0;
+    for(const {srNo, doc, data} of toShare){
+      const filename = srNo+'.pdf';
+      if(emailConfigured()){
+        const emailResult = await sendEmailWithPdf(doc, data, filename);
+        if(emailResult.ok) emailedCount++;
+        else await shareOrDownloadPdf(doc, filename);
+      }else{
+        await shareOrDownloadPdf(doc, filename);
+      }
+    }
+    let summary = savedCount+' of '+items.length+' reports generated'+(failedCount ? ' ('+failedCount+' failed to save — retry those individually)' : '')+'.';
+    summary += emailConfigured() ? (' '+emailedCount+' emailed to the customer.') : ' Shared/downloaded to this device.';
+    showShareSuccess(summary);
+  }
+
   $('genPdfBtn').addEventListener('click', async ()=>{
     if(!validate()){ toast('Please fill required fields'); return; }
     $('genPdfBtn').disabled = true;
     $('genPdfBtn').textContent = 'Building PDF…';
     try{
+      if(srBatchEquipItems && srBatchEquipItems.length > 0){
+        await submitBatchReports();
+        return;
+      }
       if(!currentSrNo){ currentSrNo = await nextSrNo(); $('metaSrNo').textContent = currentSrNo; }
       const data = await gatherDataForOutput();
       Object.assign(data, {completed:true});
@@ -390,6 +443,7 @@
       // fails the report save itself.
       if(srCurrentTicketId && srCurrentEquipId) await dtMarkEquipmentReported(srCurrentTicketId, srCurrentEquipId, currentSrNo);
       $('statusPill').textContent='Completed'; $('statusPill').className='status-pill status-done';
+      srRenderStepper();
       const doc = await buildPdf(data);
       const filename = (currentSrNo||'service-report')+'.pdf';
 
