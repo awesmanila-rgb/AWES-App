@@ -796,8 +796,15 @@
         // has no client-side "delete another user's login" — that would need the
         // same Edge Function pattern as account creation, if fully removing the
         // login is ever needed rather than just deactivating).
-        const { error } = await db.from('profiles').delete().eq('id', id);
+        //
+        // .select('id') is required here, not cosmetic: without it, PostgREST
+        // returns 204 with no error even when RLS silently matched zero rows
+        // (e.g. the missing profiles_admin_delete policy, or the row already
+        // being gone) — so the old code always reported success. Checking the
+        // returned rows is the same pattern cloudSetUser already uses.
+        const { data: rows, error } = await db.from('profiles').delete().eq('id', id).select('id');
         if(error) throw error;
+        if(!rows || !rows.length) throw new Error('no profile row was deleted (blocked by RLS, or already removed)');
         return true;
       }catch(e){ console.error('delete user failed', describeCloudError(e)); return false; }
     }
