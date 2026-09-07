@@ -937,14 +937,12 @@
   @media (max-width:1100px){ .dash-two-col{ flex-direction:column; } }
 
   /* ---------- My Job Order (technician): tab legend + collapsible cards ---------- */
-  /* The actual list of job orders is the primary task on this screen — the
-     help card is reference material, so it must never end up wider than the
-     list itself. flex:2/1 in percentages could still let the list shrink
-     uncomfortably narrow on in-between widths, so pin both a floor and a
-     ceiling in px instead of relying on ratio alone. */
-  .dt-jo-list-card{ flex:3 1 640px; min-width:380px; }
-  .dt-jo-help-card{ flex:1 1 280px; min-width:240px; max-width:340px; }
-  @media (max-width:900px){ .dt-jo-help-card{ min-width:0; max-width:none; } }
+  /* Stacked, not side-by-side: the help card is reference material the
+     technician only needs occasionally, so it sits below the job order list
+     (which is the primary task on this screen) at full width, rather than
+     competing with it for horizontal space at every viewport. */
+  .dt-jo-layout{ flex-direction:column; }
+  .dt-jo-list-card, .dt-jo-help-card{ flex:1 1 auto; min-width:0; max-width:none; width:100%; }
   .dt-jo-help-intro{ font-size:12.5px; color:var(--text-muted); margin:0 0 12px; line-height:1.4; }
   .dt-jo-help-item{ margin-bottom:12px; }
   .dt-jo-help-item:last-of-type{ margin-bottom:0; }
