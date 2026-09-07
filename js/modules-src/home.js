@@ -829,6 +829,14 @@
     customerEquipmentDetailScreen: {fn: ()=> showCustomerHome(), roles: ['customer']}
   };
   function snapshotCurrentScreen(){
+    // Nobody's signed in (e.g. this fires right after Logout, from a
+    // leftover view that's still technically visible behind the login
+    // overlay) — there's no session to resume, so don't save anything.
+    // Without this guard, a pagehide/visibilitychange firing after
+    // doLogout() clears awes-last-screen could immediately re-write it
+    // with the stale screen, and the next sign-in would land back there
+    // instead of Home.
+    if(!currentUser) return;
     try{
       for(const id of Object.keys(RESTORABLE_SCREENS)){
         const el = $(id);
