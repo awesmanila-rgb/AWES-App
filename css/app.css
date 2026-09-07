@@ -942,8 +942,8 @@
      list itself. flex:2/1 in percentages could still let the list shrink
      uncomfortably narrow on in-between widths, so pin both a floor and a
      ceiling in px instead of relying on ratio alone. */
-  .dt-jo-list-card{ flex:2 1 480px; min-width:340px; }
-  .dt-jo-help-card{ flex:1 1 320px; min-width:260px; max-width:380px; }
+  .dt-jo-list-card{ flex:3 1 640px; min-width:380px; }
+  .dt-jo-help-card{ flex:1 1 280px; min-width:240px; max-width:340px; }
   @media (max-width:900px){ .dt-jo-help-card{ min-width:0; max-width:none; } }
   .dt-jo-help-intro{ font-size:12.5px; color:var(--text-muted); margin:0 0 12px; line-height:1.4; }
   .dt-jo-help-item{ margin-bottom:12px; }
@@ -966,6 +966,16 @@
   .jo-card-toggle{ cursor:pointer; }
   .jo-card-toggle:active{ background:var(--green-light); }
   .jo-caret{ font-size:12px; color:var(--text-muted); margin-left:6px; flex-shrink:0; transition:transform .15s ease; }
+  /* "Open Job Order" now sits in the card header, beside the JO number/
+     customer name, rather than as a full-width button below the collapsible
+     body — kept compact so the header still fits comfortably on phones. */
+  .jo-card-head-actions{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .jo-open-btn{
+    flex:0 0 auto; padding:7px 12px; border-radius:8px; font-size:12px; font-weight:700;
+    border:1px solid var(--green); background:#fff; color:var(--green-dark); cursor:pointer; white-space:nowrap;
+  }
+  .jo-open-btn:active{ background:#EEF1ED; }
+  @media (max-width:480px){ .jo-open-btn{ padding:6px 9px; font-size:11px; } }
 
   /* "Back to Service Report" banner — see #dtBackToSrBanner in index.html */
   .dt-back-to-sr-banner{

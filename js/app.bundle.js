@@ -6889,6 +6889,17 @@
     if(caret) caret.textContent = willOpen ? '▴' : '▾';
   }
   function dtHandleEquipRowClick(e){
+    // Checked before the toggle header below: "Open Job Order" now lives
+    // inside the same header element that carries data-jo-toggle (it sits to
+    // the right of the title), so without this ordering a tap on the button
+    // would match the ancestor's data-jo-toggle first and just expand the
+    // card instead of opening the ticket.
+    const openBtn = e.target.closest('[data-jo-open]');
+    if(openBtn){
+      e.stopPropagation();
+      dtOpenTicketOverlay(openBtn.dataset.joOpen);
+      return;
+    }
     const toggleHead = e.target.closest('[data-jo-toggle]');
     if(toggleHead){
       // Everywhere else, each Job Order card expands/collapses independently
@@ -6910,12 +6921,6 @@
       }
       return;
     }
-    const openBtn = e.target.closest('[data-jo-open]');
-    if(openBtn){
-      e.stopPropagation();
-      dtOpenTicketOverlay(openBtn.dataset.joOpen);
-      return;
-    }
     const row = e.target.closest('.dt-equip-row');
     if(!row) return;
     e.stopPropagation();
@@ -6934,14 +6939,15 @@
   // visible so a technician can scan the whole list at a glance; everything
   // below it — address, equipment, remarks, requirements — sits inside a
   // collapsed "jo-card-body" that opens on tap (see data-jo-toggle handling
-  // in dtHandleEquipRowClick). The final "Open Job Order" button is kept
-  // OUTSIDE that collapsible body, both so it's always reachable without
-  // expanding, and because dtOpenTicketOverlay strips it off the end of
-  // this string with a trailing-anchor regex — moving it inside the body
-  // would break that match. extraBodyHtml (used by the technician's list —
-  // see dtStepperHtml) is inserted at the very top of the body, above the
-  // rest of the ticket's details.
-  function dtCardHtml(r, forAdmin, extraBodyHtml){
+  // in dtHandleEquipRowClick). "Open Job Order" lives in the header itself
+  // (right side, next to the status pill) rather than below the collapsible
+  // body, so it's reachable without expanding the card. hideOpenBtn lets the
+  // ticket-detail overlay reuse this same header for its own summary without
+  // showing a redundant "Open Job Order" button for the ticket it's already
+  // showing. extraBodyHtml (used by the technician's list — see
+  // dtStepperHtml) is inserted at the very top of the body, above the rest
+  // of the ticket's details.
+  function dtCardHtml(r, forAdmin, extraBodyHtml, hideOpenBtn){
     const detailBody =
       (extraBodyHtml || '')+
       (r.siteAddress ? '<div class="leave-comment"><b>Site Address</b>'+escapeHtml(r.siteAddress)+'</div>' : '')+
@@ -6956,10 +6962,12 @@
           '<div class="u-name">'+escapeHtml(r.jobOrderNo)+' — '+escapeHtml(r.custName)+'</div>'+
           '<div class="u-status">'+leaveFmtDate(r.date)+(r.expectedTime ? (' at '+r.expectedTime) : '')+' · '+escapeHtml((r.assignedWorkerNames||[]).join(', '))+'</div>'+
         '</div>'+
-        '<div style="display:flex; align-items:center;">'+dtStatusPill(r)+'<span class="jo-caret">▾</span></div>'+
+        '<div class="jo-card-head-actions">'+
+          (hideOpenBtn ? '' : '<button type="button" class="jo-open-btn" data-jo-open="'+escapeHtml(r.id)+'">Open Job Order</button>')+
+          dtStatusPill(r)+'<span class="jo-caret">▾</span>'+
+        '</div>'+
       '</div>'+
-      '<div class="jo-card-body" style="display:none;">'+detailBody+'</div>'+
-      '<div style="margin-top:10px;"><button type="button" class="btn" data-jo-open="'+escapeHtml(r.id)+'">Open Job Order</button></div>';
+      '<div class="jo-card-body" style="display:none;">'+detailBody+'</div>';
   }
   // ---------- Technician list: progressive step tracker ----------
   // Shown at the top of each expanded job order card in "My Job Order" (not
@@ -7315,9 +7323,7 @@
 
     $('dtTicketTitle').textContent = rec.jobOrderNo+' — '+rec.custName;
     $('dtTicketStatusWrap').innerHTML = dtStatusPill(rec);
-    $('dtTicketSummary').innerHTML = dtCardHtml(rec, currentUser && currentUser.role==='admin')
-      // The card's own "Open Job Order" button doesn't belong inside itself.
-      .replace(/<div style="margin-top:10px;"><button[^]*?<\/button><\/div>$/, '');
+    $('dtTicketSummary').innerHTML = dtCardHtml(rec, currentUser && currentUser.role==='admin', undefined, true);
     // This overlay IS the detail view, so its embedded card summary should
     // show fully expanded, not the collapsed list-row state — force the
     // body open and drop the tap-to-toggle affordance from its header.
