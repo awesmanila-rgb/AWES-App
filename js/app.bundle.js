@@ -5058,24 +5058,40 @@
   // Technician-facing direct buttons (shown in place of Menu — see applyUserRestrictions)
   $('userLogoutBtn').addEventListener('click', doLogout);
 
-  // ---------- Auto-logout admin when app is closed or minimized ----------
-  // Runs fully synchronously (no awaits) so the login screen is guaranteed to be
-  // covering the page the instant the app is hidden — mobile OSes can freeze JS
-  // mid-way through an async function once backgrounded, which was leaving a stale
-  // page visible behind the sign-in sheet until a manual refresh.
-  // Any logged-in account (admin or technician) is signed out the moment the
-  // window/tab is actually closed — but NOT when it's merely minimized,
-  // backgrounded, or switched away from (no visibilitychange listener here).
-  // pagehide fires on real close/navigation-away; event.persisted is true
-  // when the page is only being cached for back/forward, so we skip clearing
-  // in that case since the tab isn't actually gone.
-  function clearSessionOnClose(){
-    try{ localStorage.removeItem('current-user'); }catch(e){}
+  // ---------- Auto-logout admin/technician when the app is actually closed ----------
+  // A plain refresh and a real tab close both fire 'pagehide' identically, and
+  // event.persisted only tells us about the bfcache case — a normal reload
+  // gets persisted:false too, same as a real close. So this used to clear
+  // 'current-user' on pagehide directly, which meant hitting refresh wiped
+  // the cached session exactly like closing the tab did. Most of the time
+  // that was invisible, because checkLoginGate() re-derives currentUser from
+  // the still-live Supabase session on a reachable connection — but the
+  // moment the cloud was briefly unreachable during that refresh (a signal
+  // drop in the field is exactly when this matters most), checkLoginGate had
+  // no verified session AND no cached 'saved' one left to fall back to, so it
+  // fell through to the login screen. A plain refresh was logging people out.
+  //
+  // sessionStorage fixes this because, unlike localStorage, it survives an
+  // in-tab reload but is wiped the instant the tab/window is actually closed.
+  // So instead of reacting on the way OUT (pagehide), check on the way IN
+  // (this load): if our marker is still there, the tab never really closed —
+  // this is just a refresh, so the session is left alone. If it's missing,
+  // either this is the very first load ever or the tab that held this
+  // session was truly closed; either way there's no live tab to preserve, so
+  // any leftover admin/technician session is dropped. Customers are exempt —
+  // their portal session is meant to persist across closes, same as it
+  // already does via the verified Supabase session path in checkLoginGate.
+  const TAB_ALIVE_KEY = 'awes-tab-alive';
+  let tabSurvivedReload = false;
+  try{ tabSurvivedReload = sessionStorage.getItem(TAB_ALIVE_KEY) === '1'; }
+  catch(e){ tabSurvivedReload = true; } // fail open: never force a logout on refresh just because storage is unavailable
+  try{ sessionStorage.setItem(TAB_ALIVE_KEY, '1'); }catch(e){}
+  if(!tabSurvivedReload){
+    try{
+      const saved = JSON.parse(localStorage.getItem('current-user')||'null');
+      if(saved && (saved.role==='admin' || saved.role==='tech')) localStorage.removeItem('current-user');
+    }catch(e){}
   }
-  window.addEventListener('pagehide', (e)=>{
-    if(e.persisted) return;
-    clearSessionOnClose();
-  });
 
   // ============================================================
   // Online DTR (Daily Time Record) — a fully separate module/page.
