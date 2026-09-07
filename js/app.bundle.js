@@ -6072,7 +6072,12 @@
     card.style.display = '';
     list.innerHTML = '<div class="empty-state">Loading…</div>';
     const mine = await dtListForReporter(currentUser.id);
-    const openOnes = mine.filter(r=> (r.equipmentList||[]).some(it=> !it.reportSrNo));
+    // A ticket can be closed with some equipment left unreported (closing
+    // with exceptions marks those units "not done" instead of requiring a
+    // report — see dtCloseTicket). Once closed, the Job Order is finalized,
+    // so it shouldn't keep showing up here as something still needing a
+    // report to be filed against it.
+    const openOnes = mine.filter(r=> dtEffectiveStatus(r)!=='closed' && (r.equipmentList||[]).some(it=> !it.reportSrNo));
     if(openOnes.length===0){
       list.innerHTML = '<div class="empty-state">No Job Order tickets with equipment still needing a report.</div>';
       return;
