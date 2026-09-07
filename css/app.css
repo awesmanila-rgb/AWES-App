@@ -565,7 +565,7 @@
   .greet-main{flex:1 1 auto; min-width:0;}
   @media (max-width:700px){ .greet-layout{flex-direction:column;} }
   .greet-today-jo{
-    flex:0 0 260px; max-width:260px; align-self:stretch;
+    flex:0 0 360px; max-width:360px; align-self:stretch;
     background:#FFF7E6; border:1px solid #F0D9A6; border-radius:12px;
     padding:14px; display:flex; flex-direction:column; gap:10px;
   }
