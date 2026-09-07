@@ -558,12 +558,15 @@
     items.forEach(e=>{
       const card = document.createElement('div');
       card.className = 'user-card';
-      const summary = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
+      // Customer name is dropped here since the list is already scoped to one
+      // customer — location becomes the card's title instead (bold/larger,
+      // via the existing u-name style) so it's what stands out per row.
+      const rest = [e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
-          '<div class="u-name">'+escapeHtml(e.customerName)+'</div>'+
-          '<div class="u-status">'+escapeHtml(summary)+'</div>'+
+          '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
+          '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
         '</div></div>'+
         (equipListTab==='delete' ?
