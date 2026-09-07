@@ -719,14 +719,18 @@ window.awesCss = {
         <button type="button" class="seg-tab active" id="equipListTabEdit">View All</button>
       </div>
 
-      <!-- View All / Delete: filtered, per-customer list -->
+      <!-- View All / Delete: search for a customer first; nothing else shows
+           until one is picked, then that customer's equipment appears below. -->
       <div id="equipListViewSection">
         <div class="field">
-          <label>Filter by Customer</label>
-          <select id="equipmentListCustomerFilter"><option value="">All Customers</option></select>
+          <label>Search Customer</label>
+          <select id="equipmentListCustomerFilter"><option value="">Search and select a customer…</option></select>
         </div>
-        <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
-        <div id="equipmentListBody"></div>
+        <div id="equipListResultsWrap" style="display:none;">
+          <div class="field"><input type="text" id="equipmentListSearch" placeholder="Search equipment…"></div>
+          <div id="equipmentListBody"></div>
+        </div>
+        <div id="equipListNoCustomerHint" class="empty-state">Select a customer above to see their equipment.</div>
       </div>
 
       <!-- Add: a new equipment record for a chosen customer -->
