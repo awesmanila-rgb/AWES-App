@@ -1127,7 +1127,21 @@
   $('dtTabAll').addEventListener('click', ()=> dtShowAdminTab('all'));
   $('dtTabCalendar').addEventListener('click', ()=> dtShowAdminTab('calendar'));
 
-  // No status tabs anymore — every job order assigned to the technician is
+  // Which of the two technician-list tabs is showing — 'active' (open,
+  // acknowledged, completed, expired: anything still needing attention) or
+  // 'closed' (fully finalized tickets, kept out of the way by default).
+  // Module-level so dtRenderTechList (re-run after every action) remembers
+  // which tab the technician was on.
+  let dtTechListTab = 'active';
+  function dtSetTechListTab(tab){
+    dtTechListTab = tab;
+    if($('dtTechTabActive')) $('dtTechTabActive').classList.toggle('active', tab==='active');
+    if($('dtTechTabClosed')) $('dtTechTabClosed').classList.toggle('active', tab==='closed');
+    dtRenderTechList();
+  }
+  if($('dtTechTabActive')) $('dtTechTabActive').addEventListener('click', ()=> dtSetTechListTab('active'));
+  if($('dtTechTabClosed')) $('dtTechTabClosed').addEventListener('click', ()=> dtSetTechListTab('closed'));
+  // No more status tabs — every job order assigned to the technician is
   // always shown. This just orders the list so the ones needing action sit
   // above ones that don't: unacknowledged first, then acknowledged/in
   // progress, then completed, then closed last; ties broken by soonest
@@ -1160,10 +1174,21 @@
     }
     const mine = await dtListForWorker(currentUser.id);
     dtRenderBackToSrBanner(mine);
-    const items = dtSortTechTickets(mine);
+    const sorted = dtSortTechTickets(mine);
+    // Closed tickets live in their own tab now, so each tab only ever
+    // renders the subset it owns — a technician's day-to-day list isn't
+    // padded out with tickets that need nothing further from them.
+    const items = dtTechListTab==='closed'
+      ? sorted.filter(r=> r.status==='closed')
+      : sorted.filter(r=> r.status!=='closed');
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
-    if(items.length===0){ list.innerHTML = '<div class="empty-state">📭 No job orders yet<br><span class="dt-jo-empty-sub">Job orders your admin assigns to you will show up here.</span></div>'; return; }
+    if(items.length===0){
+      list.innerHTML = dtTechListTab==='closed'
+        ? '<div class="empty-state">📁 No closed job orders yet</div>'
+        : '<div class="empty-state">📭 No active job orders<br><span class="dt-jo-empty-sub">Job orders your admin assigns to you will show up here.</span></div>';
+      return;
+    }
     list.innerHTML = '';
     items.forEach(r=>{
       const card = document.createElement('div');

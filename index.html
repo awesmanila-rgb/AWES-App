@@ -1433,35 +1433,10 @@ window.awesCss = {
   <!-- Technician: tickets assigned to me -->
   <div id="dispatchTechArea" style="display:none;">
     <div class="dash-two-col dt-jo-layout">
-      <div class="card dt-jo-list-card">
-        <div class="card-head"><span>🚚 My Job Order</span></div>
-        <div class="card-body">
-          <!-- Shown only when the technician was sent here from the Service
-               Report "From Job Order" picker to acknowledge a specific ticket
-               first (see srGoAcknowledgeTicket in dispatch.js). Lets them jump
-               straight back once done, instead of hunting for the Service
-               Report tile again. -->
-          <div id="dtBackToSrBanner" class="dt-back-to-sr-banner" style="display:none;">
-            <span id="dtBackToSrText"></span>
-            <div class="dt-back-to-sr-actions">
-              <button type="button" id="dtBackToSrBtn">← Back to Service Report</button>
-              <button type="button" id="dtBackToSrDismissBtn" aria-label="Dismiss">✕</button>
-            </div>
-          </div>
-          <!-- No more status tabs — every job order assigned to the
-               technician is listed here, newest/most-actionable first (see
-               dtSortTechTickets in dispatch.js), collapsed by default. -->
-          <div class="dt-jo-list-toolbar">
-            <button type="button" class="dt-jo-toggle-all-btn" id="dtTechExpandAllBtn" data-mode="expand">⤢ Expand all</button>
-          </div>
-          <div id="dtTechList"><div class="empty-state">Loading…</div></div>
-        </div>
-      </div>
-
       <!-- First-time-technician reference: what the status pill and the
            step tracker (shown once a job order is expanded) mean. Sits
-           beside the list on tablet/desktop widths and drops below it on
-           phones (same responsive rule as .dash-two-col elsewhere). -->
+           above the list itself (stacked layout — see .dt-jo-layout in
+           app.css) so a technician reads it before scanning tickets. -->
       <div class="card dt-jo-help-card">
         <div class="card-head"><span>ℹ️ How Job Orders Work</span></div>
         <div class="card-body">
@@ -1487,6 +1462,38 @@ window.awesCss = {
             <div class="dt-jo-help-desc">A warning, not a stage — it just means the scheduled date passed before the job was completed. You can still Acknowledge, Complete, or Close it; check with your dispatcher/admin if unsure.</div>
           </div>
           <p class="dt-jo-help-tip">💡 Tip: tap a job order's title bar to expand it and see its step tracker, or use "Expand all" to open everything at once.</p>
+        </div>
+      </div>
+
+      <div class="card dt-jo-list-card">
+        <div class="card-head"><span>🚚 My Job Order</span></div>
+        <div class="card-body">
+          <!-- Shown only when the technician was sent here from the Service
+               Report "From Job Order" picker to acknowledge a specific ticket
+               first (see srGoAcknowledgeTicket in dispatch.js). Lets them jump
+               straight back once done, instead of hunting for the Service
+               Report tile again. -->
+          <div id="dtBackToSrBanner" class="dt-back-to-sr-banner" style="display:none;">
+            <span id="dtBackToSrText"></span>
+            <div class="dt-back-to-sr-actions">
+              <button type="button" id="dtBackToSrBtn">← Back to Service Report</button>
+              <button type="button" id="dtBackToSrDismissBtn" aria-label="Dismiss">✕</button>
+            </div>
+          </div>
+          <!-- Two tabs only: "Active" (everything not yet closed — open,
+               acknowledged, completed, expired) and "Closed Job Orders"
+               (fully finalized ones), so closed tickets don't clutter the
+               list a technician actually needs to act on day-to-day. Within
+               a tab, cards still sort by urgency (dtSortTechTickets),
+               collapsed by default. -->
+          <div class="seg-tabs">
+            <button type="button" class="seg-tab active" id="dtTechTabActive">Active</button>
+            <button type="button" class="seg-tab" id="dtTechTabClosed">Closed Job Orders</button>
+          </div>
+          <div class="dt-jo-list-toolbar">
+            <button type="button" class="dt-jo-toggle-all-btn" id="dtTechExpandAllBtn" data-mode="expand">⤢ Expand all</button>
+          </div>
+          <div id="dtTechList"><div class="empty-state">Loading…</div></div>
         </div>
       </div>
     </div>
