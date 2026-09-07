@@ -503,7 +503,7 @@
     const opts = sorted.map(c=> '<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join('');
     const filterSel = $('equipmentListCustomerFilter');
     const keepFilter = filterSel.value;
-    filterSel.innerHTML = '<option value="">All Customers</option>' + opts;
+    filterSel.innerHTML = '<option value="">Search and select a customer…</option>' + opts;
     filterSel.value = keepFilter;
     const addSel = $('eqAddCustomer');
     const keepAdd = addSel.value;
@@ -520,12 +520,25 @@
     if(tab!=='add') renderEquipmentMasterList();
   }
   async function renderEquipmentMasterList(){
+    const custId = $('equipmentListCustomerFilter').value;
+    const resultsWrap = $('equipListResultsWrap');
+    const noCustHint = $('equipListNoCustomerHint');
+    // Nothing renders until a customer is picked — no "browse everyone's
+    // equipment at once" view, so the list only ever shows one customer's
+    // units at a time.
+    if(!custId){
+      resultsWrap.style.display = 'none';
+      noCustHint.style.display = '';
+      $('equipmentListBody').innerHTML = '';
+      return;
+    }
+    resultsWrap.style.display = '';
+    noCustHint.style.display = 'none';
     const body = $('equipmentListBody');
     body.innerHTML = '<div class="empty-state">Loading…</div>';
     const all = await loadAllCustomerEquipment();
-    const custId = $('equipmentListCustomerFilter').value;
     const q = ($('equipmentListSearch').value||'').trim().toLowerCase();
-    let items = custId ? all.filter(e=> String(e.customerId)===String(custId)) : all;
+    let items = all.filter(e=> String(e.customerId)===String(custId));
     if(q){
       items = items.filter(e=>{
         const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
