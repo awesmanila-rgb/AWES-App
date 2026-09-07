@@ -964,9 +964,17 @@
         return;
       }
       // Verified fine, but the profile lookup itself failed/returned nothing
-      // usable — don't guess, fall through to the login screen.
-      localStorage.removeItem('current-user');
-      currentUser = null;
+      // usable — a transient blip fetching the profile row (slow connection,
+      // brief signal drop), NOT the same thing as a confirmed sign-out. Only
+      // an explicit fresh.active===false above should actually end the
+      // session, so fall back to the cached copy here instead of forcing a
+      // login screen on what's still just a plain refresh.
+      currentUser = {id:saved.id, name:saved.name, role:'tech', restrictions: saved.restrictions||{}, mustChangePassword: !!saved.mustChangePassword};
+      updateUserBadge();
+      applyUserRestrictions();
+      $('loginOverlay').classList.remove('open');
+      enterApp();
+      return;
     }
     await showLoginScreen();
   }
