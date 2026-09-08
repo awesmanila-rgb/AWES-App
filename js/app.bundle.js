@@ -34,6 +34,29 @@
     const d = new Date(iso+'T00:00:00');
     return d.toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
   }
+  // Matches a piece of equipment to its own service-report visit history out
+  // of a customer's full report list. Shared by the customer portal's
+  // equipment detail screen (customer-equipment-history.js) and the admin
+  // "Manage Equipment List" detail overlay (admin.js) so both show the
+  // identical history for the same unit rather than two independently
+  // maintained copies of this logic drifting apart.
+  // Matched by serial number first (serial_cu / serial_fcu) when the
+  // equipment record has one on file — far more reliable than matching by
+  // location+type text, which breaks the moment two units share a room or a
+  // location gets renamed/retyped slightly differently on a visit. Falls
+  // back to location+type only when no serial is on file. Returns newest
+  // first.
+  function matchReportHistoryForEquipment(reports, eq){
+    const hasSerial = !!(eq.serialCU || eq.serialFCU);
+    return (reports||[]).filter(r=>{
+      if(hasSerial){
+        return (eq.serialCU && r.serial_cu === eq.serialCU) ||
+               (eq.serialFCU && r.serial_fcu === eq.serialFCU);
+      }
+      return (r.equip_location||'') === (eq.equipLocation||'') &&
+             (r.equip_type||'') === (eq.equipType||'');
+    }).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  }
 
   // ---------- shared cloud (Supabase) ----------
   let cloudReady = false;
@@ -3459,12 +3482,63 @@
     $('equipmentDetailCancelBtn').style.display = mode==='edit' ? '' : 'none';
     $('equipmentDetailSaveBtn').style.display = mode==='edit' ? '' : 'none';
   }
-  function openEquipmentDetailOverlay(record){
+  // Fetches this equipment's own service-visit history for the "Service
+  // History" section below — same report columns and the same
+  // matchReportHistoryForEquipment() matching logic (core.js) the customer
+  // portal's own equipment history screen uses, so the admin sees exactly
+  // what that customer would see for this unit.
+  async function loadEquipmentServiceHistory(eq){
+    if(!eq.customerName || !(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('service_reports')
+        .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+        .eq('cust_name', eq.customerName)
+        .order('date', { ascending:false });
+      if(error) throw error;
+      return matchReportHistoryForEquipment(data||[], eq);
+    }catch(e){ console.error('load equipment service history failed', describeCloudError(e)); return []; }
+  }
+  // Renders the expandable visit timeline into the overlay, reusing
+  // cpVisitCardHtml (customer-equipment-history.js) so admin and customer
+  // see an identical per-visit layout. Looks up each visit's body via
+  // head.nextElementSibling rather than by id — cpVisitCardHtml's ids are
+  // only unique per render, and this overlay can be opened for a different
+  // equipment record (and thus re-rendered) many times in one session.
+  function renderEquipmentHistorySection(history){
+    $('equipmentDetailHistoryMeta').textContent = history.length
+      ? history.length+' visit'+(history.length===1?'':'s')+' on record · last serviced '+fmtDate(history[0].date)
+      : 'No service visits recorded yet for this unit.';
+    const list = $('equipmentDetailHistoryList');
+    list.innerHTML = history.map(cpVisitCardHtml).join('');
+    $$('.cp-visit-head', list).forEach(head=>{
+      head.addEventListener('click', ()=>{
+        const body = head.nextElementSibling;
+        if(!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        head.querySelector('.cp-visit-chevron').textContent = open ? '▾' : '▴';
+      });
+    });
+    $$('.cp-visit-pdf-btn', list).forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const sr = btn.dataset.srNo;
+        if(sr) openCustomerReportPreview(sr);
+      });
+    });
+  }
+  async function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
     const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
     $('equipmentDetailTitle').textContent = summary;
     setEquipDetailMode('view');
+    $('equipmentDetailHistoryMeta').textContent = 'Loading service history…';
+    $('equipmentDetailHistoryList').innerHTML = '';
     $('equipmentDetailOverlay').classList.add('open');
+    const history = await loadEquipmentServiceHistory(record);
+    // Guard against the admin having closed this record (or opened a
+    // different one) while the history fetch was still in flight.
+    if(equipDetailRecord === record) renderEquipmentHistorySection(history);
   }
   $('closeEquipmentDetail').addEventListener('click', ()=> $('equipmentDetailOverlay').classList.remove('open'));
   $('equipmentDetailOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentDetailOverlay') $('equipmentDetailOverlay').classList.remove('open'); });
@@ -11316,22 +11390,10 @@
 
     // Attach each equipment's full matching report history, for the status
     // heuristic, "last serviced" date, and the equipment detail screen.
-    //
-    // Matched by serial number first (serial_cu / serial_fcu) when the
-    // equipment record has one on file — far more reliable than matching by
-    // location+type text, which breaks the moment two units share a room or
-    // a location gets renamed/retyped slightly differently on a visit.
-    // Falls back to location+type only when no serial is on file.
+    // Matching logic lives in matchReportHistoryForEquipment() (core.js) —
+    // shared with the admin equipment detail overlay's own history section.
     cpEquipment.forEach(eq => {
-      const hasSerial = !!(eq.serialCU || eq.serialFCU);
-      eq.reportHistory = cpReports.filter(r => {
-        if(hasSerial){
-          return (eq.serialCU && r.serial_cu === eq.serialCU) ||
-                 (eq.serialFCU && r.serial_fcu === eq.serialFCU);
-        }
-        return (r.equip_location||'') === (eq.equipLocation||'') &&
-               (r.equip_type||'') === (eq.equipType||'');
-      }).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+      eq.reportHistory = matchReportHistoryForEquipment(cpReports, eq);
       eq.lastReport = eq.reportHistory[0] || null;
       eq.status = computeEquipmentStatus(eq);
     });

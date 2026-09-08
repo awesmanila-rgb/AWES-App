@@ -631,12 +631,63 @@
     $('equipmentDetailCancelBtn').style.display = mode==='edit' ? '' : 'none';
     $('equipmentDetailSaveBtn').style.display = mode==='edit' ? '' : 'none';
   }
-  function openEquipmentDetailOverlay(record){
+  // Fetches this equipment's own service-visit history for the "Service
+  // History" section below — same report columns and the same
+  // matchReportHistoryForEquipment() matching logic (core.js) the customer
+  // portal's own equipment history screen uses, so the admin sees exactly
+  // what that customer would see for this unit.
+  async function loadEquipmentServiceHistory(eq){
+    if(!eq.customerName || !(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('service_reports')
+        .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+        .eq('cust_name', eq.customerName)
+        .order('date', { ascending:false });
+      if(error) throw error;
+      return matchReportHistoryForEquipment(data||[], eq);
+    }catch(e){ console.error('load equipment service history failed', describeCloudError(e)); return []; }
+  }
+  // Renders the expandable visit timeline into the overlay, reusing
+  // cpVisitCardHtml (customer-equipment-history.js) so admin and customer
+  // see an identical per-visit layout. Looks up each visit's body via
+  // head.nextElementSibling rather than by id — cpVisitCardHtml's ids are
+  // only unique per render, and this overlay can be opened for a different
+  // equipment record (and thus re-rendered) many times in one session.
+  function renderEquipmentHistorySection(history){
+    $('equipmentDetailHistoryMeta').textContent = history.length
+      ? history.length+' visit'+(history.length===1?'':'s')+' on record · last serviced '+fmtDate(history[0].date)
+      : 'No service visits recorded yet for this unit.';
+    const list = $('equipmentDetailHistoryList');
+    list.innerHTML = history.map(cpVisitCardHtml).join('');
+    $$('.cp-visit-head', list).forEach(head=>{
+      head.addEventListener('click', ()=>{
+        const body = head.nextElementSibling;
+        if(!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        head.querySelector('.cp-visit-chevron').textContent = open ? '▾' : '▴';
+      });
+    });
+    $$('.cp-visit-pdf-btn', list).forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const sr = btn.dataset.srNo;
+        if(sr) openCustomerReportPreview(sr);
+      });
+    });
+  }
+  async function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
     const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
     $('equipmentDetailTitle').textContent = summary;
     setEquipDetailMode('view');
+    $('equipmentDetailHistoryMeta').textContent = 'Loading service history…';
+    $('equipmentDetailHistoryList').innerHTML = '';
     $('equipmentDetailOverlay').classList.add('open');
+    const history = await loadEquipmentServiceHistory(record);
+    // Guard against the admin having closed this record (or opened a
+    // different one) while the history fetch was still in flight.
+    if(equipDetailRecord === record) renderEquipmentHistorySection(history);
   }
   $('closeEquipmentDetail').addEventListener('click', ()=> $('equipmentDetailOverlay').classList.remove('open'));
   $('equipmentDetailOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentDetailOverlay') $('equipmentDetailOverlay').classList.remove('open'); });

@@ -79,22 +79,10 @@
 
     // Attach each equipment's full matching report history, for the status
     // heuristic, "last serviced" date, and the equipment detail screen.
-    //
-    // Matched by serial number first (serial_cu / serial_fcu) when the
-    // equipment record has one on file — far more reliable than matching by
-    // location+type text, which breaks the moment two units share a room or
-    // a location gets renamed/retyped slightly differently on a visit.
-    // Falls back to location+type only when no serial is on file.
+    // Matching logic lives in matchReportHistoryForEquipment() (core.js) —
+    // shared with the admin equipment detail overlay's own history section.
     cpEquipment.forEach(eq => {
-      const hasSerial = !!(eq.serialCU || eq.serialFCU);
-      eq.reportHistory = cpReports.filter(r => {
-        if(hasSerial){
-          return (eq.serialCU && r.serial_cu === eq.serialCU) ||
-                 (eq.serialFCU && r.serial_fcu === eq.serialFCU);
-        }
-        return (r.equip_location||'') === (eq.equipLocation||'') &&
-               (r.equip_type||'') === (eq.equipType||'');
-      }).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+      eq.reportHistory = matchReportHistoryForEquipment(cpReports, eq);
       eq.lastReport = eq.reportHistory[0] || null;
       eq.status = computeEquipmentStatus(eq);
     });

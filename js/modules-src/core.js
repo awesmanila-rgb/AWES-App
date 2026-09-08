@@ -32,6 +32,29 @@
     const d = new Date(iso+'T00:00:00');
     return d.toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
   }
+  // Matches a piece of equipment to its own service-report visit history out
+  // of a customer's full report list. Shared by the customer portal's
+  // equipment detail screen (customer-equipment-history.js) and the admin
+  // "Manage Equipment List" detail overlay (admin.js) so both show the
+  // identical history for the same unit rather than two independently
+  // maintained copies of this logic drifting apart.
+  // Matched by serial number first (serial_cu / serial_fcu) when the
+  // equipment record has one on file — far more reliable than matching by
+  // location+type text, which breaks the moment two units share a room or a
+  // location gets renamed/retyped slightly differently on a visit. Falls
+  // back to location+type only when no serial is on file. Returns newest
+  // first.
+  function matchReportHistoryForEquipment(reports, eq){
+    const hasSerial = !!(eq.serialCU || eq.serialFCU);
+    return (reports||[]).filter(r=>{
+      if(hasSerial){
+        return (eq.serialCU && r.serial_cu === eq.serialCU) ||
+               (eq.serialFCU && r.serial_fcu === eq.serialFCU);
+      }
+      return (r.equip_location||'') === (eq.equipLocation||'') &&
+             (r.equip_type||'') === (eq.equipType||'');
+    }).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  }
 
   // ---------- shared cloud (Supabase) ----------
   let cloudReady = false;
