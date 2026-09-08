@@ -645,13 +645,21 @@
   // History" section below — same report columns and the same
   // matchReportHistoryForEquipment() matching logic (core.js) the customer
   // portal's own equipment history screen uses, so the admin sees exactly
-  // what that customer would see for this unit.
+  // what that customer would see for this unit. Matched via customer_id
+  // (not cust_name text) for the same reason customer-portal.js was
+  // switched over: a report whose cust_name didn't exactly match this
+  // customer's name (typo, casing, a nickname a technician typed in) was
+  // otherwise a real visit for this unit but got silently excluded here,
+  // while the customer portal — once it also matched on customer_id —
+  // could show a DIFFERENT set of visits for the very same equipment. Both
+  // screens now source from the same customer_id-scoped query so they
+  // never disagree.
   async function loadEquipmentServiceHistory(eq){
-    if(!eq.customerName || !(await ensureCloud())) return [];
+    if(!eq.customerId || !(await ensureCloud())) return [];
     try{
       const { data, error } = await db.from('service_reports')
         .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
-        .eq('cust_name', eq.customerName)
+        .eq('customer_id', eq.customerId)
         .order('date', { ascending:false });
       if(error) throw error;
       return matchReportHistoryForEquipment(data||[], eq);
