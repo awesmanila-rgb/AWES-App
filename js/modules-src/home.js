@@ -856,7 +856,7 @@
     showHome();
   }
 
-  async function enterApp(){
+  async function enterApp(opts){
     // Location sharing follows today's DTR, not just sign-in — see
     // dtrIsOnClock() and the tracker calls inside dtrDoTimeIn/Out and
     // dtrDoOtTimeIn/Out in history.js. This lookup only matters for
@@ -874,7 +874,25 @@
     // only sign out via the explicit Logout button; a page reload/refresh
     // never signs anyone out either.
     if(currentUser) startIdleWatch(); else stopIdleWatch();
-    restoreLastScreenOrHome();
+    // {freshLogin:true} — passed only by the three login forms themselves
+    // (renderTechnicianLoginForm / renderAdminLoginForm / the customer
+    // form, in auth.js) right after credentials were just typed and
+    // verified. An actual sign-in should always land on Home, never on
+    // wherever a PREVIOUS session happened to leave off — only a same-
+    // session page refresh should restore that. checkLoginGate()'s own
+    // enterApp() calls (session-restore on load, no credentials typed)
+    // deliberately pass nothing here, so that path keeps restoring the
+    // last screen exactly as before.
+    if(opts && opts.freshLogin){
+      // Also clear it here, not just in doLogout() — a tab that was simply
+      // closed (never hit Logout) leaves the old session's last-screen
+      // sitting in localStorage, and without this it would otherwise leak
+      // into whatever screen the NEXT person's fresh sign-in restores on.
+      try{ localStorage.removeItem(LAST_SCREEN_KEY); }catch(e){}
+      showHome();
+    }else{
+      restoreLastScreenOrHome();
+    }
   }
   $('tile_serviceReport').addEventListener('click', showServiceReport);
   $('tile_dtr').addEventListener('click', showDtrView);

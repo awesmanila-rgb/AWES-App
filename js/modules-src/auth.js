@@ -570,7 +570,7 @@
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
-      enterApp();
+      enterApp({freshLogin:true});
       toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
@@ -637,7 +637,7 @@
       updateUserBadge();
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
-      enterApp();
+      enterApp({freshLogin:true});
       toast('Welcome, Admin');
     };
     submit.addEventListener('click', doSubmit);
@@ -770,7 +770,7 @@
       applyUserRestrictions();
       $('loginOverlay').classList.remove('open');
       if(currentUser.mustChangePassword) await showChangePasswordScreen(true);
-      enterApp();
+      enterApp({freshLogin:true});
       toast('Welcome, '+currentUser.name);
     };
     submit.addEventListener('click', doSubmit);
