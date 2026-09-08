@@ -705,6 +705,23 @@
       $('dtEquipTabAddNew').addEventListener('click', ()=> dtSetEquipTab('addnew'));
       dtSetEquipTab(null);
     }
+    attachDtEquipCombos();
+  }
+
+  // Links the "Equipment for this Job Order" fields (Equipment Type, Brand,
+  // Mounting Type, etc.) to the same named suggestion lists the Service
+  // Report's own Equipment section and the admin "Manage Equipment List →
+  // Add" tab use (configured via Manage Dropdown Lists) — even though these
+  // inputs have dt-prefixed ids, attachCombo's keyOverride lets a
+  // differently-id'd input share a list. Guarded by attachCombo's own
+  // dataset flag, so calling this more than once (e.g. every time the New
+  // Job Order form is opened) is harmless.
+  function attachDtEquipCombos(){
+    const idFor = (key)=> 'dt'+key.charAt(0).toUpperCase()+key.slice(1);
+    EQUIP_FIELD_KEYS.forEach(key=>{
+      const el = $(idFor(key));
+      if(el) attachCombo(el, key);
+    });
   }
 
   async function dtRenderWorkerChecklist(){
