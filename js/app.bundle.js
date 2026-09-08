@@ -6733,6 +6733,12 @@
       EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
       const { error } = await db.from('customer_equipment').insert(rec);
       if(error) throw error;
+      // Reflect the new record in the cache immediately so a later dedupe
+      // check (e.g. the one that runs again at ticket-submit time) sees it
+      // as already-on-file instead of inserting it a second time.
+      if(customerId === dtCurrentCustomerId){
+        dtCurrentEquipmentCache.push(Object.assign({}, fields));
+      }
     }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
   }
 
