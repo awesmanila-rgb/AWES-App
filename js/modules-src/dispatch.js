@@ -1052,7 +1052,7 @@
     if(closed) nextText = 'Fully closed — no further action needed.';
     else if(completed) nextText = 'File the Service Report for this ticket, then open it below and run Close Job Order.';
     else if(waitingOnOthers) nextText = 'Recorded — waiting for the other assigned technician(s) to mark it completed.';
-    else if(ack) nextText = 'You are on site. Tap Mark Completed once the fieldwork is finished.';
+    else if(ack) nextText = 'You are on site. Tap Mark Completed once your visit here is done — that just closes out the fieldwork step, not that everything went perfectly; Close Job Order still lets you flag anything that wasn\'t finished.';
     else nextText = 'New assignment. Tap Acknowledge to accept this job order.';
     const expiredWarn = dtEffectiveStatus(r)==='expired'
       ? '<div class="jo-stepper-warn">⚠ Scheduled date already passed. You can still Acknowledge, Complete, or Close this — check with your dispatcher/admin if unsure.</div>'
@@ -1421,11 +1421,33 @@
       $$('#dtCloseSection .dt-notdone-chk, #dtCloseSection .dt-close-row textarea', document).forEach(el=> el.disabled = true);
       $('dtCloseSubmitBtn').style.display = 'none';
     }else if(canAct){
-      $('dtCloseSection').innerHTML =
-        '<div id="dtCloseChecklist">'+dtRenderCloseChecklist(rec)+'</div>'+
-        '<div class="field" style="margin-top:8px;"><label>Overall Remarks (optional)</label>'+
-        '<textarea id="dtCloseRemarks" rows="2" placeholder="Anything else worth noting before closing"></textarea></div>';
-      $('dtCloseSubmitBtn').style.display = '';
+      // Closing used to be reachable straight from "Open", skipping
+      // Acknowledge and Mark Completed entirely — which made those two
+      // steps optional in practice even though the step tracker implies
+      // they're required. For a technician (not admin), Close Job Order now
+      // only unlocks once every assigned technician has marked their part
+      // completed (rec.status==='completed'); until then this section
+      // explains which of the two steps to do next instead of showing the
+      // close form. Admin keeps the ability to close directly as an
+      // override (e.g. a tech is unavailable to complete the app flow).
+      const readyToClose = rec.status==='completed';
+      if(!readyToClose && currentUser.role!=='admin'){
+        const ack = (rec.acknowledgedBy||[]).includes(currentUser.id);
+        const doneSelf = (rec.completedBy||[]).includes(currentUser.id);
+        const nextStep = !ack
+          ? 'Acknowledge this job order'
+          : (!doneSelf ? 'Mark Completed once your visit here is done' : 'Wait for the other assigned technician(s) to mark it completed');
+        $('dtCloseSection').innerHTML =
+          '<div class="empty-state">🔒 '+nextStep+' — from My Job Order — before you can close this ticket.'+
+          '<br><span class="dt-jo-empty-sub">Marking it completed doesn\'t mean everything went perfectly — you can still note anything that wasn\'t finished right here when you close it.</span></div>';
+        $('dtCloseSubmitBtn').style.display = 'none';
+      }else{
+        $('dtCloseSection').innerHTML =
+          '<div id="dtCloseChecklist">'+dtRenderCloseChecklist(rec)+'</div>'+
+          '<div class="field" style="margin-top:8px;"><label>Overall Remarks (optional)</label>'+
+          '<textarea id="dtCloseRemarks" rows="2" placeholder="Anything else worth noting before closing"></textarea></div>';
+        $('dtCloseSubmitBtn').style.display = '';
+      }
     }else{
       $('dtCloseSection').innerHTML = '<div class="empty-state">Only the assigned technician(s) or admin can close this ticket.</div>';
       $('dtCloseSubmitBtn').style.display = 'none';
@@ -1459,6 +1481,13 @@
       if(!rec){ toast('Ticket not found'); return false; }
       if(!dtCanActOnTicket(rec)){ toast('This ticket is not assigned to you'); return false; }
       if(dtEffectiveStatus(rec)==='closed'){ toast('Already closed'); return false; }
+      // Mirrors the gating in dtOpenTicketOverlay — checked here too so a
+      // technician can't reach Close Job Order some other way (e.g. a stale
+      // overlay left open from before they closed a different browser tab)
+      // and skip Acknowledge/Mark Completed. Admin keeps its override.
+      if(currentUser.role!=='admin' && rec.status!=='completed'){
+        toast('Acknowledge and Mark Completed this job order first'); return false;
+      }
       const merged = Object.assign({}, rec, {
         equipmentList,
         status: 'closed',
