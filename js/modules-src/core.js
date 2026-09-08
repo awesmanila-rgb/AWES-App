@@ -193,6 +193,23 @@
   function reportToRow(data){
     const row = {};
     REPORT_STRING_FIELDS.forEach(([col, key])=>{ row[col] = data[key] != null ? data[key] : null; });
+    // Resolves this report's cust_name (free text, typed/picked at filing
+    // time) to a customers.id. This matters because the customer portal's
+    // RLS read policy (supabase/migrations/20260904_01_customer_portal.sql,
+    // widened in 20260905_customer_portal_multi_link.sql) filters on
+    // service_reports.customer_id — NOT cust_name. Without this line every
+    // report ever saved left customer_id null (20260904's own migration
+    // only backfilled rows that already existed at that moment), so no
+    // report filed since has ever been visible in a customer's "Recent
+    // Service Reports". See supabase/migrations/20260908_02_backfill_
+    // report_customer_id.sql for the one-time fix to reports already saved
+    // before this line existed. Left null (same as before) when the name
+    // doesn't match anything in customersCache — e.g. a typo'd/one-off
+    // customer not in Manage Customers — same "spot-check and fix by hand"
+    // case 20260904's own backfill comment already called out.
+    const custMatch = (customersCache||[])
+      .find(c=> (c.name||'').trim().toLowerCase() === (data.custName||'').trim().toLowerCase());
+    row.customer_id = custMatch ? custMatch.id : null;
     row.findings      = data.findings || [];
     row.recommendations = data.recs || [];
     row.materials     = data.materials || [];
