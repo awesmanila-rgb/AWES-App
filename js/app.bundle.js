@@ -7160,9 +7160,14 @@
     const sorted = dtSortTechTickets(mine);
     // Closed tickets live in their own tab now, so each tab only ever
     // renders the subset it owns — a technician's day-to-day list isn't
-    // padded out with tickets that need nothing further from them.
+    // padded out with tickets that need nothing further from them. The
+    // Closed tab additionally re-sorts newest-first (by closedAt when
+    // available, falling back to the scheduled date), since "recent on top"
+    // is what's useful once a ticket is done — dtSortTechTickets's own
+    // ascending date tie-break is aimed at the Active tab's upcoming work.
     const items = dtTechListTab==='closed'
-      ? sorted.filter(r=> r.status==='closed')
+      ? sorted.filter(r=> r.status==='closed').sort((a,b)=>
+          (b.closedAt||b.date||'').localeCompare(a.closedAt||a.date||''))
       : sorted.filter(r=> r.status!=='closed');
     dtLastTicketsById = {};
     items.forEach(r=> dtLastTicketsById[r.id] = r);
