@@ -694,10 +694,24 @@
         const ids = profs.map(p=> p.id);
         const { data: links, error: linkErr } = await db.from('customer_login_links').select('profile_id, customer_id').in('profile_id', ids);
         if(linkErr) throw linkErr;
+        // Email lives in Supabase Auth (auth.users), not this profiles row —
+        // the anon key can't read auth.users directly, so it's fetched
+        // through the same admin-create-customer Edge Function that already
+        // handles customer-login writes (action: 'list_emails', which uses
+        // its service-role client). Best-effort: if this call fails, logins
+        // still render — just without an email shown — rather than the
+        // whole list breaking.
+        let emails = {};
+        try{
+          const { data: emailData, error: emailErr } = await db.functions.invoke('admin-create-customer', {
+            body: { action:'list_emails', ids }
+          });
+          if(!emailErr && emailData && emailData.emails) emails = emailData.emails;
+        }catch(e){ console.error('list customer emails failed', describeCloudError(e)); }
         const nameOf = (cid)=>{ const c = customersCache.find(x=> String(x.id)===String(cid)); return c ? c.name : '(deleted customer)'; };
         return profs.map(p=>{
           const custIds = (links||[]).filter(l=> l.profile_id===p.id).map(l=> l.customer_id);
-          return { id: p.id, name: p.name, active: p.active, customerIds: custIds, customerNames: custIds.map(nameOf) };
+          return { id: p.id, name: p.name, active: p.active, email: emails[p.id] || '', customerIds: custIds, customerNames: custIds.map(nameOf) };
         });
       }catch(e){ console.error('list customer logins failed', describeCloudError(e)); }
     }
@@ -2985,6 +2999,7 @@
             '<div class="u-name">'+escapeHtml(u.name)+'</div>'+
             '<div class="u-status '+(active?'':'deact')+'">'+
               (active ? 'Active' : 'Deactivated')+' · '+
+              (u.email ? escapeHtml(u.email) : 'Email unavailable')+' · '+
               (u.customerNames.length ? escapeHtml(u.customerNames.join(', ')) : 'No customer records linked')+
             '</div>'+
           '</div>'+
@@ -2996,6 +3011,7 @@
         '</div>'+
         '<div class="user-edit-panel" data-panel="1">'+
           '<div class="field"><label>Contact Name</label><input type="text" data-f="name" value="'+escapeHtml(u.name)+'"></div>'+
+          '<div class="field"><label>Login Email</label><input type="text" data-f="email" inputmode="email" value="'+escapeHtml(u.email||'')+'" placeholder="customer@email.com"></div>'+
           '<div class="field"><label>New Password (leave blank to keep current)</label><input type="password" data-f="pw1" placeholder="Set a new password"></div>'+
           '<div class="field"><label>Confirm New Password</label><input type="password" data-f="pw2" placeholder="Re-enter the new password"></div>'+
           '<div class="field"><label>Linked Customer Record(s)</label>'+
@@ -3017,16 +3033,19 @@
       card.querySelector('[data-act="cancel"]').addEventListener('click', ()=>{
         panel.classList.remove('open');
         panel.querySelector('[data-f="name"]').value = u.name;
+        panel.querySelector('[data-f="email"]').value = u.email||'';
         panel.querySelector('[data-f="pw1"]').value = '';
         panel.querySelector('[data-f="pw2"]').value = '';
         panel.querySelector('[data-f="custBox"]').innerHTML = customerCheckboxListHtml('edit-'+u.id, u.customerIds);
       });
       card.querySelector('[data-act="save"]').addEventListener('click', async ()=>{
         const newName = panel.querySelector('[data-f="name"]').value.trim();
+        const newEmail = panel.querySelector('[data-f="email"]').value.trim();
         const pw1 = panel.querySelector('[data-f="pw1"]').value;
         const pw2 = panel.querySelector('[data-f="pw2"]').value;
         const custIds = getCheckedCustomerIds(panel.querySelector('[data-f="custBox"]'));
         if(!newName){ toast('Name cannot be empty'); return; }
+        if(!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)){ toast('Enter a valid email'); return; }
         if(pw1 || pw2){
           if(pw1.length < 4){ toast('Password must be at least 4 characters'); return; }
           if(pw1 !== pw2){ toast('Passwords do not match'); return; }
@@ -3051,8 +3070,21 @@
             });
             ok3 = !error && !(data && data.error);
           }
-          if(ok1 && ok2 && ok3){
+          let ok4 = true;
+          if(newEmail !== (u.email||'')){
+            const { data, error } = await db.functions.invoke('admin-create-customer', {
+              body: { action:'change_email', customerLoginId: u.id, email: newEmail }
+            });
+            ok4 = !error && !(data && data.error);
+            if(!ok4) toast((data && data.error) || 'Could not update email');
+          }
+          if(ok1 && ok2 && ok3 && ok4){
             toast('Saved changes for '+newName);
+            renderUsersList();
+          }else if(ok1 && ok2 && ok3){
+            // ok4's own toast above already explained the email failure —
+            // still refresh so the name/password/customer changes that DID
+            // succeed aren't left looking unsaved.
             renderUsersList();
           }else toast('Could not save all changes');
         } finally { saveBtn.disabled = false; }

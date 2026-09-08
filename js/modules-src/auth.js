@@ -72,10 +72,24 @@
         const ids = profs.map(p=> p.id);
         const { data: links, error: linkErr } = await db.from('customer_login_links').select('profile_id, customer_id').in('profile_id', ids);
         if(linkErr) throw linkErr;
+        // Email lives in Supabase Auth (auth.users), not this profiles row —
+        // the anon key can't read auth.users directly, so it's fetched
+        // through the same admin-create-customer Edge Function that already
+        // handles customer-login writes (action: 'list_emails', which uses
+        // its service-role client). Best-effort: if this call fails, logins
+        // still render — just without an email shown — rather than the
+        // whole list breaking.
+        let emails = {};
+        try{
+          const { data: emailData, error: emailErr } = await db.functions.invoke('admin-create-customer', {
+            body: { action:'list_emails', ids }
+          });
+          if(!emailErr && emailData && emailData.emails) emails = emailData.emails;
+        }catch(e){ console.error('list customer emails failed', describeCloudError(e)); }
         const nameOf = (cid)=>{ const c = customersCache.find(x=> String(x.id)===String(cid)); return c ? c.name : '(deleted customer)'; };
         return profs.map(p=>{
           const custIds = (links||[]).filter(l=> l.profile_id===p.id).map(l=> l.customer_id);
-          return { id: p.id, name: p.name, active: p.active, customerIds: custIds, customerNames: custIds.map(nameOf) };
+          return { id: p.id, name: p.name, active: p.active, email: emails[p.id] || '', customerIds: custIds, customerNames: custIds.map(nameOf) };
         });
       }catch(e){ console.error('list customer logins failed', describeCloudError(e)); }
     }
