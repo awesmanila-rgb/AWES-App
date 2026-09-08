@@ -7,16 +7,15 @@
 // 1. customer_equipment already exists and is keyed by customer_id — this
 //    module reuses it as-is (see customers.js: EQUIP_FIELD_TO_COLUMN).
 //
-// 2. service_reports is currently matched to a customer by the free-text
-//    `cust_name` column, NOT a customer_id foreign key (see core.js:
-//    REPORT_STRING_FIELDS). That works fine for techs filling the field in
-//    by hand, but it's fragile for a customer portal — a typo'd or
-//    inconsistently-cased name will silently exclude reports. Before
-//    shipping this to real customers, add a `customer_id uuid references
-//    customers(id)` column to service_reports (nullable, backfilled by
-//    matching cust_name once), and switch loadCustomerReports() below to
-//    filter on that instead of cust_name. Left as cust_name matching here
-//    so this runs against your current schema without a migration.
+// 2. service_reports is matched to a customer via its `customer_id`
+//    foreign key (added in 20260904_01_customer_portal.sql, set on every
+//    new report by reportToRow() in core.js, and backfilled onto historic
+//    rows by 20260908_02_backfill_report_customer_id.sql). This is also
+//    what the "customers read own reports" RLS policy checks, so the
+//    query below and RLS now agree. Do not switch this back to matching
+//    on cust_name (free text) — that was tried first and is fragile: a
+//    typo'd or inconsistently-cased name silently excludes reports that
+//    RLS would otherwise correctly allow through.
 //
 // 3. "Status" — PM (preventive maintenance) due, overdue, on schedule, or
 //    none scheduled — is derived from customer_equipment.next_pm_date (see
@@ -59,16 +58,26 @@
       }));
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
-    if(cpCustomer && cpCustomer.name){
+    if(cpCustomer){
       try{
-        // See schema note #2 above — matched by name until service_reports
-        // gets a customer_id column. Selecting the full set of columns here
-        // (not just summary fields) so the equipment history screen can
-        // show findings/recommendations/materials/services done per visit
+        // Matched by service_reports.customer_id, not cust_name — see
+        // schema note #2 above. That column now exists, is set on every
+        // new report (reportToRow() in core.js) and was backfilled onto
+        // historic rows (20260908_02_backfill_report_customer_id.sql), and
+        // it's what the "customers read own reports" RLS policy itself
+        // checks. Matching cust_name here as well was fragile: a report
+        // whose cust_name didn't exactly match customers.name (typo,
+        // different casing/whitespace, a nickname a technician typed in)
+        // was otherwise fully visible under RLS but got filtered out by
+        // this query before ever reaching the equipment history screen —
+        // which is why a unit with real recorded visits could still show
+        // "0 service visits". Selecting the full set of columns here (not
+        // just summary fields) so the equipment history screen can show
+        // findings/recommendations/materials/services done per visit
         // without a second round-trip per unit.
         const { data, error } = await db.from('service_reports')
           .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
-          .eq('cust_name', cpCustomer.name)
+          .eq('customer_id', cpCustomer.id)
           .order('date', { ascending:false });
         if(error) throw error;
         cpReports = data || [];
