@@ -2168,7 +2168,14 @@
     return {
       id: row.id, customerId: row.customer_id, equipType: row.equip_type, equipLocation: row.equip_location,
       brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap, modelCU: row.model_cu, serialCU: row.serial_cu,
-      modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type
+      modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type,
+      // Admin-set tentative next PM (preventive maintenance) date — drives
+      // the customer portal's PM-due status pill (see computeEquipmentStatus
+      // in customer-portal.js). Deliberately NOT in EQUIP_FIELD_KEYS below:
+      // that list is this equipment's identity (used for dedupe checks and
+      // matching reports to a unit), and a PM date isn't part of what makes
+      // two equipment records "the same unit".
+      nextPmDate: row.next_pm_date || ''
     };
   }
   async function loadCustomerEquipment(customerId){
@@ -2237,6 +2244,13 @@
     if(!(await ensureCloud())) return false;
     const rec = {};
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+    // Next PM date — see the comment on equipRowToObj() above for why this
+    // stays out of EQUIP_FIELD_KEYS. undefined means the caller's form
+    // doesn't carry this field at all; empty string is a deliberate clear
+    // (the admin overlay blanking a previously-set date), so both are
+    // handled, just differently — undefined skips the column entirely,
+    // '' writes null.
+    if(fields.nextPmDate !== undefined) rec.next_pm_date = fields.nextPmDate || null;
     try{
       const { error } = await db.from('customer_equipment').update(rec).eq('id', id);
       if(error) throw error;
@@ -3449,11 +3463,13 @@
       // via the existing u-name style) so it's what stands out per row.
       const rest = [e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      const pmLine = e.nextPmDate ? 'Next PM: '+fmtDate(e.nextPmDate) : 'No PM scheduled';
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
+          '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
         '</div></div>'+
         (equipListTab==='delete' ?
           '<div class="user-card-actions"><button data-act="remove" class="danger">Delete</button></div>' : '');
@@ -3478,17 +3494,25 @@
   // the master list; "Cancel" discards and returns to the read-only view.
   const EQUIP_DETAIL_KEYS = [
     'equipType','brand','mountType','coolCap','modelCU','serialCU',
-    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation'
+    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation',
+    'nextPmDate'
   ];
+  // Labels for fields that aren't part of FIELD_META (service-report.js) —
+  // nextPmDate deliberately isn't in FIELD_META itself, since that list also
+  // drives the technician's report-filling form and the equipment-add
+  // autosuggest fields (see customers.js), neither of which this
+  // admin-only, PM-reminder-only field belongs on.
+  const EQUIP_DETAIL_EXTRA_LABELS = { nextPmDate: 'Next PM Date' };
   let equipDetailRecord = null; // the equipment row currently open in the overlay
   function equipDetailRowsHtml(record, editing){
     return EQUIP_DETAIL_KEYS.map(k=>{
-      const label = (FIELD_META[k] && FIELD_META[k].label) || k;
+      const label = EQUIP_DETAIL_EXTRA_LABELS[k] || (FIELD_META[k] && FIELD_META[k].label) || k;
+      const isDate = k === 'nextPmDate';
       const val = (record[k]||'').toString();
       return '<div class="equip-detail-row"><span class="equip-detail-label">'+escapeHtml(label)+'</span>'+
         (editing
-          ? '<input type="text" data-f="'+k+'" value="'+escapeHtml(val)+'" style="text-align:right; border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; flex:1; max-width:60%;">'
-          : '<span>'+(val.trim() ? escapeHtml(val) : '—')+'</span>')+
+          ? '<input type="'+(isDate?'date':'text')+'" data-f="'+k+'" value="'+escapeHtml(val)+'" style="text-align:right; border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; flex:1; max-width:60%;">'
+          : '<span>'+(val.trim() ? escapeHtml(isDate ? fmtDate(val) : val) : '—')+'</span>')+
       '</div>';
     }).join('');
   }
@@ -6733,12 +6757,6 @@
       EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
       const { error } = await db.from('customer_equipment').insert(rec);
       if(error) throw error;
-      // Reflect the new record in the cache immediately so a later dedupe
-      // check (e.g. the one that runs again at ticket-submit time) sees it
-      // as already-on-file instead of inserting it a second time.
-      if(customerId === dtCurrentCustomerId){
-        dtCurrentEquipmentCache.push(Object.assign({}, fields));
-      }
     }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
   }
 
@@ -11370,14 +11388,11 @@
 //    filter on that instead of cust_name. Left as cust_name matching here
 //    so this runs against your current schema without a migration.
 //
-// 3. "Status" (Running well / Needs attention / PM due) is not a stored
-//    field anywhere yet. computeEquipmentStatus() below is a placeholder
-//    heuristic: it looks at the equipment's most recent report and flags
-//    "Needs attention" if that report has any findings/recommendations
-//    text. Replace with a real stored status once technicians have a way
-//    to set one explicitly on the report (recommended — heuristics like
-//    this will misfire on reports where findings are informational, not
-//    actionable).
+// 3. "Status" — PM (preventive maintenance) due, overdue, on schedule, or
+//    none scheduled — is derived from customer_equipment.next_pm_date (see
+//    supabase/migrations/20260908_03_customer_equipment_next_pm_date.sql),
+//    an admin-set tentative date, not anything measured off the equipment
+//    itself. See computeEquipmentStatus() below.
 //
 // 4. Requires a `profiles` row with role='customer' and a `customer_id`
 //    column added to profiles, so a logged-in customer account can be
@@ -11409,7 +11424,8 @@
       cpEquipment = (data||[]).map(row => ({
         id: row.id, equipType: row.equip_type, equipLocation: row.equip_location,
         brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap,
-        modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu
+        modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
+        nextPmDate: row.next_pm_date || ''
       }));
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
@@ -11429,10 +11445,12 @@
       }catch(e){ console.error('load customer reports failed', describeCloudError(e)); }
     }
 
-    // Attach each equipment's full matching report history, for the status
-    // heuristic, "last serviced" date, and the equipment detail screen.
-    // Matching logic lives in matchReportHistoryForEquipment() (core.js) —
-    // shared with the admin equipment detail overlay's own history section.
+    // Attach each equipment's full matching report history, for the
+    // "Last serviced" date and the equipment detail screen (status itself
+    // is now computed from next_pm_date, not report history — see
+    // computeEquipmentStatus below). Matching logic lives in
+    // matchReportHistoryForEquipment() (core.js) — shared with the admin
+    // equipment detail overlay's own history section.
     cpEquipment.forEach(eq => {
       eq.reportHistory = matchReportHistoryForEquipment(cpReports, eq);
       eq.lastReport = eq.reportHistory[0] || null;
@@ -11440,12 +11458,29 @@
     });
   }
 
-  // Placeholder heuristic — see schema note #3 above.
+  // ---------- PM (preventive maintenance) due status ----------
+  // Admin sets a tentative next-PM date per unit (Manage Equipment List →
+  // tap a unit → Next PM Date, see admin.js/customers.js). The status pill
+  // below is derived entirely from that date — overdue, due soon, on
+  // schedule, or no date set. This replaces the old heuristic that guessed
+  // "Needs attention" from whatever text happened to land in the last
+  // report's remarks: nobody at AWES is actually monitoring these units
+  // remotely, so that implied a kind of live condition-monitoring that
+  // never existed. If a unit genuinely needs attention, the customer taps
+  // "Request Service" themselves rather than waiting for a pill to notice.
+  const PM_DUE_SOON_DAYS = 30;
+  function daysUntil(iso){
+    if(!iso) return null;
+    const target = new Date(iso+'T00:00:00');
+    const today = new Date(todayISO()+'T00:00:00');
+    return Math.round((target - today) / 86400000);
+  }
   function computeEquipmentStatus(eq){
-    if(!eq.lastReport) return { key:'ok', label:'Running well' };
-    if(!eq.lastReport.completed) return { key:'flag', label:'Service in progress' };
-    if((eq.lastReport.remarks||'').trim()) return { key:'flag', label:'Needs attention' };
-    return { key:'ok', label:'Running well' };
+    const days = daysUntil(eq.nextPmDate);
+    if(days === null) return { key:'none', label:'No PM Scheduled' };
+    if(days < 0) return { key:'overdue', label:'PM Overdue' };
+    if(days <= PM_DUE_SOON_DAYS) return { key:'due-soon', label:'PM Due Soon' };
+    return { key:'scheduled', label:'On Schedule' };
   }
 
   function cpStatusPillHtml(status){
@@ -11465,6 +11500,9 @@
     const loc = escapeHtml(eq.equipLocation || 'Equipment');
     const details = [eq.brand, eq.mountType, eq.equipType, eq.coolCap].filter(Boolean).map(escapeHtml).join(' · ') || '—';
     const lastDate = eq.lastReport ? fmtDate(eq.lastReport.date) : '—';
+    const pmLine = eq.status.key==='none' ? 'No PM scheduled'
+      : eq.status.key==='overdue' ? 'PM was due '+escapeHtml(fmtDate(eq.nextPmDate))
+      : 'Next PM: '+escapeHtml(fmtDate(eq.nextPmDate));
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
         '<div class="cp-equip-card-top">'+
@@ -11474,6 +11512,7 @@
         '<div class="cp-unit-name">'+loc+'</div>'+
         '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
+        '<div class="cp-unit-date">'+pmLine+'</div>'+
       '</div>'
     );
   }
@@ -11494,18 +11533,20 @@
   }
 
   function renderCustomerHome(){
-    const flaggedEquip = cpEquipment.filter(e => e.status.key === 'flag');
+    const pmDueEquip = cpEquipment.filter(e => e.status.key==='due-soon' || e.status.key==='overdue');
 
     // Stat strip
     $('cpStatUnits').textContent = String(cpEquipment.length);
-    $('cpStatFlagged').textContent = String(flaggedEquip.length);
+    $('cpStatFlagged').textContent = String(pmDueEquip.length);
     $('cpStatOpenReports').textContent = String(cpReports.filter(r => !r.completed).length);
 
-    // Alert banner — only shown when something needs attention
+    // Alert banner — only shown when a unit is due or overdue for
+    // preventive maintenance (see computeEquipmentStatus above).
     const alertEl = $('cpAlertBanner');
-    if(flaggedEquip.length){
-      const names = flaggedEquip.map(e => escapeHtml(e.equipType||'a unit')+' ('+escapeHtml(e.equipLocation||'—')+')').join(', ');
-      $('cpAlertText').innerHTML = names+' '+(flaggedEquip.length===1?'was':'were')+' flagged during the last service visit.';
+    if(pmDueEquip.length){
+      const names = pmDueEquip.map(e => escapeHtml(e.equipType||'a unit')+' ('+escapeHtml(e.equipLocation||'—')+')').join(', ');
+      const verb = pmDueEquip.length===1 ? 'is' : 'are';
+      $('cpAlertText').innerHTML = names+' '+verb+' due for preventive maintenance.';
       alertEl.style.display = '';
     } else {
       alertEl.style.display = 'none';
@@ -11513,7 +11554,7 @@
 
     // Sidebar badges — same pattern as your existing #sidebarMsgBadge on
     // the technician nav.
-    cpUpdateSidebarBadge('custEquipBadge', flaggedEquip.length);
+    cpUpdateSidebarBadge('custEquipBadge', pmDueEquip.length);
     cpUpdateSidebarBadge('custRequestsBadge', cpReports.filter(r => !r.completed).length);
 
     // Equipment grid
@@ -11651,6 +11692,13 @@
       ['Model (CU)', eq.modelCU], ['Serial (CU)', eq.serialCU],
       ['Model (FCU)', eq.modelFCU], ['Serial (FCU)', eq.serialFCU],
     ].filter(([,v]) => v);
+    // Next PM (preventive maintenance) date — admin-set, see
+    // computeEquipmentStatus() in customer-portal.js. Always shown (unlike
+    // the specs above, which drop blank fields) so a unit with nothing
+    // scheduled yet still says so rather than silently omitting the row.
+    specs.push(['Next PM', eq.nextPmDate
+      ? fmtDate(eq.nextPmDate) + (eq.status && eq.status.key==='overdue' ? ' (overdue)' : '')
+      : 'Not scheduled yet']);
     $('cpDetailSpecs').innerHTML = specs.map(([k,v]) =>
       '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
     ).join('');

@@ -70,7 +70,14 @@
     return {
       id: row.id, customerId: row.customer_id, equipType: row.equip_type, equipLocation: row.equip_location,
       brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap, modelCU: row.model_cu, serialCU: row.serial_cu,
-      modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type
+      modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type,
+      // Admin-set tentative next PM (preventive maintenance) date — drives
+      // the customer portal's PM-due status pill (see computeEquipmentStatus
+      // in customer-portal.js). Deliberately NOT in EQUIP_FIELD_KEYS below:
+      // that list is this equipment's identity (used for dedupe checks and
+      // matching reports to a unit), and a PM date isn't part of what makes
+      // two equipment records "the same unit".
+      nextPmDate: row.next_pm_date || ''
     };
   }
   async function loadCustomerEquipment(customerId){
@@ -139,6 +146,13 @@
     if(!(await ensureCloud())) return false;
     const rec = {};
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
+    // Next PM date — see the comment on equipRowToObj() above for why this
+    // stays out of EQUIP_FIELD_KEYS. undefined means the caller's form
+    // doesn't carry this field at all; empty string is a deliberate clear
+    // (the admin overlay blanking a previously-set date), so both are
+    // handled, just differently — undefined skips the column entirely,
+    // '' writes null.
+    if(fields.nextPmDate !== undefined) rec.next_pm_date = fields.nextPmDate || null;
     try{
       const { error } = await db.from('customer_equipment').update(rec).eq('id', id);
       if(error) throw error;

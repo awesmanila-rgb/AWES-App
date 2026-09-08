@@ -66,6 +66,13 @@
       ['Model (CU)', eq.modelCU], ['Serial (CU)', eq.serialCU],
       ['Model (FCU)', eq.modelFCU], ['Serial (FCU)', eq.serialFCU],
     ].filter(([,v]) => v);
+    // Next PM (preventive maintenance) date — admin-set, see
+    // computeEquipmentStatus() in customer-portal.js. Always shown (unlike
+    // the specs above, which drop blank fields) so a unit with nothing
+    // scheduled yet still says so rather than silently omitting the row.
+    specs.push(['Next PM', eq.nextPmDate
+      ? fmtDate(eq.nextPmDate) + (eq.status && eq.status.key==='overdue' ? ' (overdue)' : '')
+      : 'Not scheduled yet']);
     $('cpDetailSpecs').innerHTML = specs.map(([k,v]) =>
       '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
     ).join('');

@@ -1252,6 +1252,14 @@
    -rejected/-given/-cancelled — these two are portal-specific labels) */
 .status-ok{background:var(--green-light); color:var(--green-dark);}
 .status-flag{background:#FBEFE4; color:var(--amber);}
+/* Equipment PM (preventive maintenance) due status, on the customer
+   portal's equipment cards — see computeEquipmentStatus() in
+   customer-portal.js. Kept separate from status-ok/-flag above, which are
+   still used for report completion status (cpVisitCardHtml). */
+.status-none{background:#EEF1ED; color:var(--text-muted);}
+.status-scheduled{background:var(--green-light); color:var(--green-dark);}
+.status-due-soon{background:#FBEFE4; color:var(--amber);}
+.status-overdue{background:#F7E2DC; color:var(--danger);}
 
 .cp-stat-grid{
   display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px;

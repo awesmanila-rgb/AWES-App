@@ -18,14 +18,11 @@
 //    filter on that instead of cust_name. Left as cust_name matching here
 //    so this runs against your current schema without a migration.
 //
-// 3. "Status" (Running well / Needs attention / PM due) is not a stored
-//    field anywhere yet. computeEquipmentStatus() below is a placeholder
-//    heuristic: it looks at the equipment's most recent report and flags
-//    "Needs attention" if that report has any findings/recommendations
-//    text. Replace with a real stored status once technicians have a way
-//    to set one explicitly on the report (recommended — heuristics like
-//    this will misfire on reports where findings are informational, not
-//    actionable).
+// 3. "Status" — PM (preventive maintenance) due, overdue, on schedule, or
+//    none scheduled — is derived from customer_equipment.next_pm_date (see
+//    supabase/migrations/20260908_03_customer_equipment_next_pm_date.sql),
+//    an admin-set tentative date, not anything measured off the equipment
+//    itself. See computeEquipmentStatus() below.
 //
 // 4. Requires a `profiles` row with role='customer' and a `customer_id`
 //    column added to profiles, so a logged-in customer account can be
@@ -57,7 +54,8 @@
       cpEquipment = (data||[]).map(row => ({
         id: row.id, equipType: row.equip_type, equipLocation: row.equip_location,
         brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap,
-        modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu
+        modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
+        nextPmDate: row.next_pm_date || ''
       }));
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
@@ -77,10 +75,12 @@
       }catch(e){ console.error('load customer reports failed', describeCloudError(e)); }
     }
 
-    // Attach each equipment's full matching report history, for the status
-    // heuristic, "last serviced" date, and the equipment detail screen.
-    // Matching logic lives in matchReportHistoryForEquipment() (core.js) —
-    // shared with the admin equipment detail overlay's own history section.
+    // Attach each equipment's full matching report history, for the
+    // "Last serviced" date and the equipment detail screen (status itself
+    // is now computed from next_pm_date, not report history — see
+    // computeEquipmentStatus below). Matching logic lives in
+    // matchReportHistoryForEquipment() (core.js) — shared with the admin
+    // equipment detail overlay's own history section.
     cpEquipment.forEach(eq => {
       eq.reportHistory = matchReportHistoryForEquipment(cpReports, eq);
       eq.lastReport = eq.reportHistory[0] || null;
@@ -88,12 +88,29 @@
     });
   }
 
-  // Placeholder heuristic — see schema note #3 above.
+  // ---------- PM (preventive maintenance) due status ----------
+  // Admin sets a tentative next-PM date per unit (Manage Equipment List →
+  // tap a unit → Next PM Date, see admin.js/customers.js). The status pill
+  // below is derived entirely from that date — overdue, due soon, on
+  // schedule, or no date set. This replaces the old heuristic that guessed
+  // "Needs attention" from whatever text happened to land in the last
+  // report's remarks: nobody at AWES is actually monitoring these units
+  // remotely, so that implied a kind of live condition-monitoring that
+  // never existed. If a unit genuinely needs attention, the customer taps
+  // "Request Service" themselves rather than waiting for a pill to notice.
+  const PM_DUE_SOON_DAYS = 30;
+  function daysUntil(iso){
+    if(!iso) return null;
+    const target = new Date(iso+'T00:00:00');
+    const today = new Date(todayISO()+'T00:00:00');
+    return Math.round((target - today) / 86400000);
+  }
   function computeEquipmentStatus(eq){
-    if(!eq.lastReport) return { key:'ok', label:'Running well' };
-    if(!eq.lastReport.completed) return { key:'flag', label:'Service in progress' };
-    if((eq.lastReport.remarks||'').trim()) return { key:'flag', label:'Needs attention' };
-    return { key:'ok', label:'Running well' };
+    const days = daysUntil(eq.nextPmDate);
+    if(days === null) return { key:'none', label:'No PM Scheduled' };
+    if(days < 0) return { key:'overdue', label:'PM Overdue' };
+    if(days <= PM_DUE_SOON_DAYS) return { key:'due-soon', label:'PM Due Soon' };
+    return { key:'scheduled', label:'On Schedule' };
   }
 
   function cpStatusPillHtml(status){
@@ -113,6 +130,9 @@
     const loc = escapeHtml(eq.equipLocation || 'Equipment');
     const details = [eq.brand, eq.mountType, eq.equipType, eq.coolCap].filter(Boolean).map(escapeHtml).join(' · ') || '—';
     const lastDate = eq.lastReport ? fmtDate(eq.lastReport.date) : '—';
+    const pmLine = eq.status.key==='none' ? 'No PM scheduled'
+      : eq.status.key==='overdue' ? 'PM was due '+escapeHtml(fmtDate(eq.nextPmDate))
+      : 'Next PM: '+escapeHtml(fmtDate(eq.nextPmDate));
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
         '<div class="cp-equip-card-top">'+
@@ -122,6 +142,7 @@
         '<div class="cp-unit-name">'+loc+'</div>'+
         '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
+        '<div class="cp-unit-date">'+pmLine+'</div>'+
       '</div>'
     );
   }
@@ -142,18 +163,20 @@
   }
 
   function renderCustomerHome(){
-    const flaggedEquip = cpEquipment.filter(e => e.status.key === 'flag');
+    const pmDueEquip = cpEquipment.filter(e => e.status.key==='due-soon' || e.status.key==='overdue');
 
     // Stat strip
     $('cpStatUnits').textContent = String(cpEquipment.length);
-    $('cpStatFlagged').textContent = String(flaggedEquip.length);
+    $('cpStatFlagged').textContent = String(pmDueEquip.length);
     $('cpStatOpenReports').textContent = String(cpReports.filter(r => !r.completed).length);
 
-    // Alert banner — only shown when something needs attention
+    // Alert banner — only shown when a unit is due or overdue for
+    // preventive maintenance (see computeEquipmentStatus above).
     const alertEl = $('cpAlertBanner');
-    if(flaggedEquip.length){
-      const names = flaggedEquip.map(e => escapeHtml(e.equipType||'a unit')+' ('+escapeHtml(e.equipLocation||'—')+')').join(', ');
-      $('cpAlertText').innerHTML = names+' '+(flaggedEquip.length===1?'was':'were')+' flagged during the last service visit.';
+    if(pmDueEquip.length){
+      const names = pmDueEquip.map(e => escapeHtml(e.equipType||'a unit')+' ('+escapeHtml(e.equipLocation||'—')+')').join(', ');
+      const verb = pmDueEquip.length===1 ? 'is' : 'are';
+      $('cpAlertText').innerHTML = names+' '+verb+' due for preventive maintenance.';
       alertEl.style.display = '';
     } else {
       alertEl.style.display = 'none';
@@ -161,7 +184,7 @@
 
     // Sidebar badges — same pattern as your existing #sidebarMsgBadge on
     // the technician nav.
-    cpUpdateSidebarBadge('custEquipBadge', flaggedEquip.length);
+    cpUpdateSidebarBadge('custEquipBadge', pmDueEquip.length);
     cpUpdateSidebarBadge('custRequestsBadge', cpReports.filter(r => !r.completed).length);
 
     // Equipment grid

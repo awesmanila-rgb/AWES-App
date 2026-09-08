@@ -581,11 +581,13 @@
       // via the existing u-name style) so it's what stands out per row.
       const rest = [e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
+      const pmLine = e.nextPmDate ? 'Next PM: '+fmtDate(e.nextPmDate) : 'No PM scheduled';
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
+          '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
         '</div></div>'+
         (equipListTab==='delete' ?
           '<div class="user-card-actions"><button data-act="remove" class="danger">Delete</button></div>' : '');
@@ -610,17 +612,25 @@
   // the master list; "Cancel" discards and returns to the read-only view.
   const EQUIP_DETAIL_KEYS = [
     'equipType','brand','mountType','coolCap','modelCU','serialCU',
-    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation'
+    'modelFCU','serialFCU','refrigerantType','compressorType','equipLocation',
+    'nextPmDate'
   ];
+  // Labels for fields that aren't part of FIELD_META (service-report.js) —
+  // nextPmDate deliberately isn't in FIELD_META itself, since that list also
+  // drives the technician's report-filling form and the equipment-add
+  // autosuggest fields (see customers.js), neither of which this
+  // admin-only, PM-reminder-only field belongs on.
+  const EQUIP_DETAIL_EXTRA_LABELS = { nextPmDate: 'Next PM Date' };
   let equipDetailRecord = null; // the equipment row currently open in the overlay
   function equipDetailRowsHtml(record, editing){
     return EQUIP_DETAIL_KEYS.map(k=>{
-      const label = (FIELD_META[k] && FIELD_META[k].label) || k;
+      const label = EQUIP_DETAIL_EXTRA_LABELS[k] || (FIELD_META[k] && FIELD_META[k].label) || k;
+      const isDate = k === 'nextPmDate';
       const val = (record[k]||'').toString();
       return '<div class="equip-detail-row"><span class="equip-detail-label">'+escapeHtml(label)+'</span>'+
         (editing
-          ? '<input type="text" data-f="'+k+'" value="'+escapeHtml(val)+'" style="text-align:right; border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; flex:1; max-width:60%;">'
-          : '<span>'+(val.trim() ? escapeHtml(val) : '—')+'</span>')+
+          ? '<input type="'+(isDate?'date':'text')+'" data-f="'+k+'" value="'+escapeHtml(val)+'" style="text-align:right; border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; flex:1; max-width:60%;">'
+          : '<span>'+(val.trim() ? escapeHtml(isDate ? fmtDate(val) : val) : '—')+'</span>')+
       '</div>';
     }).join('');
   }
