@@ -974,6 +974,17 @@
   }
   .jo-open-btn:active{ background:#EEF1ED; }
   @media (max-width:480px){ .jo-open-btn{ padding:6px 9px; font-size:11px; } }
+  /* Phone-width fix: at this width the job order number/customer name (left
+     side) and the Open Job Order button + status pill (right side) used to
+     fight for space on one row, forcing the title into a cramped column and
+     wrapping it across many lines. Below 480px, stack the header instead —
+     title gets the full row to itself on top, and the button/pill/caret
+     move to their own full-width row underneath. Desktop/tablet layout
+     (side-by-side) is untouched. */
+  @media (max-width:480px){
+    .jo-card-toggle{ flex-direction:column; align-items:stretch; gap:8px; }
+    .jo-card-toggle .jo-card-head-actions{ width:100%; }
+  }
 
   /* "Back to Service Report" banner — see #dtBackToSrBanner in index.html */
   .dt-back-to-sr-banner{
