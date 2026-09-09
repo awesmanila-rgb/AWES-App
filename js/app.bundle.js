@@ -2200,6 +2200,30 @@
   };
   let currentCustomerId = null;      // which customer's equipment is currently loaded
   let currentEquipmentCache = [];    // that customer's equipment rows
+  // Which existing customer_equipment row (if any) the technician explicitly
+  // picked via the "Select Existing" tab, for the report currently being
+  // filled out. This — an explicit choice, tracked as a real id — is now
+  // the ONLY thing that decides whether saving a report reuses an existing
+  // row instead of creating a new one. It is NOT re-derived by comparing
+  // field values: "+Add New" means new, full stop, and picking "Existing"
+  // then editing a field afterward (see the input listeners wired up by
+  // watchEquipFieldsForManualEdit(), below) breaks the link on purpose —
+  // once you've changed something, it's no longer verified as that exact
+  // record, so it gets its own new row rather than silently overwriting
+  // the one you started from (use Manage Equipment > Edit for corrections).
+  let equipPickedId = null;
+  function getEquipPickedId(){ return equipPickedId; }
+  function setEquipPickedId(id){ equipPickedId = id || null; }
+  function clearEquipPickedId(){ equipPickedId = null; }
+  // Wires an 'input' listener onto every equipment field, once, so that
+  // manually typing into any of them after picking an existing record
+  // clears equipPickedId — see the comment above.
+  let equipFieldClearersAttached = false;
+  function watchEquipFieldsForManualEdit(){
+    if(equipFieldClearersAttached) return;
+    equipFieldClearersAttached = true;
+    EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.addEventListener('input', clearEquipPickedId); });
+  }
   function equipRowToObj(row){
     return {
       id: row.id, customerId: row.customer_id, equipType: row.equip_type, equipLocation: row.equip_location,
@@ -2207,22 +2231,17 @@
       modelFCU: row.model_fcu, serialFCU: row.serial_fcu, refrigerantType: row.refrigerant_type, compressorType: row.compressor_type,
       // Admin-set tentative next PM (preventive maintenance) date — drives
       // the customer portal's PM-due status pill (see computeEquipmentStatus
-      // in customer-portal.js). Deliberately NOT in EQUIP_FIELD_KEYS below:
-      // that list is this equipment's identity (used for dedupe checks and
-      // matching reports to a unit), and a PM date isn't part of what makes
-      // two equipment records "the same unit".
+      // in customer-portal.js). Not part of a unit's identity.
       nextPmDate: row.next_pm_date || '',
       // Admin-set customer-facing display name (see
       // 20260909_02_customer_equipment_label.sql) — shown in place of the
-      // raw id by equipDisplayName() (core.js). Same reasoning as
-      // nextPmDate for staying out of EQUIP_FIELD_KEYS: a label is a
-      // display choice, not part of what identifies "the same unit" for
-      // dedupe/matching purposes.
+      // raw id by equipDisplayName() (core.js). Also not part of identity.
       label: row.label || ''
     };
   }
   async function loadCustomerEquipment(customerId){
     currentCustomerId = customerId;
+    watchEquipFieldsForManualEdit();
     if(!customerId){ currentEquipmentCache = []; return; }
     if(await ensureCloud()){
       try{
@@ -2237,21 +2256,19 @@
       currentEquipmentCache = res ? JSON.parse(res.value) : [];
     }catch(e){ currentEquipmentCache = []; }
   }
-  // Called on report save — if this customer + equipment combo hasn't been
-  // seen before, record it so it shows up in future dropdowns for this site.
-  // Returns the resolved customer_equipment.id (the existing dupe's id, or
-  // the newly-inserted row's id) so the caller can stamp it onto the report
-  // as service_reports.equipment_id — a stable link that survives later
-  // edits to the equipment record's own fields (serial, location, etc.),
-  // unlike matching by those fields' current values. Returns null if there
-  // was nothing to resolve (no customerId, no fields) or the write failed.
+  // Called on report save when the technician didn't pick an existing
+  // record (see getEquipPickedId()/EquipPickedId above) — so, by
+  // definition, this is equipment that isn't in the database yet. Always
+  // creates a new row and returns its id; there is no content-based
+  // matching here at all, on purpose: identity is decided once, up front,
+  // by which tab the technician used ("Select Existing" carries the real
+  // id straight through via equipPickedId; "+Add New" means new), never
+  // re-guessed afterward by comparing fields. Returns null if there was
+  // nothing to add (no customerId, no fields) or the write failed.
   async function cloudAddCustomerEquipment(customerId, fields){
     if(!customerId) return null;
     const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
     if(!hasAnyValue) return null;
-    // Skip if an identical record already exists for this customer.
-    const dupe = currentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
-    if(dupe) return dupe.id;
     const rec = { customer_id: customerId };
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
     if(await ensureCloud()){
@@ -2323,24 +2340,16 @@
     return true;
   }
   // Adding a record from the admin "Manage Equipment List → Add" tab, for
-  // whichever customer the admin picks — deliberately independent of
-  // currentCustomerId / currentEquipmentCache (same reasoning as the
-  // dedicated dt* equipment state kept for the Dispatch Ticket picker):
-  // this runs the dupe-check against a fresh fetch for the target customer
-  // instead of the shared cache, so it can never clobber whatever customer's
-  // equipment is loaded behind this admin sheet in Manage Customers or an
-  // open report. Requires a live cloud connection.
+  // whichever customer the admin picks. This screen has no "select
+  // existing" alternative — it's an explicit Add action, full stop — so,
+  // same reasoning as cloudAddCustomerEquipment above, it always creates a
+  // new row with no content-based matching. Requires a live cloud connection.
   async function cloudAddCustomerEquipmentAdmin(customerId, fields){
     if(!customerId) return false;
     const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
     if(!hasAnyValue) return false;
     if(!(await ensureCloud())) return false;
     try{
-      const { data, error } = await db.from('customer_equipment').select('*').eq('customer_id', customerId);
-      if(error) throw error;
-      const existing = (data||[]).map(equipRowToObj);
-      const dupe = existing.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'').trim()));
-      if(dupe) return 'dupe';
       const rec = { customer_id: customerId };
       EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
       const { error: insErr } = await db.from('customer_equipment').insert(rec);
@@ -2417,6 +2426,11 @@
       row.textContent = equipSummaryLine(e);
       row.addEventListener('click', ()=>{
         EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = e[k]||''; });
+        // Fields are filled from the SAME record this id points to, so
+        // stamp the real id now — that's what tells saveReport() (ui.js)
+        // to reuse this row instead of creating a new one. Any manual edit
+        // to a field after this clears it again (watchEquipFieldsForManualEdit).
+        setEquipPickedId(e.id);
         setEquipTab('addnew');
         toast('Loaded equipment: '+equipSummaryLine(e));
       });
@@ -2469,9 +2483,11 @@
     $('contactPerson').value = c.contactPerson||'';
     $('custEmail').value = c.email||'';
     // Switching customers means switching equipment context — clear the old
-    // customer's equipment values so nothing from a different site lingers,
-    // then load this customer's own equipment list for the picker.
+    // customer's equipment values (and any picked-existing id, which
+    // belongs to the previous customer's row) so nothing from a different
+    // site lingers, then load this customer's own equipment list for the picker.
     EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
+    clearEquipPickedId();
     loadCustomerEquipment(c.id).then(defaultEquipTabForCustomer);
     revealSectionsAfterCustomer();
   }
@@ -2813,6 +2829,7 @@
         // with data they want kept, so clearing has to be scoped to this
         // literal button tap only.)
         EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value=''; });
+        clearEquipPickedId();
         setEquipTab('addnew');
       });
       setEquipTab(null);
@@ -3391,15 +3408,26 @@
       body.appendChild(card);
     });
   }
-  // A report is treated as belonging to a piece of equipment when it was
-  // filed under the same customer name and every equipment field on the
-  // report matches that equipment record exactly — the same identity check
-  // cloudAddCustomerEquipment() uses to avoid creating duplicate equipment
-  // records in the first place, so "same equipment" means the same thing in
-  // both places.
-  function reportMatchesEquipment(report, custName, equip){
-    if((report.custName||'').trim().toLowerCase() !== (custName||'').trim().toLowerCase()) return false;
-    return EQUIP_FIELD_KEYS.every(k=> (report[k]||'') === (equip[k]||''));
+  // A report is treated as belonging to a piece of equipment when its
+  // equipment_id — stamped once, at whichever point it was added (see
+  // cloudAddCustomerEquipment()/dtAddCustomerEquipmentBatch()) and carried
+  // through by saveReport() (ui.js) — matches this record's own fixed id.
+  // Previously this matched on customer name plus every EQUIP_FIELD_KEYS
+  // field being exactly equal, which had drifted out of step with the rest
+  // of the app: cloudAddCustomerEquipment() no longer does any such
+  // content-based identity check (identity is decided once, by which
+  // action added the row — see its own comment), so a report and an
+  // equipment record could legitimately be the same unit with different
+  // field text (e.g. after an admin edits the record via Manage Equipment
+  // List → Edit) and still fail to match, or — the more dangerous
+  // direction — two genuinely different units that happen to share every
+  // field could be wrongly shown as one. Matching on the fixed id avoids
+  // both. Reports filed before equipment_id existed have no id to match
+  // and won't appear here; that legacy gap already has a shared fallback
+  // in matchReportHistoryForEquipment() (core.js), used by Manage
+  // Equipment List and the customer portal.
+  function reportMatchesEquipment(report, equip){
+    return !!(equip && equip.id && report && report.equipmentId === equip.id);
   }
   async function custHistShowServiceHistory(c, equip){
     custHistEquipment = equip;
@@ -3425,7 +3453,7 @@
         }
       }catch(e){}
     }
-    const matches = reports.filter(r=> r.completed && reportMatchesEquipment(r, c.name, equip))
+    const matches = reports.filter(r=> r.completed && reportMatchesEquipment(r, equip))
       .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
     body.innerHTML = '';
     if(matches.length===0){
@@ -3810,7 +3838,6 @@
     $('eqAddSaveBtn').disabled = true;
     const result = await cloudAddCustomerEquipmentAdmin(customerId, fields);
     $('eqAddSaveBtn').disabled = false;
-    if(result==='dupe'){ toast('That equipment is already on file for this customer'); return; }
     if(!result){ toast('Could not add — check your connection'); return; }
     toast('Equipment added');
     EQUIP_FIELD_KEYS.forEach(k=>{
@@ -4343,6 +4370,7 @@
     $('materialsBody').innerHTML=''; materialRowCount=0;
     $('isInstallToggle').checked=false; $('installSection').classList.remove('open');
     loadCustomerEquipment(null);
+    clearEquipPickedId();
     setEquipTab(null);
     $('custDetailsWrap').style.display = 'none';
     // Technicians must pick an authorized Job Order before Customer's Info
@@ -4512,17 +4540,16 @@
   // foreground, and by the periodic safety-net timer in core.js. "Sync now"
   // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
-    // Resolve (or create) this customer's equipment record FIRST, so its id
-    // can be stamped onto the report as equipment_id below — a stable link
-    // that survives later edits to the equipment record's own serial/
-    // location/etc. fields. Matching by field-value equality (serial number,
-    // or location+type when no serial is on file) is fragile: editing a
-    // typo'd serial, or adding one for the first time to a unit that had
-    // none, silently orphans every report saved before that point (see
-    // matchReportHistoryForEquipment in core.js). equipment_id fixes that
-    // for every report saved going forward.
+    // Which customer_equipment row this report is for is decided by an
+    // explicit earlier choice, not guessed here: getEquipPickedId() (set
+    // by renderEquipPicker()'s click handler, or by openReport() when
+    // resuming a draft/batch item that already has one) is the real id if
+    // the technician picked an existing record and hasn't edited a field
+    // since. Otherwise this is content the technician typed via "+ Add
+    // New" — genuinely new, so cloudAddCustomerEquipment() just creates a
+    // fresh row, no matching against what's already on file.
     const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
-    if(matchedCustomer) data.equipmentId = await cloudAddCustomerEquipment(matchedCustomer.id, data);
+    if(matchedCustomer) data.equipmentId = getEquipPickedId() || await cloudAddCustomerEquipment(matchedCustomer.id, data);
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
     // Keep only the downscaled signatures on disk: the full-resolution raw
@@ -4958,6 +4985,11 @@
       const data = Object.assign({}, baseData, { srNo, completed:true });
       EQUIP_FIELD_KEYS.forEach(k=> data[k] = item[k] || '');
       if(item.scope && item.scope.length) data.troubleCall = item.scope.join('; ');
+      // Same reuse-by-real-id as the single-report path (srApplyJobOrder) —
+      // each item's own equipmentId (stamped on at ticket-creation time),
+      // not a fresh content comparison, decides whether saveReport() below
+      // reuses that row or creates a new one.
+      setEquipPickedId(item.equipmentId || null);
       const saveResult = await saveReport(srNo, data);
       if(saveResult===SAVE_FAILED){ failedCount++; continue; }
       savedCount++;
@@ -5195,6 +5227,12 @@
     $('coolCap').value=d.coolCap||''; $('mountType').value=d.mountType||'';
     $('brand').value=d.brand||''; $('refrigerantType').value=d.refrigerantType||'';
     $('compressorType').value=d.compressorType||''; $('equipLocation').value=d.equipLocation||'';
+    // This report already has a resolved customer_equipment row (it was
+    // set the first time this was saved) — restore it so re-saving without
+    // touching the equipment fields reuses that same row instead of
+    // creating a new one. Editing any field here still clears it, same as
+    // any other pick (watchEquipFieldsForManualEdit).
+    setEquipPickedId(d.equipmentId || null);
     $('troubleCall').value=d.troubleCall||'';
     $('findingsList').innerHTML=''; (d.findings&&d.findings.length?d.findings:['']).forEach(f=>addListRow('findingsList',f));
     $('recsList').innerHTML=''; (d.recs&&d.recs.length?d.recs:['']).forEach(r=>addListRow('recsList',r));
@@ -6561,6 +6599,13 @@
     if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
     if(equipItem){
       EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = equipItem[k]||''; });
+      // equipItem.equipmentId is the real customer_equipment.id, stamped
+      // onto the ticket's equipmentList item at ticket-creation time (see
+      // dtAddCustomerEquipmentBatch in dispatch.js) — reuse it directly so
+      // filing this report doesn't create a second row for the same unit.
+      // Tickets created before this fix won't carry one; falls through to
+      // treating it as new, same as any other "+ Add New" content.
+      setEquipPickedId(equipItem.equipmentId || null);
       setEquipTab('addnew'); // last, so nothing queued above can re-hide these fields
       if(equipItem.scope && equipItem.scope.length) $('troubleCall').value = equipItem.scope.join('; ');
     }
@@ -6781,13 +6826,16 @@
     else dtAddSimpleRow(scopeId);
     dtEquipCountLabel();
   }
-  function dtAddEquipItemFromFields(){
+  async function dtAddEquipItemFromFields(){
     const fields = dtCollectEquipmentFields();
     if(!EQUIP_FIELD_KEYS.some(k=>fields[k])){ toast('Enter at least one equipment detail'); return; }
     const item = Object.assign({id: dtGenEquipId()}, fields);
     dtDraftEquipItems.push(item);
     dtAppendEquipItemCard(item);
-    if(dtCurrentCustomerId) dtAddCustomerEquipmentIfNew(dtCurrentCustomerId, fields);
+    // Genuinely new content (this is the "+ Add New" path) — insert it now
+    // and stamp the real id straight onto this same item object (mutated
+    // in place, since it's already the one sitting in dtDraftEquipItems).
+    if(dtCurrentCustomerId) await dtAddCustomerEquipmentBatch(dtCurrentCustomerId, [item]);
     dtResetEquipmentFields();
     toast('Equipment added to ticket');
   }
@@ -6797,7 +6845,11 @@
     checked.forEach(cb=>{
       const e = dtCurrentEquipmentCache.find(x=> x.id===cb.value);
       if(!e) return;
-      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      // Carries the real customer_equipment.id straight through as
+      // equipmentId — this is an explicit "it's already on file" pick, so
+      // dtAddCustomerEquipmentBatch() will skip it entirely rather than
+      // re-deriving (or re-verifying) sameness from its fields.
+      const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
       dtDraftEquipItems.push(item);
       dtAppendEquipItemCard(item);
     });
@@ -6810,7 +6862,7 @@
     dtCurrentEquipmentCache.forEach(e=>{
       const key = dtEquipKey(e);
       if(addedKeys.has(key)) return;
-      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
       dtDraftEquipItems.push(item);
       dtAppendEquipItemCard(item);
       addedKeys.add(key);
@@ -6850,27 +6902,40 @@
   function dtResetEquipmentFields(){
     EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); if(el) el.value=''; });
   }
-  // Records new equipment against the customer, deduping against THIS
-  // dedicated cache (not the shared one Service Report uses).
-  async function dtAddCustomerEquipmentIfNew(customerId, fields){
-    if(!customerId) return;
-    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
-    if(!hasAnyValue) return;
-    const dupe = dtCurrentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
-    if(dupe) return;
+  // Ensures every item in a batch (a dispatch ticket's equipmentList, or a
+  // single item just added via "+ Add New") has a real customer_equipment.id
+  // attached as item.equipmentId — mutating each item object in place.
+  // Fixed 2026-09, twice over:
+  // 1) This used to be dtAddCustomerEquipmentIfNew(), called once per item
+  //    via equipmentList.forEach(item=> dtAddCustomerEquipmentIfNew(custId,
+  //    item)) — forEach doesn't await its (async) callback, so every call
+  //    for a multi-item ticket ran concurrently against the same stale
+  //    snapshot of dtCurrentEquipmentCache.
+  // 2) The fix for that still decided "is this new?" by comparing field
+  //    values against what's already on file — which is the wrong
+  //    question. Whether an item needs a new row is decided once, up
+  //    front, by which action added it: dtAddSelectedExistingEquip() /
+  //    dtAddAllExistingEquip() stamp the real id straight from the picked
+  //    record (item.equipmentId already set, nothing to do here); only
+  //    "+ Add New" items reach this function without one, and those are
+  //    unconditionally new — inserted with no comparison against existing
+  //    rows at all, exactly like cloudAddCustomerEquipment() (customers.js).
+  async function dtAddCustomerEquipmentBatch(customerId, items){
+    const toInsert = items.filter(it=> !it.equipmentId);
+    if(!customerId || toInsert.length===0) return;
     if(!(await ensureCloud())) return;
-    try{
+    for(const item of toInsert){
+      const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (item[k]||'').trim());
+      if(!hasAnyValue) continue;
       const rec = { customer_id: customerId };
-      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
-      const { error } = await db.from('customer_equipment').insert(rec);
-      if(error) throw error;
-      // Reflect the new record in the cache immediately so a later dedupe
-      // check (e.g. the one that runs again at ticket-submit time) sees it
-      // as already-on-file instead of inserting it a second time.
-      if(customerId === dtCurrentCustomerId){
-        dtCurrentEquipmentCache.push(Object.assign({}, fields));
-      }
-    }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
+      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = item[k]||'');
+      try{
+        const { data: inserted, error } = await db.from('customer_equipment').insert(rec).select('id').single();
+        if(error) throw error;
+        item.equipmentId = inserted.id;
+        if(customerId === dtCurrentCustomerId) dtCurrentEquipmentCache.push(equipRowToObj(Object.assign({}, rec, { id: inserted.id })));
+      }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
+    }
   }
 
   function dtSetupCustomerCombo(){
@@ -7030,6 +7095,14 @@
       const scope = dtCollectSimpleList('dtEquipScope-'+item.id);
       return Object.assign({}, item, { scope, reportSrNo: null });
     });
+    // Catch-all: every item should already carry equipmentId by now (set
+    // the moment it was added — see dtAddEquipItemFromFields/
+    // dtAddSelectedExistingEquip/dtAddAllExistingEquip above), but this is
+    // a no-op for anything that does and a last chance for anything that
+    // doesn't (e.g. the earlier insert failed offline and connectivity has
+    // since come back) — done BEFORE the ticket saves, so equipmentList
+    // is stored with every real id already attached.
+    if(custId) await dtAddCustomerEquipmentBatch(custId, equipmentList);
     const data = {
       id, jobOrderNo: id, status: 'open',
       date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
@@ -7051,7 +7124,6 @@
     const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
     if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
-    if(custId) equipmentList.forEach(item=> dtAddCustomerEquipmentIfNew(custId, item));
     toast(res===SAVE_CLOUD
       ? ('Dispatch ticket '+id+' created')
       : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));

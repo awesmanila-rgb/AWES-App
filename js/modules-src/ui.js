@@ -30,6 +30,7 @@
     $('materialsBody').innerHTML=''; materialRowCount=0;
     $('isInstallToggle').checked=false; $('installSection').classList.remove('open');
     loadCustomerEquipment(null);
+    clearEquipPickedId();
     setEquipTab(null);
     $('custDetailsWrap').style.display = 'none';
     // Technicians must pick an authorized Job Order before Customer's Info
@@ -199,17 +200,16 @@
   // foreground, and by the periodic safety-net timer in core.js. "Sync now"
   // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
-    // Resolve (or create) this customer's equipment record FIRST, so its id
-    // can be stamped onto the report as equipment_id below — a stable link
-    // that survives later edits to the equipment record's own serial/
-    // location/etc. fields. Matching by field-value equality (serial number,
-    // or location+type when no serial is on file) is fragile: editing a
-    // typo'd serial, or adding one for the first time to a unit that had
-    // none, silently orphans every report saved before that point (see
-    // matchReportHistoryForEquipment in core.js). equipment_id fixes that
-    // for every report saved going forward.
+    // Which customer_equipment row this report is for is decided by an
+    // explicit earlier choice, not guessed here: getEquipPickedId() (set
+    // by renderEquipPicker()'s click handler, or by openReport() when
+    // resuming a draft/batch item that already has one) is the real id if
+    // the technician picked an existing record and hasn't edited a field
+    // since. Otherwise this is content the technician typed via "+ Add
+    // New" — genuinely new, so cloudAddCustomerEquipment() just creates a
+    // fresh row, no matching against what's already on file.
     const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
-    if(matchedCustomer) data.equipmentId = await cloudAddCustomerEquipment(matchedCustomer.id, data);
+    if(matchedCustomer) data.equipmentId = getEquipPickedId() || await cloudAddCustomerEquipment(matchedCustomer.id, data);
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
     // Keep only the downscaled signatures on disk: the full-resolution raw

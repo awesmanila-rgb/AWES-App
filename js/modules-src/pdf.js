@@ -385,6 +385,11 @@
       const data = Object.assign({}, baseData, { srNo, completed:true });
       EQUIP_FIELD_KEYS.forEach(k=> data[k] = item[k] || '');
       if(item.scope && item.scope.length) data.troubleCall = item.scope.join('; ');
+      // Same reuse-by-real-id as the single-report path (srApplyJobOrder) —
+      // each item's own equipmentId (stamped on at ticket-creation time),
+      // not a fresh content comparison, decides whether saveReport() below
+      // reuses that row or creates a new one.
+      setEquipPickedId(item.equipmentId || null);
       const saveResult = await saveReport(srNo, data);
       if(saveResult===SAVE_FAILED){ failedCount++; continue; }
       savedCount++;

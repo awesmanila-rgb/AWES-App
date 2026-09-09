@@ -1,11 +1,12 @@
-// Bumped to v33 to force every installed device to drop its old cache and
-// re-fetch fresh assets — the Today's Job Order card on the technician home
-// greeting wasn't actually clickable (no handler wired up) and read too
-// small/flat to feel "emphasized". Job order number, customer name, and
-// time are now larger and bolder, the card has a visible border/hover state,
-// and tapping/clicking (or Enter/Space when focused) now opens that ticket
-// in the same detail overlay "Open Job Order" uses elsewhere.
-const CACHE_NAME = 'awes-sr-v33';
+// Bumped to v35 to force every installed device to drop its old cache and
+// re-fetch app.bundle.js again — v34's fix stopped duplicate rows via
+// content-comparison, but that comparison itself could reject (or merge)
+// two genuinely different units that happen to share every recorded field.
+// Equipment identity is now decided once, explicitly, by which action
+// added it (picked from "Select Existing", or freshly typed via "+ Add
+// New") and carried forward as a real id from that point on — see
+// equipPickedId in app.bundle.js — never re-guessed from field content.
+const CACHE_NAME = 'awes-sr-v35';
 
 // Split into two lists on purpose.
 //

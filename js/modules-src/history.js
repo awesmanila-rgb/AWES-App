@@ -142,6 +142,12 @@
     $('coolCap').value=d.coolCap||''; $('mountType').value=d.mountType||'';
     $('brand').value=d.brand||''; $('refrigerantType').value=d.refrigerantType||'';
     $('compressorType').value=d.compressorType||''; $('equipLocation').value=d.equipLocation||'';
+    // This report already has a resolved customer_equipment row (it was
+    // set the first time this was saved) — restore it so re-saving without
+    // touching the equipment fields reuses that same row instead of
+    // creating a new one. Editing any field here still clears it, same as
+    // any other pick (watchEquipFieldsForManualEdit).
+    setEquipPickedId(d.equipmentId || null);
     $('troubleCall').value=d.troubleCall||'';
     $('findingsList').innerHTML=''; (d.findings&&d.findings.length?d.findings:['']).forEach(f=>addListRow('findingsList',f));
     $('recsList').innerHTML=''; (d.recs&&d.recs.length?d.recs:['']).forEach(r=>addListRow('recsList',r));

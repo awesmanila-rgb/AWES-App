@@ -346,6 +346,13 @@
     if(ticket.contactNo) $('contactNo').value = ticket.contactNo;
     if(equipItem){
       EQUIP_FIELD_KEYS.forEach(k=>{ const el=$(k); if(el) el.value = equipItem[k]||''; });
+      // equipItem.equipmentId is the real customer_equipment.id, stamped
+      // onto the ticket's equipmentList item at ticket-creation time (see
+      // dtAddCustomerEquipmentBatch in dispatch.js) — reuse it directly so
+      // filing this report doesn't create a second row for the same unit.
+      // Tickets created before this fix won't carry one; falls through to
+      // treating it as new, same as any other "+ Add New" content.
+      setEquipPickedId(equipItem.equipmentId || null);
       setEquipTab('addnew'); // last, so nothing queued above can re-hide these fields
       if(equipItem.scope && equipItem.scope.length) $('troubleCall').value = equipItem.scope.join('; ');
     }
@@ -566,13 +573,16 @@
     else dtAddSimpleRow(scopeId);
     dtEquipCountLabel();
   }
-  function dtAddEquipItemFromFields(){
+  async function dtAddEquipItemFromFields(){
     const fields = dtCollectEquipmentFields();
     if(!EQUIP_FIELD_KEYS.some(k=>fields[k])){ toast('Enter at least one equipment detail'); return; }
     const item = Object.assign({id: dtGenEquipId()}, fields);
     dtDraftEquipItems.push(item);
     dtAppendEquipItemCard(item);
-    if(dtCurrentCustomerId) dtAddCustomerEquipmentIfNew(dtCurrentCustomerId, fields);
+    // Genuinely new content (this is the "+ Add New" path) — insert it now
+    // and stamp the real id straight onto this same item object (mutated
+    // in place, since it's already the one sitting in dtDraftEquipItems).
+    if(dtCurrentCustomerId) await dtAddCustomerEquipmentBatch(dtCurrentCustomerId, [item]);
     dtResetEquipmentFields();
     toast('Equipment added to ticket');
   }
@@ -582,7 +592,11 @@
     checked.forEach(cb=>{
       const e = dtCurrentEquipmentCache.find(x=> x.id===cb.value);
       if(!e) return;
-      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      // Carries the real customer_equipment.id straight through as
+      // equipmentId — this is an explicit "it's already on file" pick, so
+      // dtAddCustomerEquipmentBatch() will skip it entirely rather than
+      // re-deriving (or re-verifying) sameness from its fields.
+      const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
       dtDraftEquipItems.push(item);
       dtAppendEquipItemCard(item);
     });
@@ -595,7 +609,7 @@
     dtCurrentEquipmentCache.forEach(e=>{
       const key = dtEquipKey(e);
       if(addedKeys.has(key)) return;
-      const item = Object.assign({id: dtGenEquipId()}, dtPickEquipFields(e));
+      const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
       dtDraftEquipItems.push(item);
       dtAppendEquipItemCard(item);
       addedKeys.add(key);
@@ -635,27 +649,40 @@
   function dtResetEquipmentFields(){
     EQUIP_FIELD_KEYS.forEach(k=>{ const el=$('dt'+k.charAt(0).toUpperCase()+k.slice(1)); if(el) el.value=''; });
   }
-  // Records new equipment against the customer, deduping against THIS
-  // dedicated cache (not the shared one Service Report uses).
-  async function dtAddCustomerEquipmentIfNew(customerId, fields){
-    if(!customerId) return;
-    const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
-    if(!hasAnyValue) return;
-    const dupe = dtCurrentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
-    if(dupe) return;
+  // Ensures every item in a batch (a dispatch ticket's equipmentList, or a
+  // single item just added via "+ Add New") has a real customer_equipment.id
+  // attached as item.equipmentId — mutating each item object in place.
+  // Fixed 2026-09, twice over:
+  // 1) This used to be dtAddCustomerEquipmentIfNew(), called once per item
+  //    via equipmentList.forEach(item=> dtAddCustomerEquipmentIfNew(custId,
+  //    item)) — forEach doesn't await its (async) callback, so every call
+  //    for a multi-item ticket ran concurrently against the same stale
+  //    snapshot of dtCurrentEquipmentCache.
+  // 2) The fix for that still decided "is this new?" by comparing field
+  //    values against what's already on file — which is the wrong
+  //    question. Whether an item needs a new row is decided once, up
+  //    front, by which action added it: dtAddSelectedExistingEquip() /
+  //    dtAddAllExistingEquip() stamp the real id straight from the picked
+  //    record (item.equipmentId already set, nothing to do here); only
+  //    "+ Add New" items reach this function without one, and those are
+  //    unconditionally new — inserted with no comparison against existing
+  //    rows at all, exactly like cloudAddCustomerEquipment() (customers.js).
+  async function dtAddCustomerEquipmentBatch(customerId, items){
+    const toInsert = items.filter(it=> !it.equipmentId);
+    if(!customerId || toInsert.length===0) return;
     if(!(await ensureCloud())) return;
-    try{
+    for(const item of toInsert){
+      const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (item[k]||'').trim());
+      if(!hasAnyValue) continue;
       const rec = { customer_id: customerId };
-      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
-      const { error } = await db.from('customer_equipment').insert(rec);
-      if(error) throw error;
-      // Reflect the new record in the cache immediately so a later dedupe
-      // check (e.g. the one that runs again at ticket-submit time) sees it
-      // as already-on-file instead of inserting it a second time.
-      if(customerId === dtCurrentCustomerId){
-        dtCurrentEquipmentCache.push(Object.assign({}, fields));
-      }
-    }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
+      EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = item[k]||'');
+      try{
+        const { data: inserted, error } = await db.from('customer_equipment').insert(rec).select('id').single();
+        if(error) throw error;
+        item.equipmentId = inserted.id;
+        if(customerId === dtCurrentCustomerId) dtCurrentEquipmentCache.push(equipRowToObj(Object.assign({}, rec, { id: inserted.id })));
+      }catch(e){ console.error('add dispatch equipment failed', describeCloudError(e)); }
+    }
   }
 
   function dtSetupCustomerCombo(){
@@ -815,6 +842,14 @@
       const scope = dtCollectSimpleList('dtEquipScope-'+item.id);
       return Object.assign({}, item, { scope, reportSrNo: null });
     });
+    // Catch-all: every item should already carry equipmentId by now (set
+    // the moment it was added — see dtAddEquipItemFromFields/
+    // dtAddSelectedExistingEquip/dtAddAllExistingEquip above), but this is
+    // a no-op for anything that does and a last chance for anything that
+    // doesn't (e.g. the earlier insert failed offline and connectivity has
+    // since come back) — done BEFORE the ticket saves, so equipmentList
+    // is stored with every real id already attached.
+    if(custId) await dtAddCustomerEquipmentBatch(custId, equipmentList);
     const data = {
       id, jobOrderNo: id, status: 'open',
       date: $('dtDate').value, expectedTime: $('dtExpectedTime').value,
@@ -836,7 +871,6 @@
     const res = await dtSaveTicket(id, data);
     $('dtCreateBtn').disabled = false; $('dtCreateBtn').textContent = 'Create Dispatch Ticket';
     if(res===SAVE_FAILED){ toast('Could not create ticket — check your connection'); return; }
-    if(custId) equipmentList.forEach(item=> dtAddCustomerEquipmentIfNew(custId, item));
     toast(res===SAVE_CLOUD
       ? ('Dispatch ticket '+id+' created')
       : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));

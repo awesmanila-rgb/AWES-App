@@ -441,15 +441,26 @@
       body.appendChild(card);
     });
   }
-  // A report is treated as belonging to a piece of equipment when it was
-  // filed under the same customer name and every equipment field on the
-  // report matches that equipment record exactly — the same identity check
-  // cloudAddCustomerEquipment() uses to avoid creating duplicate equipment
-  // records in the first place, so "same equipment" means the same thing in
-  // both places.
-  function reportMatchesEquipment(report, custName, equip){
-    if((report.custName||'').trim().toLowerCase() !== (custName||'').trim().toLowerCase()) return false;
-    return EQUIP_FIELD_KEYS.every(k=> (report[k]||'') === (equip[k]||''));
+  // A report is treated as belonging to a piece of equipment when its
+  // equipment_id — stamped once, at whichever point it was added (see
+  // cloudAddCustomerEquipment()/dtAddCustomerEquipmentBatch()) and carried
+  // through by saveReport() (ui.js) — matches this record's own fixed id.
+  // Previously this matched on customer name plus every EQUIP_FIELD_KEYS
+  // field being exactly equal, which had drifted out of step with the rest
+  // of the app: cloudAddCustomerEquipment() no longer does any such
+  // content-based identity check (identity is decided once, by which
+  // action added the row — see its own comment), so a report and an
+  // equipment record could legitimately be the same unit with different
+  // field text (e.g. after an admin edits the record via Manage Equipment
+  // List → Edit) and still fail to match, or — the more dangerous
+  // direction — two genuinely different units that happen to share every
+  // field could be wrongly shown as one. Matching on the fixed id avoids
+  // both. Reports filed before equipment_id existed have no id to match
+  // and won't appear here; that legacy gap already has a shared fallback
+  // in matchReportHistoryForEquipment() (core.js), used by Manage
+  // Equipment List and the customer portal.
+  function reportMatchesEquipment(report, equip){
+    return !!(equip && equip.id && report && report.equipmentId === equip.id);
   }
   async function custHistShowServiceHistory(c, equip){
     custHistEquipment = equip;
@@ -475,7 +486,7 @@
         }
       }catch(e){}
     }
-    const matches = reports.filter(r=> r.completed && reportMatchesEquipment(r, c.name, equip))
+    const matches = reports.filter(r=> r.completed && reportMatchesEquipment(r, equip))
       .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
     body.innerHTML = '';
     if(matches.length===0){
@@ -860,7 +871,6 @@
     $('eqAddSaveBtn').disabled = true;
     const result = await cloudAddCustomerEquipmentAdmin(customerId, fields);
     $('eqAddSaveBtn').disabled = false;
-    if(result==='dupe'){ toast('That equipment is already on file for this customer'); return; }
     if(!result){ toast('Could not add — check your connection'); return; }
     toast('Equipment added');
     EQUIP_FIELD_KEYS.forEach(k=>{
