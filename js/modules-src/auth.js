@@ -1038,6 +1038,25 @@
     // order alone to keep the previous account's screen out of view.
     const homeScreenEl = $('homeScreen');
     if(homeScreenEl) homeScreenEl.style.display = 'none';
+    // Same belt-and-suspenders treatment for a customer session: without
+    // this, logging out mid-way through viewing one customer's equipment
+    // detail (specs + photos) left that screen sitting fully rendered but
+    // merely hidden behind the login overlay. The very next customer to
+    // log in on this device and open any equipment briefly saw the PREVIOUS
+    // customer's photos/specs still sitting in the DOM before their own
+    // render overwrote it. Resetting the underlying state here — not just
+    // hiding the screen — means there's nothing stale left for that next
+    // render to flash before it's replaced.
+    const custDetailScreenEl = $('customerEquipmentDetailScreen');
+    if(custDetailScreenEl) custDetailScreenEl.style.display = 'none';
+    const custHomeScreenEl = $('customerHomeScreen');
+    if(custHomeScreenEl) custHomeScreenEl.style.display = 'none';
+    const custPhotoGridEl = $('cpDetailPhotoGrid');
+    if(custPhotoGridEl) custPhotoGridEl.innerHTML = '';
+    if(typeof cpDetailEquip !== 'undefined') cpDetailEquip = null;
+    if(typeof cpEquipment !== 'undefined') cpEquipment = [];
+    if(typeof cpReports !== 'undefined') cpReports = [];
+    if(typeof cpCustomer !== 'undefined') cpCustomer = null;
     await showLoginScreen();
   }
 

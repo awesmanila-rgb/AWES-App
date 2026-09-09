@@ -1943,6 +1943,25 @@
     // order alone to keep the previous account's screen out of view.
     const homeScreenEl = $('homeScreen');
     if(homeScreenEl) homeScreenEl.style.display = 'none';
+    // Same belt-and-suspenders treatment for a customer session: without
+    // this, logging out mid-way through viewing one customer's equipment
+    // detail (specs + photos) left that screen sitting fully rendered but
+    // merely hidden behind the login overlay. The very next customer to
+    // log in on this device and open any equipment briefly saw the PREVIOUS
+    // customer's photos/specs still sitting in the DOM before their own
+    // render overwrote it. Resetting the underlying state here — not just
+    // hiding the screen — means there's nothing stale left for that next
+    // render to flash before it's replaced.
+    const custDetailScreenEl = $('customerEquipmentDetailScreen');
+    if(custDetailScreenEl) custDetailScreenEl.style.display = 'none';
+    const custHomeScreenEl = $('customerHomeScreen');
+    if(custHomeScreenEl) custHomeScreenEl.style.display = 'none';
+    const custPhotoGridEl = $('cpDetailPhotoGrid');
+    if(custPhotoGridEl) custPhotoGridEl.innerHTML = '';
+    if(typeof cpDetailEquip !== 'undefined') cpDetailEquip = null;
+    if(typeof cpEquipment !== 'undefined') cpEquipment = [];
+    if(typeof cpReports !== 'undefined') cpReports = [];
+    if(typeof cpCustomer !== 'undefined') cpCustomer = null;
     await showLoginScreen();
   }
 
@@ -12373,6 +12392,14 @@
   // Swap #customerHomeScreen for #customerEquipmentDetailScreen — adjust
   // ids here to match whatever your screen-switching helper is called.
   function openCustomerEquipmentDetail(eq){
+    // Clear the photo grid BEFORE the screen becomes visible, not after —
+    // renderCustomerEquipmentPhotos() below does overwrite it synchronously
+    // too, but doing it here as well means there is no DOM state, even for
+    // a single frame, where this screen is visible AND still showing a
+    // previously-viewed unit's photos (whether from this customer's own
+    // last-viewed unit, or — had doLogout() not been fixed to reset this —
+    // a previous customer's session).
+    $('cpDetailPhotoGrid').innerHTML = '';
     $('customerHomeScreen').style.display = 'none';
     $('customerEquipmentDetailScreen').style.display = '';
     renderCustomerEquipmentDetail(eq);
@@ -12399,7 +12426,7 @@
     const folderNames = Object.keys(byFolder).sort((a,b)=> a==='Uncategorized' ? 1 : b==='Uncategorized' ? -1 : a.localeCompare(b));
     grid.innerHTML = folderNames.map(f=>
       '<div style="flex-basis:100%; margin-bottom:8px;">'+
-        (folderNames.length>1 ? '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>' : '')+
+        '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>'+
         '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(p=>
           '<div class="cp-photo-thumb" data-url="'+escapeHtml(p.signedUrl||'')+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
             (p.signedUrl ? '<img src="'+p.signedUrl+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">—</span>')+

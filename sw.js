@@ -1,9 +1,17 @@
+// Bumped to v37 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js again — the customer portal's photo
+// gallery now always shows the folder name above each group of photos
+// (previously only shown when a unit had more than one folder), so
+// customers always know which folder's photos they're looking at.
+//
 // Bumped to v36 to force every installed device to drop its old cache and
 // re-fetch index.html/app.bundle.js again — adds the Equipment Photos
 // feature (upload/view/organize per unit): new markup in index.html
 // (equipmentPhotoFileInput etc., cpDetailPhotoGrid) and new functions in
 // app.bundle.js (equipment-photos.js module) that v35's cached copies
-// don't have.
+// don't have. Also includes the fix in doLogout()/openCustomerEquipmentDetail()
+// (customer-equipment-history.js) for a previous customer's equipment
+// photos briefly flashing on screen after a different customer logs in.
 //
 // Bumped to v35 to force every installed device to drop its old cache and
 // re-fetch app.bundle.js again — v34's fix stopped duplicate rows via
@@ -13,7 +21,7 @@
 // added it (picked from "Select Existing", or freshly typed via "+ Add
 // New") and carried forward as a real id from that point on — see
 // equipPickedId in app.bundle.js — never re-guessed from field content.
-const CACHE_NAME = 'awes-sr-v36';
+const CACHE_NAME = 'awes-sr-v37';
 
 // Split into two lists on purpose.
 //
