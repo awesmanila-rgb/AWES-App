@@ -559,7 +559,7 @@
     let items = all.filter(e=> String(e.customerId)===String(custId));
     if(q){
       items = items.filter(e=>{
-        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU, e.label, equipShortId(e)]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -582,9 +582,15 @@
       const rest = [e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       const pmLine = e.nextPmDate ? 'Next PM: '+fmtDate(e.nextPmDate) : 'No PM scheduled';
+      // Equipment id/label line: always shows the fixed id (equipShortId),
+      // plus the customer label alongside it once one's been set — so an
+      // admin scanning the list can see both at a glance instead of having
+      // to open each record to check whether it's labeled yet.
+      const idLine = e.label ? escapeHtml(e.label)+' · '+escapeHtml(equipShortId(e)) : escapeHtml(equipShortId(e));
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
+          '<div class="u-status" style="font-family:monospace;">'+idLine+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
           '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
@@ -623,7 +629,21 @@
   const EQUIP_DETAIL_EXTRA_LABELS = { nextPmDate: 'Next PM Date' };
   let equipDetailRecord = null; // the equipment row currently open in the overlay
   function equipDetailRowsHtml(record, editing){
-    return EQUIP_DETAIL_KEYS.map(k=>{
+    // Two fixed, always-read-only rows up top, in neither EQUIP_DETAIL_KEYS
+    // nor the edit-mode input loop below:
+    //  - Equipment ID: the permanent id service_reports.equipment_id
+    //    actually matches against (equipShortId, core.js) — never editable
+    //    here, it isn't meant to change.
+    //  - Customer Label: the customer's own name for this unit, set from
+    //    their own portal (see customer_set_equipment_label() in
+    //    20260909_03_customer_equipment_label_customer_write.sql) — shown
+    //    here so admin can see it, but deliberately not editable from this
+    //    overlay; naming the unit is the customer's call, not admin's.
+    const idRow = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span>'+
+      '<span style="font-family:monospace;">'+escapeHtml(equipShortId(record))+'</span></div>';
+    const labelRow = '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span>'+
+      '<span>'+(record.label ? escapeHtml(record.label) : '<span style="color:var(--text-muted);">Not set by customer yet</span>')+'</span></div>';
+    return idRow + labelRow + EQUIP_DETAIL_KEYS.map(k=>{
       const label = EQUIP_DETAIL_EXTRA_LABELS[k] || (FIELD_META[k] && FIELD_META[k].label) || k;
       const isDate = k === 'nextPmDate';
       const val = (record[k]||'').toString();
@@ -697,7 +717,7 @@
   async function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
     const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
-    $('equipmentDetailTitle').textContent = summary;
+    $('equipmentDetailTitle').textContent = record.label ? (record.label+' — '+summary) : summary;
     setEquipDetailMode('view');
     $('equipmentDetailHistoryMeta').textContent = 'Loading service history…';
     $('equipmentDetailHistoryList').innerHTML = '';

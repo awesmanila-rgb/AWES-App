@@ -56,6 +56,85 @@
     );
   }
 
+  // ---------- Customer: name their own equipment ----------
+  // The label is the customer's own call — set here, on their own device,
+  // via customer_set_equipment_label() (security-definer RPC, see
+  // 20260909_03_customer_equipment_label_customer_write.sql), which checks
+  // this login is actually linked to the unit's customer_id before writing
+  // anything. Admin sees the result (equipDetailRowsHtml in admin.js) but
+  // has no editable field for it there — naming a unit is the customer's,
+  // not admin's, to do.
+  async function cloudSetEquipmentLabelAsCustomer(equipmentId, label){
+    if(!equipmentId || !(await ensureCloud())) return false;
+    try{
+      const { data, error } = await db.rpc('customer_set_equipment_label', {
+        p_equipment_id: equipmentId, p_label: (label||'').trim()
+      });
+      if(error) throw error;
+      return data === true;
+    }catch(e){ console.error('set equipment label failed', describeCloudError(e)); return false; }
+  }
+  // Renders the "Unit Label" row as its own little inline editor rather
+  // than a plain spec row (unlike everything else in specs below, this one
+  // the customer can actually change) — tap "Rename"/"Add Label" to swap
+  // in a text input with Save/Cancel, tap Save to write it and refresh
+  // this screen plus the home screen grid so the new name shows up
+  // everywhere immediately.
+  //
+  // Uses classes, not ids, for the elements inside — #cpDetailSpecs gets
+  // fully replaced (innerHTML) every render, and this app's $() helper
+  // caches an id to whichever DOM node it first resolved to (see core.js),
+  // so a second render's same-id button would silently wire up a detached,
+  // already-removed element. Querying by class scoped to the (persistent)
+  // #cpDetailSpecs container each time avoids that.
+  function cpLabelRowHtml(eq){
+    const hasLabel = !!(eq.label||'').trim();
+    const shown = hasLabel ? eq.label : equipShortId(eq);
+    return (
+      '<div class="cp-spec-row">'+
+        '<span class="cp-spec-k">Unit Label</span>'+
+        '<span class="cp-spec-v cp-label-view" style="display:flex; align-items:center; gap:8px; justify-content:flex-end;">'+
+          '<span class="cp-label-text"'+(hasLabel?'':' style="color:var(--text-muted);"')+'>'+escapeHtml(shown)+'</span>'+
+          '<button type="button" class="cp-label-edit-btn" style="font-size:11px; padding:2px 8px; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer;">'+(hasLabel?'Rename':'Add Label')+'</button>'+
+        '</span>'+
+      '</div>'
+    );
+  }
+  function cpWireLabelEditor(eq){
+    const wrap = $('cpDetailSpecs');
+    const editBtn = wrap.querySelector('.cp-label-edit-btn');
+    if(!editBtn) return;
+    editBtn.onclick = () => {
+      const view = wrap.querySelector('.cp-label-view');
+      const current = (eq.label||'').trim();
+      view.innerHTML =
+        '<input type="text" class="cp-label-input" placeholder="e.g. Server Room AC" value="'+escapeHtml(current)+'" style="border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; text-align:right; max-width:150px;">'+
+        '<button type="button" class="cp-label-save-btn" style="font-size:11px; padding:2px 8px; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer;">Save</button>'+
+        '<button type="button" class="cp-label-cancel-btn" style="font-size:11px; padding:2px 8px; border:none; background:none; color:var(--text-muted); cursor:pointer;">Cancel</button>';
+      const input = view.querySelector('.cp-label-input');
+      input.focus(); input.select();
+      view.querySelector('.cp-label-cancel-btn').onclick = () => renderCustomerEquipmentDetail(eq);
+      const doSave = async () => {
+        const next = input.value.trim();
+        const saveBtn = view.querySelector('.cp-label-save-btn');
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        const ok = await cloudSetEquipmentLabelAsCustomer(eq.id, next);
+        if(ok){
+          eq.label = next; // same object reference as in cpEquipment — the
+                            // home screen grid picks this up next render
+          toast(next ? 'Label saved' : 'Label cleared');
+          renderCustomerEquipmentDetail(eq);
+          if(typeof renderCustomerHome === 'function') renderCustomerHome();
+        }else{
+          toast('Could not save — check your connection');
+          saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        }
+      };
+      view.querySelector('.cp-label-save-btn').onclick = doSave;
+      input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); doSave(); } });
+    };
+  }
+
   function renderCustomerEquipmentDetail(eq){
     cpDetailEquip = eq;
     $('cpDetailName').textContent = eq.equipType || 'Equipment';
@@ -73,9 +152,12 @@
     specs.push(['Next PM', eq.nextPmDate
       ? fmtDate(eq.nextPmDate) + (eq.status && eq.status.key==='overdue' ? ' (overdue)' : '')
       : 'Not scheduled yet']);
-    $('cpDetailSpecs').innerHTML = specs.map(([k,v]) =>
+    // Unit Label leads, and is its own editable row — see cpLabelRowHtml
+    // above — everything after it is the plain, read-only spec list.
+    $('cpDetailSpecs').innerHTML = cpLabelRowHtml(eq) + specs.map(([k,v]) =>
       '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
     ).join('');
+    cpWireLabelEditor(eq);
 
     const history = eq.reportHistory || [];
     $('cpDetailVisitCount').textContent = String(history.length);

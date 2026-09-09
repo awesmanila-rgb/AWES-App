@@ -59,6 +59,32 @@
     }).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   }
 
+  // Human-readable form of a customer_equipment row's fixed id — the same
+  // uuid service_reports.equipment_id matches against (see
+  // matchReportHistoryForEquipment above), just shortened for display: a
+  // full 36-character uuid is unreadable inline in a list row. Always
+  // reflects the actual id, never the customer-assigned label — use this
+  // specifically where the raw, permanent identifier itself needs to be
+  // shown (e.g. an "Equipment ID" detail row), not as a friendly title.
+  function equipShortId(eq){
+    if(!eq || !eq.id) return '—';
+    const id = String(eq.id);
+    return 'EQ-' + (id.length>8 ? id.slice(0,8) : id).toUpperCase();
+  }
+  // The name to show for a unit wherever an equipment list or title needs
+  // ONE identifying string. Prefers the admin-set customer_equipment.label
+  // (see 20260909_02_customer_equipment_label.sql and the "Customer Label"
+  // field in admin.js's equipment detail overlay) — once a customer's unit
+  // has a plain-language label, that's what should appear everywhere
+  // instead of a meaningless id. Falls back to equipShortId() when no
+  // label has been set yet, so every list row still shows *some* stable
+  // identifier rather than nothing.
+  function equipDisplayName(eq){
+    if(!eq) return '';
+    const label = (eq.label||'').trim();
+    return label || equipShortId(eq);
+  }
+
   // ---------- shared cloud (Supabase) ----------
   let cloudReady = false;
   let cloudInitPromise = null;
@@ -2185,7 +2211,14 @@
       // that list is this equipment's identity (used for dedupe checks and
       // matching reports to a unit), and a PM date isn't part of what makes
       // two equipment records "the same unit".
-      nextPmDate: row.next_pm_date || ''
+      nextPmDate: row.next_pm_date || '',
+      // Admin-set customer-facing display name (see
+      // 20260909_02_customer_equipment_label.sql) — shown in place of the
+      // raw id by equipDisplayName() (core.js). Same reasoning as
+      // nextPmDate for staying out of EQUIP_FIELD_KEYS: a label is a
+      // display choice, not part of what identifies "the same unit" for
+      // dedupe/matching purposes.
+      label: row.label || ''
     };
   }
   async function loadCustomerEquipment(customerId){
@@ -2265,6 +2298,12 @@
   // after saving instead.
   async function cloudUpdateCustomerEquipment(id, fields){
     if(!(await ensureCloud())) return false;
+    // Note: this admin-only path deliberately has no `label` handling.
+    // The customer label is the customer's own call, set from their own
+    // portal via the customer_set_equipment_label() RPC (see
+    // 20260909_03_customer_equipment_label_customer_write.sql /
+    // cloudSetEquipmentLabelAsCustomer() in customer-equipment-history.js),
+    // not something this admin-side updater writes.
     const rec = {};
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
     // Next PM date — see the comment on equipRowToObj() above for why this
@@ -2351,8 +2390,14 @@
   // pick from as one unit. "Add New" reveals the normal input fields (global
   // dropdown lists, free entry) for equipment not yet on file.
   let currentEquipTab = 'addnew';
+  // Leads with equipDisplayName() (core.js) — the customer's label once
+  // one's been set, otherwise a shortened form of the fixed equipment id —
+  // so every equipment list row, everywhere in the app, shows the same
+  // stable identifier a technician or admin can tell units apart by, even
+  // before any label exists.
   function equipSummaryLine(e){
-    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    const rest = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return equipDisplayName(e) + '  —  ' + rest;
   }
   function renderEquipPicker(){
     const list = $('equipPickerList');
@@ -3464,7 +3509,7 @@
     let items = all.filter(e=> String(e.customerId)===String(custId));
     if(q){
       items = items.filter(e=>{
-        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU]
+        const hay = [e.customerName, e.equipType, e.equipLocation, e.brand, e.mountType, e.modelCU, e.serialCU, e.modelFCU, e.serialFCU, e.label, equipShortId(e)]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -3487,9 +3532,15 @@
       const rest = [e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join(' · ') || '(no details)';
       const serials = [e.serialCU && ('CU: '+e.serialCU), e.serialFCU && ('FCU: '+e.serialFCU)].filter(Boolean).join('  ');
       const pmLine = e.nextPmDate ? 'Next PM: '+fmtDate(e.nextPmDate) : 'No PM scheduled';
+      // Equipment id/label line: always shows the fixed id (equipShortId),
+      // plus the customer label alongside it once one's been set — so an
+      // admin scanning the list can see both at a glance instead of having
+      // to open each record to check whether it's labeled yet.
+      const idLine = e.label ? escapeHtml(e.label)+' · '+escapeHtml(equipShortId(e)) : escapeHtml(equipShortId(e));
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
+          '<div class="u-status" style="font-family:monospace;">'+idLine+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
           '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
@@ -3528,7 +3579,21 @@
   const EQUIP_DETAIL_EXTRA_LABELS = { nextPmDate: 'Next PM Date' };
   let equipDetailRecord = null; // the equipment row currently open in the overlay
   function equipDetailRowsHtml(record, editing){
-    return EQUIP_DETAIL_KEYS.map(k=>{
+    // Two fixed, always-read-only rows up top, in neither EQUIP_DETAIL_KEYS
+    // nor the edit-mode input loop below:
+    //  - Equipment ID: the permanent id service_reports.equipment_id
+    //    actually matches against (equipShortId, core.js) — never editable
+    //    here, it isn't meant to change.
+    //  - Customer Label: the customer's own name for this unit, set from
+    //    their own portal (see customer_set_equipment_label() in
+    //    20260909_03_customer_equipment_label_customer_write.sql) — shown
+    //    here so admin can see it, but deliberately not editable from this
+    //    overlay; naming the unit is the customer's call, not admin's.
+    const idRow = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span>'+
+      '<span style="font-family:monospace;">'+escapeHtml(equipShortId(record))+'</span></div>';
+    const labelRow = '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span>'+
+      '<span>'+(record.label ? escapeHtml(record.label) : '<span style="color:var(--text-muted);">Not set by customer yet</span>')+'</span></div>';
+    return idRow + labelRow + EQUIP_DETAIL_KEYS.map(k=>{
       const label = EQUIP_DETAIL_EXTRA_LABELS[k] || (FIELD_META[k] && FIELD_META[k].label) || k;
       const isDate = k === 'nextPmDate';
       const val = (record[k]||'').toString();
@@ -3602,7 +3667,7 @@
   async function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
     const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
-    $('equipmentDetailTitle').textContent = summary;
+    $('equipmentDetailTitle').textContent = record.label ? (record.label+' — '+summary) : summary;
     setEquipDetailMode('view');
     $('equipmentDetailHistoryMeta').textContent = 'Loading service history…';
     $('equipmentDetailHistoryList').innerHTML = '';
@@ -6639,8 +6704,13 @@
     }
     dtCurrentEquipmentCache = [];
   }
+  // Leads with equipDisplayName() (core.js) — same convention as
+  // equipSummaryLine() in customers.js — so a unit's label (or, until one's
+  // set, its shortened fixed id) is visible everywhere a dispatch ticket
+  // lists equipment, not just in the admin/customer-portal equipment views.
   function dtEquipSummaryLine(e){
-    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    const rest = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return equipDisplayName(e) + '  —  ' + rest;
   }
   // Checkbox multi-select — lets an admin add several (or all) of a
   // customer's known units to this ticket in one pass instead of loading
@@ -7058,7 +7128,13 @@
   function dtOpenEquipDetailOverlay(ticket, item){
     if(!item) return;
     $('dtEquipDetailTitle').textContent = dtEquipSummaryLine(item);
-    const fieldRows = DT_EQUIP_DETAIL_KEYS.map(k=>{
+    // Fixed "Equipment ID" row — always the raw id (equipShortId), same as
+    // the admin equipment detail overlay's own read-only ID row, plus the
+    // customer label alongside it (if set) so a technician sees both
+    // without having to leave the dispatch ticket.
+    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span style="font-family:monospace;">'+escapeHtml(equipShortId(item))+'</span></div>'+
+      (item.label ? '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span><span>'+escapeHtml(item.label)+'</span></div>' : '');
+    const fieldRows = idRows + DT_EQUIP_DETAIL_KEYS.map(k=>{
       const val = (item[k]||'').toString().trim();
       if(!val) return '';
       const label = (FIELD_META[k] && FIELD_META[k].label) || k;
@@ -11467,7 +11543,11 @@
         id: row.id, equipType: row.equip_type, equipLocation: row.equip_location,
         brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap,
         modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
-        nextPmDate: row.next_pm_date || ''
+        nextPmDate: row.next_pm_date || '',
+        // Admin-set display name for this unit (see
+        // 20260909_02_customer_equipment_label.sql) — equipDisplayName()
+        // (core.js) shows this instead of the raw id once it's set.
+        label: row.label || ''
       }));
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
@@ -11555,12 +11635,19 @@
     const pmLine = eq.status.key==='none' ? 'No PM scheduled'
       : eq.status.key==='overdue' ? 'PM was due '+escapeHtml(fmtDate(eq.nextPmDate))
       : 'Next PM: '+escapeHtml(fmtDate(eq.nextPmDate));
+    // equipDisplayName() (core.js) shows this unit's admin-set label once
+    // one exists (see 20260909_02_customer_equipment_label.sql); until
+    // then it falls back to a shortened form of the fixed equipment id, so
+    // every unit still shows some stable identifier a customer can
+    // reference when requesting service.
+    const idTag = escapeHtml(equipDisplayName(eq));
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
         '<div class="cp-equip-card-top">'+
           '<div class="cp-equip-icon">❄️</div>'+
           cpStatusPillHtml(eq.status)+
         '</div>'+
+        '<div class="cp-unit-tag" style="font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--text-muted); text-transform:uppercase;">'+idTag+'</div>'+
         '<div class="cp-unit-name">'+loc+'</div>'+
         '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+
@@ -11734,6 +11821,85 @@
     );
   }
 
+  // ---------- Customer: name their own equipment ----------
+  // The label is the customer's own call — set here, on their own device,
+  // via customer_set_equipment_label() (security-definer RPC, see
+  // 20260909_03_customer_equipment_label_customer_write.sql), which checks
+  // this login is actually linked to the unit's customer_id before writing
+  // anything. Admin sees the result (equipDetailRowsHtml in admin.js) but
+  // has no editable field for it there — naming a unit is the customer's,
+  // not admin's, to do.
+  async function cloudSetEquipmentLabelAsCustomer(equipmentId, label){
+    if(!equipmentId || !(await ensureCloud())) return false;
+    try{
+      const { data, error } = await db.rpc('customer_set_equipment_label', {
+        p_equipment_id: equipmentId, p_label: (label||'').trim()
+      });
+      if(error) throw error;
+      return data === true;
+    }catch(e){ console.error('set equipment label failed', describeCloudError(e)); return false; }
+  }
+  // Renders the "Unit Label" row as its own little inline editor rather
+  // than a plain spec row (unlike everything else in specs below, this one
+  // the customer can actually change) — tap "Rename"/"Add Label" to swap
+  // in a text input with Save/Cancel, tap Save to write it and refresh
+  // this screen plus the home screen grid so the new name shows up
+  // everywhere immediately.
+  //
+  // Uses classes, not ids, for the elements inside — #cpDetailSpecs gets
+  // fully replaced (innerHTML) every render, and this app's $() helper
+  // caches an id to whichever DOM node it first resolved to (see core.js),
+  // so a second render's same-id button would silently wire up a detached,
+  // already-removed element. Querying by class scoped to the (persistent)
+  // #cpDetailSpecs container each time avoids that.
+  function cpLabelRowHtml(eq){
+    const hasLabel = !!(eq.label||'').trim();
+    const shown = hasLabel ? eq.label : equipShortId(eq);
+    return (
+      '<div class="cp-spec-row">'+
+        '<span class="cp-spec-k">Unit Label</span>'+
+        '<span class="cp-spec-v cp-label-view" style="display:flex; align-items:center; gap:8px; justify-content:flex-end;">'+
+          '<span class="cp-label-text"'+(hasLabel?'':' style="color:var(--text-muted);"')+'>'+escapeHtml(shown)+'</span>'+
+          '<button type="button" class="cp-label-edit-btn" style="font-size:11px; padding:2px 8px; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer;">'+(hasLabel?'Rename':'Add Label')+'</button>'+
+        '</span>'+
+      '</div>'
+    );
+  }
+  function cpWireLabelEditor(eq){
+    const wrap = $('cpDetailSpecs');
+    const editBtn = wrap.querySelector('.cp-label-edit-btn');
+    if(!editBtn) return;
+    editBtn.onclick = () => {
+      const view = wrap.querySelector('.cp-label-view');
+      const current = (eq.label||'').trim();
+      view.innerHTML =
+        '<input type="text" class="cp-label-input" placeholder="e.g. Server Room AC" value="'+escapeHtml(current)+'" style="border:1px solid var(--border); border-radius:6px; padding:4px 6px; font-size:13px; text-align:right; max-width:150px;">'+
+        '<button type="button" class="cp-label-save-btn" style="font-size:11px; padding:2px 8px; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer;">Save</button>'+
+        '<button type="button" class="cp-label-cancel-btn" style="font-size:11px; padding:2px 8px; border:none; background:none; color:var(--text-muted); cursor:pointer;">Cancel</button>';
+      const input = view.querySelector('.cp-label-input');
+      input.focus(); input.select();
+      view.querySelector('.cp-label-cancel-btn').onclick = () => renderCustomerEquipmentDetail(eq);
+      const doSave = async () => {
+        const next = input.value.trim();
+        const saveBtn = view.querySelector('.cp-label-save-btn');
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        const ok = await cloudSetEquipmentLabelAsCustomer(eq.id, next);
+        if(ok){
+          eq.label = next; // same object reference as in cpEquipment — the
+                            // home screen grid picks this up next render
+          toast(next ? 'Label saved' : 'Label cleared');
+          renderCustomerEquipmentDetail(eq);
+          if(typeof renderCustomerHome === 'function') renderCustomerHome();
+        }else{
+          toast('Could not save — check your connection');
+          saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        }
+      };
+      view.querySelector('.cp-label-save-btn').onclick = doSave;
+      input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); doSave(); } });
+    };
+  }
+
   function renderCustomerEquipmentDetail(eq){
     cpDetailEquip = eq;
     $('cpDetailName').textContent = eq.equipType || 'Equipment';
@@ -11751,9 +11917,12 @@
     specs.push(['Next PM', eq.nextPmDate
       ? fmtDate(eq.nextPmDate) + (eq.status && eq.status.key==='overdue' ? ' (overdue)' : '')
       : 'Not scheduled yet']);
-    $('cpDetailSpecs').innerHTML = specs.map(([k,v]) =>
+    // Unit Label leads, and is its own editable row — see cpLabelRowHtml
+    // above — everything after it is the plain, read-only spec list.
+    $('cpDetailSpecs').innerHTML = cpLabelRowHtml(eq) + specs.map(([k,v]) =>
       '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
     ).join('');
+    cpWireLabelEditor(eq);
 
     const history = eq.reportHistory || [];
     $('cpDetailVisitCount').textContent = String(history.length);

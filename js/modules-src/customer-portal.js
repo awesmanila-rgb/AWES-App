@@ -54,7 +54,11 @@
         id: row.id, equipType: row.equip_type, equipLocation: row.equip_location,
         brand: row.brand, mountType: row.mount_type, coolCap: row.cool_cap,
         modelCU: row.model_cu, serialCU: row.serial_cu, modelFCU: row.model_fcu, serialFCU: row.serial_fcu,
-        nextPmDate: row.next_pm_date || ''
+        nextPmDate: row.next_pm_date || '',
+        // Admin-set display name for this unit (see
+        // 20260909_02_customer_equipment_label.sql) — equipDisplayName()
+        // (core.js) shows this instead of the raw id once it's set.
+        label: row.label || ''
       }));
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
@@ -142,12 +146,19 @@
     const pmLine = eq.status.key==='none' ? 'No PM scheduled'
       : eq.status.key==='overdue' ? 'PM was due '+escapeHtml(fmtDate(eq.nextPmDate))
       : 'Next PM: '+escapeHtml(fmtDate(eq.nextPmDate));
+    // equipDisplayName() (core.js) shows this unit's admin-set label once
+    // one exists (see 20260909_02_customer_equipment_label.sql); until
+    // then it falls back to a shortened form of the fixed equipment id, so
+    // every unit still shows some stable identifier a customer can
+    // reference when requesting service.
+    const idTag = escapeHtml(equipDisplayName(eq));
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
         '<div class="cp-equip-card-top">'+
           '<div class="cp-equip-icon">❄️</div>'+
           cpStatusPillHtml(eq.status)+
         '</div>'+
+        '<div class="cp-unit-tag" style="font-size:11px; font-weight:600; letter-spacing:.02em; color:var(--text-muted); text-transform:uppercase;">'+idTag+'</div>'+
         '<div class="cp-unit-name">'+loc+'</div>'+
         '<div class="cp-unit-loc">'+details+'</div>'+
         '<div class="cp-unit-date">Last serviced '+escapeHtml(lastDate)+'</div>'+

@@ -57,6 +57,32 @@
     }).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   }
 
+  // Human-readable form of a customer_equipment row's fixed id — the same
+  // uuid service_reports.equipment_id matches against (see
+  // matchReportHistoryForEquipment above), just shortened for display: a
+  // full 36-character uuid is unreadable inline in a list row. Always
+  // reflects the actual id, never the customer-assigned label — use this
+  // specifically where the raw, permanent identifier itself needs to be
+  // shown (e.g. an "Equipment ID" detail row), not as a friendly title.
+  function equipShortId(eq){
+    if(!eq || !eq.id) return '—';
+    const id = String(eq.id);
+    return 'EQ-' + (id.length>8 ? id.slice(0,8) : id).toUpperCase();
+  }
+  // The name to show for a unit wherever an equipment list or title needs
+  // ONE identifying string. Prefers the admin-set customer_equipment.label
+  // (see 20260909_02_customer_equipment_label.sql and the "Customer Label"
+  // field in admin.js's equipment detail overlay) — once a customer's unit
+  // has a plain-language label, that's what should appear everywhere
+  // instead of a meaningless id. Falls back to equipShortId() when no
+  // label has been set yet, so every list row still shows *some* stable
+  // identifier rather than nothing.
+  function equipDisplayName(eq){
+    if(!eq) return '';
+    const label = (eq.label||'').trim();
+    return label || equipShortId(eq);
+  }
+
   // ---------- shared cloud (Supabase) ----------
   let cloudReady = false;
   let cloudInitPromise = null;

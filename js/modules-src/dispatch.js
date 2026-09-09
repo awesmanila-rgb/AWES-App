@@ -489,8 +489,13 @@
     }
     dtCurrentEquipmentCache = [];
   }
+  // Leads with equipDisplayName() (core.js) — same convention as
+  // equipSummaryLine() in customers.js — so a unit's label (or, until one's
+  // set, its shortened fixed id) is visible everywhere a dispatch ticket
+  // lists equipment, not just in the admin/customer-portal equipment views.
   function dtEquipSummaryLine(e){
-    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    const rest = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return equipDisplayName(e) + '  —  ' + rest;
   }
   // Checkbox multi-select — lets an admin add several (or all) of a
   // customer's known units to this ticket in one pass instead of loading
@@ -908,7 +913,13 @@
   function dtOpenEquipDetailOverlay(ticket, item){
     if(!item) return;
     $('dtEquipDetailTitle').textContent = dtEquipSummaryLine(item);
-    const fieldRows = DT_EQUIP_DETAIL_KEYS.map(k=>{
+    // Fixed "Equipment ID" row — always the raw id (equipShortId), same as
+    // the admin equipment detail overlay's own read-only ID row, plus the
+    // customer label alongside it (if set) so a technician sees both
+    // without having to leave the dispatch ticket.
+    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span style="font-family:monospace;">'+escapeHtml(equipShortId(item))+'</span></div>'+
+      (item.label ? '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span><span>'+escapeHtml(item.label)+'</span></div>' : '');
+    const fieldRows = idRows + DT_EQUIP_DETAIL_KEYS.map(k=>{
       const val = (item[k]||'').toString().trim();
       if(!val) return '';
       const label = (FIELD_META[k] && FIELD_META[k].label) || k;

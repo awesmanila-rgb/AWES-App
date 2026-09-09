@@ -77,7 +77,14 @@
       // that list is this equipment's identity (used for dedupe checks and
       // matching reports to a unit), and a PM date isn't part of what makes
       // two equipment records "the same unit".
-      nextPmDate: row.next_pm_date || ''
+      nextPmDate: row.next_pm_date || '',
+      // Admin-set customer-facing display name (see
+      // 20260909_02_customer_equipment_label.sql) — shown in place of the
+      // raw id by equipDisplayName() (core.js). Same reasoning as
+      // nextPmDate for staying out of EQUIP_FIELD_KEYS: a label is a
+      // display choice, not part of what identifies "the same unit" for
+      // dedupe/matching purposes.
+      label: row.label || ''
     };
   }
   async function loadCustomerEquipment(customerId){
@@ -157,6 +164,12 @@
   // after saving instead.
   async function cloudUpdateCustomerEquipment(id, fields){
     if(!(await ensureCloud())) return false;
+    // Note: this admin-only path deliberately has no `label` handling.
+    // The customer label is the customer's own call, set from their own
+    // portal via the customer_set_equipment_label() RPC (see
+    // 20260909_03_customer_equipment_label_customer_write.sql /
+    // cloudSetEquipmentLabelAsCustomer() in customer-equipment-history.js),
+    // not something this admin-side updater writes.
     const rec = {};
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = (fields[k]||'').trim());
     // Next PM date — see the comment on equipRowToObj() above for why this
@@ -243,8 +256,14 @@
   // pick from as one unit. "Add New" reveals the normal input fields (global
   // dropdown lists, free entry) for equipment not yet on file.
   let currentEquipTab = 'addnew';
+  // Leads with equipDisplayName() (core.js) — the customer's label once
+  // one's been set, otherwise a shortened form of the fixed equipment id —
+  // so every equipment list row, everywhere in the app, shows the same
+  // stable identifier a technician or admin can tell units apart by, even
+  // before any label exists.
   function equipSummaryLine(e){
-    return [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    const rest = [e.equipLocation, e.brand, e.mountType, e.equipType, e.coolCap].filter(Boolean).join('  ·  ') || '(no details on file)';
+    return equipDisplayName(e) + '  —  ' + rest;
   }
   function renderEquipPicker(){
     const list = $('equipPickerList');
