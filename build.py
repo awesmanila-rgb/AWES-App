@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "js" / "modules-src"
 OUT = ROOT / "js" / "app.bundle.js"
 MODULES = [
-    "core.js", "auth.js", "service-report.js", "customers.js", "admin.js",
+    "core.js", "equipment-photos.js", "auth.js", "service-report.js", "customers.js", "admin.js",
     "email.js", "ui.js", "pdf.js", "history.js", "leave.js", "dispatch.js",
     "cash-advance.js", "home.js", "tracker.js", "announcements.js",
     "customer-portal.js", "customer-equipment-history.js"

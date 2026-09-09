@@ -590,6 +590,16 @@ window.awesCss = {
     </div>
   </div>
 
+  <!-- Equipment Photos — read-only for the customer; admin uploads/manages
+       these from the Manage Equipment List detail overlay (admin.js). See
+       equipment-photos.js. -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>📷 Photos</span></div>
+    <div class="card-body">
+      <div id="cpDetailPhotoGrid" style="display:flex; flex-wrap:wrap; gap:8px;"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+
   <div class="cp-stat-grid">
     <div class="cp-stat-card">
       <div class="cp-stat-num" id="cpDetailVisitCount">—</div>
@@ -2096,6 +2106,21 @@ window.awesCss = {
       <div style="font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px;">Service History</div>
       <div id="equipmentDetailHistoryMeta" style="font-size:12px; color:var(--text-muted); margin-bottom:10px;"></div>
       <div id="equipmentDetailHistoryList"></div>
+    </div>
+    <!-- Equipment Photos — admin uploads/organizes here; the customer's
+         own equipment screen (customer-equipment-history.js) shows the
+         same photos read-only. See equipment-photos.js. -->
+    <div id="equipmentDetailPhotosSection" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border);">
+      <div style="font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px;">Equipment Photos</div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+        <input type="text" id="equipmentPhotoFolderInput" list="equipmentPhotoFolderOptions" placeholder="Folder (e.g. 2026 Site Survey)" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:13px;">
+        <datalist id="equipmentPhotoFolderOptions"></datalist>
+        <label class="cancel-btn" style="cursor:pointer; margin:0;">Add Photos
+          <input type="file" id="equipmentPhotoFileInput" accept="image/*" multiple style="display:none;">
+        </label>
+      </div>
+      <div id="equipmentPhotoUploadStatus" style="font-size:12px; color:var(--text-muted); margin-bottom:8px;"></div>
+      <div id="equipmentPhotoGrid" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
     </div>
     <div class="edit-save-row">
       <button class="cancel-btn" id="equipmentDetailCancelBtn" type="button" style="display:none;">Cancel</button>

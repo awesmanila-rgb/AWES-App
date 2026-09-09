@@ -60,6 +60,12 @@
         // (core.js) shows this instead of the raw id once it's set.
         label: row.label || ''
       }));
+      // Photo counts — one query for the whole grid rather than one per
+      // card. Powers the small "📷 N" badge in cpEquipmentCardHtml below;
+      // actual thumbnails only load in the per-unit detail screen (see
+      // renderCustomerEquipmentPhotos, customer-equipment-history.js).
+      const photoCounts = await cloudGetEquipmentPhotoCounts(customerId);
+      cpEquipment.forEach(eq=> eq.photoCount = photoCounts[eq.id] || 0);
     }catch(e){ console.error('load customer equipment failed', describeCloudError(e)); }
 
     if(cpCustomer){
@@ -151,7 +157,7 @@
     // then it falls back to a shortened form of the fixed equipment id, so
     // every unit still shows some stable identifier a customer can
     // reference when requesting service.
-    const idTag = escapeHtml(equipDisplayName(eq));
+    const idTag = escapeHtml(equipDisplayName(eq)) + (eq.photoCount ? ' &nbsp;📷 '+eq.photoCount : '');
     return (
       '<div class="cp-equip-card" data-equip-id="'+eq.id+'">'+
         '<div class="cp-equip-card-top">'+

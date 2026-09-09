@@ -158,6 +158,7 @@
       '<div class="cp-spec-row"><span class="cp-spec-k">'+escapeHtml(k)+'</span><span class="cp-spec-v">'+escapeHtml(String(v))+'</span></div>'
     ).join('');
     cpWireLabelEditor(eq);
+    renderCustomerEquipmentPhotos(eq);
 
     const history = eq.reportHistory || [];
     $('cpDetailVisitCount').textContent = String(history.length);
@@ -198,6 +199,41 @@
     $('customerHomeScreen').style.display = 'none';
     $('customerEquipmentDetailScreen').style.display = '';
     renderCustomerEquipmentDetail(eq);
+  }
+
+  // ---------- Photos (read-only) ----------
+  // Same photos admin uploads/organizes from the Manage Equipment List
+  // detail overlay (admin.js) — this just displays them, grouped by the
+  // same folder tags, with no upload/delete/cover controls. See
+  // equipment-photos.js for cloudListEquipmentPhotos()/signed URLs.
+  async function renderCustomerEquipmentPhotos(eq){
+    const grid = $('cpDetailPhotoGrid');
+    grid.innerHTML = '<div class="empty-state">Loading…</div>';
+    const photos = await cloudListEquipmentPhotos(eq.id);
+    // Guard against the customer having tapped into a different unit (or
+    // back out) while this was still in flight.
+    if(cpDetailEquip !== eq) return;
+    if(photos.length===0){
+      grid.innerHTML = '<div class="empty-state">No photos on file for this unit yet.</div>';
+      return;
+    }
+    const byFolder = {};
+    photos.forEach(p=>{ const f = p.folder || 'Uncategorized'; (byFolder[f] = byFolder[f]||[]).push(p); });
+    const folderNames = Object.keys(byFolder).sort((a,b)=> a==='Uncategorized' ? 1 : b==='Uncategorized' ? -1 : a.localeCompare(b));
+    grid.innerHTML = folderNames.map(f=>
+      '<div style="flex-basis:100%; margin-bottom:8px;">'+
+        (folderNames.length>1 ? '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>' : '')+
+        '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(p=>
+          '<div class="cp-photo-thumb" data-url="'+escapeHtml(p.signedUrl||'')+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
+            (p.signedUrl ? '<img src="'+p.signedUrl+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">—</span>')+
+          '</div>'
+        ).join('')+
+      '</div>'
+    ).join('');
+    $$('.cp-photo-thumb', grid).forEach(el=>{
+      const url = el.dataset.url;
+      if(url) el.addEventListener('click', ()=> window.open(url, '_blank'));
+    });
   }
 
   function closeCustomerEquipmentDetail(){

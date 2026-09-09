@@ -576,6 +576,10 @@
       });
     }
     items.sort((a,b)=> (a.customerName||'').localeCompare(b.customerName||''));
+    // One query for the whole (already customer-scoped) list rather than
+    // one per card — see cloudGetEquipmentPhotoCounts in
+    // equipment-photos.js.
+    const photoCounts = await cloudGetEquipmentPhotoCounts(custId);
     body.innerHTML = '';
     if(items.length===0){
       const empty = document.createElement('div');
@@ -598,10 +602,15 @@
       // admin scanning the list can see both at a glance instead of having
       // to open each record to check whether it's labeled yet.
       const idLine = e.label ? escapeHtml(e.label)+' · '+escapeHtml(equipShortId(e)) : escapeHtml(equipShortId(e));
+      // Photo-count badge only — the actual thumbnails live in the detail
+      // overlay's gallery (renderEquipmentPhotosSection below); showing a
+      // real image per list row would mean a signed-URL round trip per
+      // card just to browse the list, which isn't worth it here.
+      const photoBadge = photoCounts[e.id] ? ' &nbsp;📷 '+photoCounts[e.id] : '';
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
-          '<div class="u-status" style="font-family:monospace;">'+idLine+'</div>'+
+          '<div class="u-status" style="font-family:monospace;">'+idLine+photoBadge+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
           '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
@@ -725,6 +734,118 @@
       });
     });
   }
+  // ---------- Equipment Photos (inside the equipment detail overlay) ----------
+  // Admin-only upload/organize; see 20260910_01_equipment_photos.sql and
+  // js/modules-src/equipment-photos.js for the storage/RLS design. The
+  // customer's own equipment screen (customer-equipment-history.js) shows
+  // the same photos read-only.
+  function equipPhotoCardHtml(photo){
+    const url = photo.signedUrl;
+    return (
+      '<div class="equip-photo-card" data-photo-id="'+photo.id+'" style="width:110px;">'+
+        '<div class="equip-photo-thumb" data-act="view" style="width:110px; height:110px; border-radius:8px; overflow:hidden; cursor:pointer; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
+          (url ? '<img src="'+url+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">…</span>')+
+        '</div>'+
+        '<div style="display:flex; gap:4px; margin-top:4px;">'+
+          '<button type="button" data-act="cover" title="Set as cover photo" style="flex:1; font-size:10px; padding:2px; border:1px solid var(--border); border-radius:5px; background:'+(photo.is_cover?'var(--accent,#2563eb)':'none')+'; color:'+(photo.is_cover?'#fff':'inherit')+'; cursor:pointer;">'+(photo.is_cover?'★ Cover':'☆ Set cover')+'</button>'+
+          '<button type="button" data-act="delete" title="Delete photo" style="font-size:10px; padding:2px 6px; border:1px solid var(--border); border-radius:5px; background:none; cursor:pointer; color:#b42318;">✕</button>'+
+        '</div>'+
+      '</div>'
+    );
+  }
+  async function renderEquipmentPhotosSection(record){
+    const grid = $('equipmentPhotoGrid');
+    const status = $('equipmentPhotoUploadStatus');
+    grid.innerHTML = '<div class="empty-state" style="padding:8px 0;">Loading photos…</div>';
+    const photos = await cloudListEquipmentPhotos(record.id);
+    // Guard against the admin having closed/switched records while this
+    // was in flight — same pattern as loadEquipmentServiceHistory above.
+    if(equipDetailRecord !== record) return;
+    if(photos.length===0){
+      grid.innerHTML = '<div class="empty-state" style="padding:8px 0;">No photos uploaded yet.</div>';
+    }else{
+      // Grouped by folder — headings give the admin the "archive by
+      // folder" browsing the folder tag is meant for, even though the
+      // photos underneath are otherwise just one flat list per equipment.
+      const byFolder = {};
+      photos.forEach(p=>{ const f = p.folder || 'Uncategorized'; (byFolder[f] = byFolder[f]||[]).push(p); });
+      const folderNames = Object.keys(byFolder).sort((a,b)=> a==='Uncategorized' ? 1 : b==='Uncategorized' ? -1 : a.localeCompare(b));
+      grid.innerHTML = folderNames.map(f=>
+        '<div style="margin-bottom:10px; flex-basis:100%;">'+
+          '<div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">'+
+            '<span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px;">'+escapeHtml(f)+'</span>'+
+            (f!=='Uncategorized' ? '<button type="button" data-act="rename-folder" data-folder="'+escapeHtml(f)+'" title="Rename folder" style="font-size:11px; padding:0 4px; border:none; background:none; cursor:pointer; color:var(--text-muted);">\u270E</button>' : '')+
+          '</div>'+
+          '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(equipPhotoCardHtml).join('')+'</div>'+
+        '</div>'
+      ).join('');
+    }
+    $$('[data-act="rename-folder"]', grid).forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const oldFolder = btn.dataset.folder;
+        const next = prompt('Rename folder "'+oldFolder+'" to:', oldFolder); // plain text, not a secret
+        if(next===null) return;
+        const trimmed = next.trim();
+        if(!trimmed || trimmed===oldFolder) return;
+        btn.disabled = true;
+        const ok = await cloudRenameEquipmentPhotoFolder(record.id, oldFolder, trimmed);
+        if(ok){
+          renderEquipmentPhotosSection(record);
+          cloudListEquipmentPhotoFolders().then(names=>{
+            $('equipmentPhotoFolderOptions').innerHTML = names.map(n=> '<option value="'+escapeHtml(n)+'">').join('');
+          });
+        }else{ toast('Could not rename folder'); btn.disabled = false; }
+      });
+    });
+    $$('.equip-photo-card', grid).forEach(card=>{
+      const photo = photos.find(p=> String(p.id)===card.dataset.photoId);
+      if(!photo) return;
+      const viewEl = card.querySelector('[data-act="view"]');
+      if(viewEl) viewEl.addEventListener('click', ()=> { if(photo.signedUrl) window.open(photo.signedUrl, '_blank'); });
+      const coverBtn = card.querySelector('[data-act="cover"]');
+      if(coverBtn) coverBtn.addEventListener('click', async ()=>{
+        coverBtn.disabled = true;
+        const ok = await cloudSetEquipmentPhotoCover(record.id, photo.id);
+        if(ok){ renderEquipmentPhotosSection(record); renderEquipmentMasterList(); }
+        else{ toast('Could not set cover photo'); coverBtn.disabled = false; }
+      });
+      const delBtn = card.querySelector('[data-act="delete"]');
+      if(delBtn) delBtn.addEventListener('click', async ()=>{
+        if(!confirm('Delete this photo? This cannot be undone.')) return;
+        delBtn.disabled = true;
+        const ok = await cloudDeleteEquipmentPhoto(photo);
+        if(ok){ renderEquipmentPhotosSection(record); renderEquipmentMasterList(); }
+        else{ toast('Could not delete photo'); delBtn.disabled = false; }
+      });
+    });
+    if(status) status.textContent = '';
+  }
+  // File input change handler — uploads every selected file in sequence
+  // (not parallel: keeps the status line meaningful and avoids hammering
+  // Storage with a burst of simultaneous uploads from one tap on mobile).
+  $('equipmentPhotoFileInput').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files||[]);
+    if(files.length===0 || !equipDetailRecord) return;
+    const record = equipDetailRecord;
+    const folder = $('equipmentPhotoFolderInput').value;
+    const status = $('equipmentPhotoUploadStatus');
+    let done = 0, failed = 0;
+    for(const file of files){
+      status.textContent = 'Uploading '+(done+failed+1)+' of '+files.length+'…';
+      const ok = await cloudUploadEquipmentPhoto(record.id, record.customerId, file, folder);
+      if(ok) done++; else failed++;
+    }
+    status.textContent = failed ? (done+' uploaded, '+failed+' failed') : '';
+    e.target.value = '';
+    if(equipDetailRecord === record){
+      renderEquipmentPhotosSection(record);
+      cloudListEquipmentPhotoFolders().then(names=>{
+        $('equipmentPhotoFolderOptions').innerHTML = names.map(n=> '<option value="'+escapeHtml(n)+'">').join('');
+      });
+    }
+    renderEquipmentMasterList();
+  });
+
   async function openEquipmentDetailOverlay(record){
     equipDetailRecord = record;
     const summary = [record.equipLocation, record.brand, record.mountType, record.equipType, record.coolCap].filter(Boolean).join(' · ') || record.customerName;
@@ -732,11 +853,17 @@
     setEquipDetailMode('view');
     $('equipmentDetailHistoryMeta').textContent = 'Loading service history…';
     $('equipmentDetailHistoryList').innerHTML = '';
+    $('equipmentPhotoFolderInput').value = '';
+    $('equipmentPhotoUploadStatus').textContent = '';
     $('equipmentDetailOverlay').classList.add('open');
     const history = await loadEquipmentServiceHistory(record);
     // Guard against the admin having closed this record (or opened a
     // different one) while the history fetch was still in flight.
     if(equipDetailRecord === record) renderEquipmentHistorySection(history);
+    renderEquipmentPhotosSection(record);
+    cloudListEquipmentPhotoFolders().then(names=>{
+      $('equipmentPhotoFolderOptions').innerHTML = names.map(n=> '<option value="'+escapeHtml(n)+'">').join('');
+    });
   }
   $('closeEquipmentDetail').addEventListener('click', ()=> $('equipmentDetailOverlay').classList.remove('open'));
   $('equipmentDetailOverlay').addEventListener('click', (e)=>{ if(e.target.id==='equipmentDetailOverlay') $('equipmentDetailOverlay').classList.remove('open'); });
