@@ -199,6 +199,17 @@
   // foreground, and by the periodic safety-net timer in core.js. "Sync now"
   // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
+    // Resolve (or create) this customer's equipment record FIRST, so its id
+    // can be stamped onto the report as equipment_id below — a stable link
+    // that survives later edits to the equipment record's own serial/
+    // location/etc. fields. Matching by field-value equality (serial number,
+    // or location+type when no serial is on file) is fragile: editing a
+    // typo'd serial, or adding one for the first time to a unit that had
+    // none, silently orphans every report saved before that point (see
+    // matchReportHistoryForEquipment in core.js). equipment_id fixes that
+    // for every report saved going forward.
+    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
+    if(matchedCustomer) data.equipmentId = await cloudAddCustomerEquipment(matchedCustomer.id, data);
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
     // Keep only the downscaled signatures on disk: the full-resolution raw
@@ -214,11 +225,6 @@
       // instead of living only on this phone until someone reopens it.
       if(await outboxQueue('report', srNo, persisted)) result = SAVE_QUEUED;
     }
-    // Record this equipment against the matching customer, so it shows up
-    // in this customer's own equipment dropdowns next time — never mixed
-    // in with another customer's equipment.
-    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
-    if(matchedCustomer) await cloudAddCustomerEquipment(matchedCustomer.id, data);
     return result;
   }
   registerOutboxHandler('report', async (srNo, payload)=>{

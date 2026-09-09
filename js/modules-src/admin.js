@@ -658,7 +658,7 @@
     if(!eq.customerId || !(await ensureCloud())) return [];
     try{
       const { data, error } = await db.from('service_reports')
-        .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+        .select('sr_no, date, cust_name, equipment_id, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
         .eq('customer_id', eq.customerId)
         .order('date', { ascending:false });
       if(error) throw error;

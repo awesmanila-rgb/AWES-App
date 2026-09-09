@@ -40,15 +40,16 @@
   // "Manage Equipment List" detail overlay (admin.js) so both show the
   // identical history for the same unit rather than two independently
   // maintained copies of this logic drifting apart.
-  // Matched by serial number first (serial_cu / serial_fcu) when the
-  // equipment record has one on file — far more reliable than matching by
-  // location+type text, which breaks the moment two units share a room or a
-  // location gets renamed/retyped slightly differently on a visit. Falls
-  // back to location+type only when no serial is on file. Returns newest
-  // first.
+  // Matched by equipment_id first when a report has one (set at save time —
+  // see saveReport() in ui.js and reportToRow() above) — a stable link that
+  // survives later edits to the equipment record's own fields entirely.
+  // Falls back to serial number (serial_cu / serial_fcu) when the report
+  // predates equipment_id, and to location+type text only when the
+  // equipment record has no serial on file either. Returns newest first.
   function matchReportHistoryForEquipment(reports, eq){
     const hasSerial = !!(eq.serialCU || eq.serialFCU);
     return (reports||[]).filter(r=>{
+      if(eq.id && r.equipment_id) return r.equipment_id === eq.id;
       if(hasSerial){
         return (eq.serialCU && r.serial_cu === eq.serialCU) ||
                (eq.serialFCU && r.serial_fcu === eq.serialFCU);
@@ -212,6 +213,14 @@
     const custMatch = (customersCache||[])
       .find(c=> (c.name||'').trim().toLowerCase() === (data.custName||'').trim().toLowerCase());
     row.customer_id = custMatch ? custMatch.id : null;
+    // Stable link to the specific customer_equipment row this visit was
+    // for — resolved in saveReport() (ui.js) via cloudAddCustomerEquipment()
+    // before the report is saved. Preferred over serial/location+type
+    // matching wherever it's present; see matchReportHistoryForEquipment()
+    // below and its comment for why. Left null for reports saved before
+    // this existed, or saved fully offline (no durable id available yet) —
+    // those still fall back to the legacy matching for this same reason.
+    row.equipment_id = data.equipmentId || null;
     row.findings      = data.findings || [];
     row.recommendations = data.recs || [];
     row.materials     = data.materials || [];
@@ -242,6 +251,7 @@
     data.sigCustomer  = asSignature(row.customer_signature);
     data.sigTech      = asSignature(row.technician_signature);
     data.completed    = !!row.completed;
+    data.equipmentId  = row.equipment_id || null;
     return data;
   }
   // Legacy rows may hold {} (or a stray object) where a data-URL string was
@@ -2196,26 +2206,39 @@
   }
   // Called on report save — if this customer + equipment combo hasn't been
   // seen before, record it so it shows up in future dropdowns for this site.
+  // Returns the resolved customer_equipment.id (the existing dupe's id, or
+  // the newly-inserted row's id) so the caller can stamp it onto the report
+  // as service_reports.equipment_id — a stable link that survives later
+  // edits to the equipment record's own fields (serial, location, etc.),
+  // unlike matching by those fields' current values. Returns null if there
+  // was nothing to resolve (no customerId, no fields) or the write failed.
   async function cloudAddCustomerEquipment(customerId, fields){
-    if(!customerId) return;
+    if(!customerId) return null;
     const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
-    if(!hasAnyValue) return;
+    if(!hasAnyValue) return null;
     // Skip if an identical record already exists for this customer.
     const dupe = currentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
-    if(dupe) return;
+    if(dupe) return dupe.id;
     const rec = { customer_id: customerId };
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('customer_equipment').insert(rec);
+        const { data, error } = await db.from('customer_equipment').insert(rec).select('id').single();
         if(error) throw error;
         await loadCustomerEquipment(customerId);
-        return;
-      }catch(e){ console.error('add customer equipment failed', describeCloudError(e)); }
+        return data ? data.id : null;
+      }catch(e){ console.error('add customer equipment failed', describeCloudError(e)); return null; }
     }
+    // Offline: this local id is only good for this device's own cache — it
+    // is not a real customer_equipment.id, so it should NOT be stamped onto
+    // a report as equipment_id (a foreign key nothing else will recognize).
+    // There is currently no outbox/sync path for offline-added equipment
+    // records, so a report saved fully offline falls back to the legacy
+    // serial/location+type matching until this gap gets its own fix.
     const obj = { id:'local-'+Date.now(), customerId }; EQUIP_FIELD_KEYS.forEach(k=> obj[k]=fields[k]||'');
     currentEquipmentCache.push(obj);
     try{ await window.storage.set('cequip:'+customerId, JSON.stringify(currentEquipmentCache), false); }catch(e){}
+    return null;
   }
   // Deleting equipment requires a connection: there is no local delete queue,
   // so the old offline path just dropped it from the in-memory cache and
@@ -3540,7 +3563,7 @@
     if(!eq.customerId || !(await ensureCloud())) return [];
     try{
       const { data, error } = await db.from('service_reports')
-        .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+        .select('sr_no, date, cust_name, equipment_id, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
         .eq('customer_id', eq.customerId)
         .order('date', { ascending:false });
       if(error) throw error;
@@ -4424,6 +4447,17 @@
   // foreground, and by the periodic safety-net timer in core.js. "Sync now"
   // just runs that same flush immediately on demand.
   async function saveReport(srNo, data){
+    // Resolve (or create) this customer's equipment record FIRST, so its id
+    // can be stamped onto the report as equipment_id below — a stable link
+    // that survives later edits to the equipment record's own serial/
+    // location/etc. fields. Matching by field-value equality (serial number,
+    // or location+type when no serial is on file) is fragile: editing a
+    // typo'd serial, or adding one for the first time to a unit that had
+    // none, silently orphans every report saved before that point (see
+    // matchReportHistoryForEquipment in core.js). equipment_id fixes that
+    // for every report saved going forward.
+    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
+    if(matchedCustomer) data.equipmentId = await cloudAddCustomerEquipment(matchedCustomer.id, data);
     let result = SAVE_FAILED;
     if(await ensureCloud() && await cloudSaveReport(srNo, data)) result = SAVE_CLOUD;
     // Keep only the downscaled signatures on disk: the full-resolution raw
@@ -4439,11 +4473,6 @@
       // instead of living only on this phone until someone reopens it.
       if(await outboxQueue('report', srNo, persisted)) result = SAVE_QUEUED;
     }
-    // Record this equipment against the matching customer, so it shows up
-    // in this customer's own equipment dropdowns next time — never mixed
-    // in with another customer's equipment.
-    const matchedCustomer = customersCache.find(c=> c.name.toLowerCase() === (data.custName||'').trim().toLowerCase());
-    if(matchedCustomer) await cloudAddCustomerEquipment(matchedCustomer.id, data);
     return result;
   }
   registerOutboxHandler('report', async (srNo, payload)=>{
@@ -11460,7 +11489,7 @@
         // findings/recommendations/materials/services done per visit
         // without a second round-trip per unit.
         const { data, error } = await db.from('service_reports')
-          .select('sr_no, date, cust_name, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
+          .select('sr_no, date, cust_name, equipment_id, equip_type, equip_location, model_cu, serial_cu, model_fcu, serial_fcu, trouble_call, remarks, completed, technician_name, findings, recommendations, materials, services_done')
           .eq('customer_id', cpCustomer.id)
           .order('date', { ascending:false });
         if(error) throw error;

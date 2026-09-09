@@ -98,26 +98,39 @@
   }
   // Called on report save — if this customer + equipment combo hasn't been
   // seen before, record it so it shows up in future dropdowns for this site.
+  // Returns the resolved customer_equipment.id (the existing dupe's id, or
+  // the newly-inserted row's id) so the caller can stamp it onto the report
+  // as service_reports.equipment_id — a stable link that survives later
+  // edits to the equipment record's own fields (serial, location, etc.),
+  // unlike matching by those fields' current values. Returns null if there
+  // was nothing to resolve (no customerId, no fields) or the write failed.
   async function cloudAddCustomerEquipment(customerId, fields){
-    if(!customerId) return;
+    if(!customerId) return null;
     const hasAnyValue = EQUIP_FIELD_KEYS.some(k=> (fields[k]||'').trim());
-    if(!hasAnyValue) return;
+    if(!hasAnyValue) return null;
     // Skip if an identical record already exists for this customer.
     const dupe = currentEquipmentCache.find(e=> EQUIP_FIELD_KEYS.every(k=> (e[k]||'') === (fields[k]||'')));
-    if(dupe) return;
+    if(dupe) return dupe.id;
     const rec = { customer_id: customerId };
     EQUIP_FIELD_KEYS.forEach(k=> rec[EQUIP_FIELD_TO_COLUMN[k]] = fields[k]||'');
     if(await ensureCloud()){
       try{
-        const { error } = await db.from('customer_equipment').insert(rec);
+        const { data, error } = await db.from('customer_equipment').insert(rec).select('id').single();
         if(error) throw error;
         await loadCustomerEquipment(customerId);
-        return;
-      }catch(e){ console.error('add customer equipment failed', describeCloudError(e)); }
+        return data ? data.id : null;
+      }catch(e){ console.error('add customer equipment failed', describeCloudError(e)); return null; }
     }
+    // Offline: this local id is only good for this device's own cache — it
+    // is not a real customer_equipment.id, so it should NOT be stamped onto
+    // a report as equipment_id (a foreign key nothing else will recognize).
+    // There is currently no outbox/sync path for offline-added equipment
+    // records, so a report saved fully offline falls back to the legacy
+    // serial/location+type matching until this gap gets its own fix.
     const obj = { id:'local-'+Date.now(), customerId }; EQUIP_FIELD_KEYS.forEach(k=> obj[k]=fields[k]||'');
     currentEquipmentCache.push(obj);
     try{ await window.storage.set('cequip:'+customerId, JSON.stringify(currentEquipmentCache), false); }catch(e){}
+    return null;
   }
   // Deleting equipment requires a connection: there is no local delete queue,
   // so the old offline path just dropped it from the in-memory cache and

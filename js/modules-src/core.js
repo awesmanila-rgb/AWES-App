@@ -38,15 +38,16 @@
   // "Manage Equipment List" detail overlay (admin.js) so both show the
   // identical history for the same unit rather than two independently
   // maintained copies of this logic drifting apart.
-  // Matched by serial number first (serial_cu / serial_fcu) when the
-  // equipment record has one on file — far more reliable than matching by
-  // location+type text, which breaks the moment two units share a room or a
-  // location gets renamed/retyped slightly differently on a visit. Falls
-  // back to location+type only when no serial is on file. Returns newest
-  // first.
+  // Matched by equipment_id first when a report has one (set at save time —
+  // see saveReport() in ui.js and reportToRow() above) — a stable link that
+  // survives later edits to the equipment record's own fields entirely.
+  // Falls back to serial number (serial_cu / serial_fcu) when the report
+  // predates equipment_id, and to location+type text only when the
+  // equipment record has no serial on file either. Returns newest first.
   function matchReportHistoryForEquipment(reports, eq){
     const hasSerial = !!(eq.serialCU || eq.serialFCU);
     return (reports||[]).filter(r=>{
+      if(eq.id && r.equipment_id) return r.equipment_id === eq.id;
       if(hasSerial){
         return (eq.serialCU && r.serial_cu === eq.serialCU) ||
                (eq.serialFCU && r.serial_fcu === eq.serialFCU);
@@ -210,6 +211,14 @@
     const custMatch = (customersCache||[])
       .find(c=> (c.name||'').trim().toLowerCase() === (data.custName||'').trim().toLowerCase());
     row.customer_id = custMatch ? custMatch.id : null;
+    // Stable link to the specific customer_equipment row this visit was
+    // for — resolved in saveReport() (ui.js) via cloudAddCustomerEquipment()
+    // before the report is saved. Preferred over serial/location+type
+    // matching wherever it's present; see matchReportHistoryForEquipment()
+    // below and its comment for why. Left null for reports saved before
+    // this existed, or saved fully offline (no durable id available yet) —
+    // those still fall back to the legacy matching for this same reason.
+    row.equipment_id = data.equipmentId || null;
     row.findings      = data.findings || [];
     row.recommendations = data.recs || [];
     row.materials     = data.materials || [];
@@ -240,6 +249,7 @@
     data.sigCustomer  = asSignature(row.customer_signature);
     data.sigTech      = asSignature(row.technician_signature);
     data.completed    = !!row.completed;
+    data.equipmentId  = row.equipment_id || null;
     return data;
   }
   // Legacy rows may hold {} (or a stray object) where a data-URL string was
