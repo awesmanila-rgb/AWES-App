@@ -2005,6 +2005,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('cashAdvanceView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';

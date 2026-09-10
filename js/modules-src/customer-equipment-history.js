@@ -294,8 +294,10 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('homeScreen').style.display = 'none';
     $('customerEquipmentDetailScreen').style.display = 'none';
+    $('customerRequestsScreen').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
@@ -315,11 +317,16 @@
     closeMainMenu(); setSidebarActive('custNavReports'); showCustomerHome();
     const el = $('cpReportsList'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
   });
-  // No dedicated screens shipped yet for these two — same "coming soon"
-  // convention already used elsewhere in the app (see tile_materialRequest
-  // in home.js) rather than linking to something that doesn't exist.
-  $('custNavRequests').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('custNavRequests'); toast('Service Requests — coming soon'); });
+  // custNavRequests / cpRequestServiceBtn open the Request Service screen
+  // (New Request + My Requests) — see cpShowRequestsScreen() in
+  // customer-portal.js. Account settings still has no screen, so it keeps
+  // the "coming soon" convention used elsewhere (tile_materialRequest in
+  // home.js).
+  $('custNavRequests').addEventListener('click', ()=>{
+    closeMainMenu(); setSidebarActive('custNavRequests');
+    if(typeof cpShowRequestsScreen === 'function') cpShowRequestsScreen();
+  });
   $('custNavAccount').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('custNavAccount'); toast('Account settings — coming soon'); });
-  $('cpRequestServiceBtn').addEventListener('click', ()=> toast('Request Service — coming soon'));
+  $('cpRequestServiceBtn').addEventListener('click', ()=>{ if(typeof cpShowRequestsScreen === 'function') cpShowRequestsScreen(); });
   $('cpViewAllReportsBtn').addEventListener('click', ()=> toast('Full report list — coming soon'));
   $('cpDetailBackBtn').addEventListener('click', closeCustomerEquipmentDetail);

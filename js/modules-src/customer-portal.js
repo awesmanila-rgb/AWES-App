@@ -209,9 +209,12 @@
     }
 
     // Sidebar badges — same pattern as your existing #sidebarMsgBadge on
-    // the technician nav.
+    // the technician nav. custRequestsBadge (open service requests, not
+    // service reports) comes from an async query, so it's kicked off here
+    // fire-and-forget rather than blocking this otherwise-synchronous
+    // render — see cpRefreshRequestsBadge() below.
     cpUpdateSidebarBadge('custEquipBadge', pmDueEquip.length);
-    cpUpdateSidebarBadge('custRequestsBadge', cpReports.filter(r => !r.completed).length);
+    if(cpCustomer && cpCustomer.id) cpRefreshRequestsBadge(cpCustomer.id);
 
     // Equipment grid
     $('cpEquipGrid').innerHTML = cpEquipment.length
@@ -263,6 +266,7 @@
     await loadCustomerPortalData(customerId);
     $('cpGreetingName').textContent = currentUser.name || 'there';
     renderCustomerHome();
+    cpInitRealtime(customerId);
   }
   $('cpCustomerSwitcher').addEventListener('change', (e)=> cpSwitchActiveCustomer(e.target.value));
 
@@ -277,4 +281,148 @@
     cpRenderSwitcher();
     await loadCustomerPortalData(currentUser.customerId);
     renderCustomerHome();
+    cpInitRealtime(currentUser.customerId);
   }
+
+  // ---------- Live updates (customer portal) ----------
+  // Same push+poll pattern as tracker.js's admin channel: a Supabase
+  // realtime subscription for the instant case, plus a slower poll as the
+  // offline-safe fallback. Scoped with a customer_id filter so a customer
+  // login with access to multiple customers (see cpSwitchActiveCustomer)
+  // only gets pushes for whichever one is currently being viewed — RLS
+  // would block anything else anyway, but the filter also keeps this
+  // login from re-rendering on another of its own customers' changes
+  // while looking at a different one.
+  let cpRealtimeChannel = null;
+  let cpRealtimePollTimer = null;
+  let cpRealtimeCustomerId = null;
+
+  function cpInitRealtime(customerId){
+    if(cpRealtimeChannel && cpRealtimeCustomerId === customerId) return; // already watching this customer
+    cpTeardownRealtime();
+    cpRealtimeCustomerId = customerId;
+    if(!db) return;
+    const onChange = ()=>{
+      // Reload+re-render rather than patch state in place — same as every
+      // other screen's realtime handler (dispatch.js, tracker.js) — so a
+      // push doesn't have to duplicate loadCustomerPortalData's merge logic.
+      loadCustomerPortalData(customerId).then(renderCustomerHome);
+    };
+    // A status change on one of this customer's own requests (e.g. admin
+    // acknowledges/schedules/completes it) should update "My Requests" and
+    // the sidebar badge the instant it happens — cheap to always run both
+    // here since they're no-op-safe even when the requests screen isn't
+    // currently visible.
+    const onRequestChange = ()=>{
+      if(typeof cpRenderMyRequests === 'function') cpRenderMyRequests(customerId);
+      cpRefreshRequestsBadge(customerId);
+    };
+    cpRealtimeChannel = db.channel('customer-portal-'+customerId)
+      .on('postgres_changes', { event:'*', schema:'public', table:'customer_equipment', filter:'customer_id=eq.'+customerId }, onChange)
+      .on('postgres_changes', { event:'*', schema:'public', table:'service_reports', filter:'customer_id=eq.'+customerId }, onChange)
+      .on('postgres_changes', { event:'*', schema:'public', table:'service_requests', filter:'customer_id=eq.'+customerId }, onRequestChange)
+      .subscribe();
+    if(!cpRealtimePollTimer) cpRealtimePollTimer = setInterval(()=>{ onChange(); onRequestChange(); }, 30000);
+  }
+
+  // Called on logout, and internally when switching to a different
+  // customer_id, so no stale channel/poll from a previous session or a
+  // previously-viewed customer keeps running.
+  function cpTeardownRealtime(){
+    if(cpRealtimePollTimer){ clearInterval(cpRealtimePollTimer); cpRealtimePollTimer = null; }
+    if(cpRealtimeChannel && db){ try{ db.removeChannel(cpRealtimeChannel); }catch(e){} }
+    cpRealtimeChannel = null;
+    cpRealtimeCustomerId = null;
+  }
+
+  // Sidebar "Service Requests" badge — count of this customer's own
+  // requests still open (not completed/cancelled). Separate from
+  // renderCustomerHome() since srListForCustomer is an async query;
+  // renderCustomerHome fires this off without waiting on it.
+  async function cpRefreshRequestsBadge(customerId){
+    const rows = await srListForCustomer(customerId);
+    const openCount = rows.filter(r=> r.status!=='completed' && r.status!=='cancelled').length;
+    cpUpdateSidebarBadge('custRequestsBadge', openCount);
+  }
+
+  // ---------- Request Service (customer-side) ----------
+  // New Request form + My Requests history, reached via custNavRequests or
+  // cpRequestServiceBtn (see customer-equipment-history.js wiring). Backend
+  // functions (srCreate, srListForCustomer, srStatusLabel) live in
+  // service-requests.js — this is just the customer-facing screen.
+  function cpShowRequestsScreen(){
+    $('customerHomeScreen').style.display = 'none';
+    $('customerEquipmentDetailScreen').style.display = 'none';
+    $('customerRequestsScreen').style.display = '';
+    cpReqShowTab('new');
+    cpPopulateReqEquipmentOptions();
+    cpRenderMyRequests(currentUser.customerId);
+    window.scrollTo({top:0});
+  }
+  function cpReqShowTab(tab){
+    $('cpReqTabNew').classList.toggle('active', tab==='new');
+    $('cpReqTabHistory').classList.toggle('active', tab==='history');
+    $('cpReqNewPanel').style.display = tab==='new' ? '' : 'none';
+    $('cpReqHistoryPanel').style.display = tab==='history' ? '' : 'none';
+  }
+  function cpPopulateReqEquipmentOptions(){
+    const sel = $('cpReqEquipment');
+    const generalOpt = '<option value="">General inquiry (not a specific unit)</option>';
+    sel.innerHTML = generalOpt + cpEquipment.map(eq=>
+      '<option value="'+eq.id+'">'+escapeHtml(equipDisplayName(eq))+' — '+escapeHtml(eq.equipLocation||'')+'</option>'
+    ).join('');
+  }
+  function cpReqStatusPillClass(status){
+    return { new:'status-sr-open', acknowledged:'status-sr-open', scheduled:'status-sr-active',
+      in_progress:'status-sr-active', completed:'status-sr-done', cancelled:'status-sr-cancelled' }[status] || 'status-sr-done';
+  }
+  function cpReqRowHtml(r){
+    const eq = cpEquipment.find(e=> String(e.id)===String(r.equipmentId));
+    const eqLabel = eq ? escapeHtml(equipDisplayName(eq)) : 'General inquiry';
+    return (
+      '<div class="cp-row" style="align-items:flex-start; cursor:default;">'+
+        '<div class="cp-row-icon">🛠️</div>'+
+        '<div class="cp-row-body">'+
+          '<div class="cp-row-title">'+eqLabel+'</div>'+
+          '<div class="cp-row-sub">'+escapeHtml(r.description||'')+'</div>'+
+          '<div class="cp-row-sub">'+fmtDate(r.createdAt)+'</div>'+
+        '</div>'+
+        '<span class="status-pill '+cpReqStatusPillClass(r.status)+'">'+escapeHtml(srStatusLabel(r.status))+'</span>'+
+      '</div>'
+    );
+  }
+  async function cpRenderMyRequests(customerId){
+    const list = $('cpReqHistoryList');
+    if(!list || !customerId) return;
+    const rows = await srListForCustomer(customerId);
+    list.innerHTML = rows.length
+      ? rows.map(cpReqRowHtml).join('')
+      : '<div class="empty-state">No service requests yet.</div>';
+  }
+  async function cpSubmitRequest(){
+    const description = $('cpReqDescription').value.trim();
+    if(!description){ toast('Please describe the issue'); return; }
+    if(!currentUser || !currentUser.customerId){ toast('Please sign in again'); return; }
+    $('cpReqSubmitBtn').disabled = true; $('cpReqSubmitBtn').textContent = 'Submitting…';
+    const result = await srCreate({
+      customerId: currentUser.customerId,
+      equipmentId: $('cpReqEquipment').value || null,
+      description,
+      urgency: $('cpReqUrgency').value || 'normal',
+      requestedDate: $('cpReqDate').value || null
+    });
+    $('cpReqSubmitBtn').disabled = false; $('cpReqSubmitBtn').textContent = 'Submit Request';
+    if(!result){ toast('Could not submit — check your connection and try again'); return; }
+    toast('Request submitted — we\'ll be in touch');
+    $('cpReqDescription').value = '';
+    $('cpReqUrgency').value = 'normal';
+    $('cpReqDate').value = '';
+    $('cpReqEquipment').value = '';
+    cpReqShowTab('history');
+    cpRenderMyRequests(currentUser.customerId);
+    cpRefreshRequestsBadge(currentUser.customerId);
+  }
+  $('cpReqBackBtn').addEventListener('click', ()=>{ if(typeof showCustomerHome === 'function') showCustomerHome(); });
+  $('cpReqTabNew').addEventListener('click', ()=> cpReqShowTab('new'));
+  $('cpReqTabHistory').addEventListener('click', ()=>{ cpReqShowTab('history'); cpRenderMyRequests(currentUser.customerId); });
+  $('cpReqSubmitBtn').addEventListener('click', cpSubmitRequest);

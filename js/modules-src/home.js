@@ -17,6 +17,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('dtrView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -64,6 +65,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -95,6 +97,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -150,6 +153,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = '';
@@ -459,9 +463,15 @@
     $('ovReportsValue').textContent = String(draftReports);
     $('ovReportsSub').textContent = draftReports+' Service Report'+(draftReports===1?'':'s')+' Pending Sign-off';
 
+    // Service Requests — customer-filed, admin-only (service-requests.js).
+    // srAdminInit() renders the value itself (and keeps it live afterward
+    // via realtime), but it's awaited here so the notification bell total
+    // just below already reflects it on this first render.
+    const openServiceRequests = (typeof srAdminInit === 'function') ? (await srAdminInit()) || 0 : 0;
+
     // Notification bell in the dashboard top bar — total items anywhere in
     // the app that are waiting on an admin decision or sign-off.
-    const notifTotal = pendingCA + pendingLiq + pendingLeave + draftReports;
+    const notifTotal = pendingCA + pendingLiq + pendingLeave + draftReports + openServiceRequests;
     const notifEl = $('notifBadge');
     if(notifEl){
       notifEl.textContent = notifTotal > 99 ? '99+' : String(notifTotal);
@@ -614,6 +624,7 @@
     $('serviceReportsManagerView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('messagesView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -712,6 +723,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('customerHomeScreen').style.display = 'none';
     $('customerEquipmentDetailScreen').style.display = 'none';
     $('footerBar').style.display = 'none';
@@ -782,6 +794,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('serviceReportView').style.display = '';
     $('homeBtn').style.display = '';
     setHeaderTitle('Service Report', 'Field digital form');

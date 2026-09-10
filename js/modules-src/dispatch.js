@@ -801,6 +801,7 @@
   }
 
   function dtResetForm(){
+    dtSourceServiceRequestId = null;
     $('dtJobOrderNo').value = '—';
     $('dtDate').value = todayISO();
     $('dtExpectedTime').value = '';
@@ -819,6 +820,56 @@
     $('dtReqOthersDetail').value = '';
     $('dtReqOthersDetailWrap').style.display = 'none';
     dtRenderWorkerChecklist();
+  }
+
+  // Set by dtPrefillCreateFromServiceRequest below when the Create form was
+  // opened from a customer's service request; dtCreateTicket's success path
+  // uses it to call srLinkTicket() so the request follows the resulting
+  // ticket (see also the completion-sync hook in dtComplete). Cleared by
+  // dtResetForm so it never leaks onto an unrelated, later ticket.
+  let dtSourceServiceRequestId = null;
+
+  // Opens the Create Dispatch Ticket tab with a customer service request's
+  // details pre-filled, so admin can review/adjust and finish creating the
+  // ticket the normal way (dtCreateTicket, above). Called from
+  // service-requests.js srConvertToTicket() — this does not save a ticket
+  // by itself. request: {id, customerId, equipmentId, description, urgency,
+  // requestedDate} as shaped by service-requests.js srRowToRequest().
+  async function dtPrefillCreateFromServiceRequest(request){
+    await showDispatchView('new'); // already calls dtResetForm() internally via dtShowAdminTab('new')
+    dtSourceServiceRequestId = request.id;
+    if(request.customerId){
+      // customersCache is populated by whichever screen loads it first
+      // (see showDispatchView's own comment on this above); find the
+      // matching name for the combo's text field.
+      const cust = (typeof customersCache !== 'undefined' ? customersCache : []).find(c=> String(c.id)===String(request.customerId));
+      if(cust){
+        $('dtCustName').value = cust.name || '';
+        $('dtCustName').dataset.customerId = cust.id;
+        await dtLoadCustomerEquipment(cust.id);
+        // If the request named a specific unit (not a general inquiry),
+        // add it to the ticket now — same shape dtAddSelectedExistingEquip
+        // builds for an "already on file" pick — so admin doesn't have to
+        // re-find and re-add by hand what the customer already told us.
+        // Falls through silently if the unit isn't in the cache (e.g. it
+        // was removed from file since the request was filed); admin can
+        // still add equipment manually the normal way.
+        if(request.equipmentId){
+          const e = dtCurrentEquipmentCache.find(x=> String(x.id)===String(request.equipmentId));
+          if(e){
+            const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
+            dtDraftEquipItems.push(item);
+            dtAppendEquipItemCard(item);
+            dtSetEquipTab('existing');
+            dtRenderEquipPicker();
+          }
+        }
+      }
+    }
+    if(request.requestedDate) $('dtDate').value = request.requestedDate;
+    const urgentPrefix = request.urgency==='urgent' ? '[URGENT] ' : '';
+    $('dtRemarks').value = urgentPrefix + 'From customer service request: ' + (request.description||'');
+    toast('Review the pre-filled details, then create the ticket');
   }
 
   async function dtCreateTicket(){
@@ -874,6 +925,15 @@
     toast(res===SAVE_CLOUD
       ? ('Dispatch ticket '+id+' created')
       : ('Ticket '+id+' saved on this device — technicians will see it once you are online'));
+    // If this ticket was created from a customer's service request (see
+    // dtPrefillCreateFromServiceRequest above), link the two so the
+    // request's status follows the ticket from here on (srLinkTicket sets
+    // it to 'scheduled' now; dtComplete's completion hook takes it to
+    // 'completed' later). Best-effort — an ordinary ticket with no source
+    // request just leaves this as a no-op.
+    if(dtSourceServiceRequestId && typeof srLinkTicket === 'function'){
+      srLinkTicket(dtSourceServiceRequestId, id).catch(()=>{});
+    }
     dtResetForm();
     $('dtJobOrderNo').value = '—';
   }
@@ -1385,6 +1445,7 @@
     dtRenderTechList();
   }
   async function dtComplete(id){
+    let becameCompleted = false;
     const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
       if(rec.status==='completed'){ toast('Already completed'); return null; }
       const ackBy = rec.acknowledgedBy || [];
@@ -1399,9 +1460,19 @@
         toast('Recorded — waiting for the other assigned technician(s)');
         return { completedBy: list, status: rec.status||'acknowledged' };
       }
+      becameCompleted = true;
       return { completedBy: list, status: 'completed', completedAt: new Date().toISOString() };
     });
     if(ok) toast('Marked completed');
+    // If this ticket originated from a customer's service request (see
+    // service-requests.js srConvertToTicket/srLinkTicket), flip that
+    // request to 'completed' too so the admin's requests queue doesn't
+    // show a job that's actually done as still open. Best-effort — a
+    // ticket not linked to any request is the normal case and this is a
+    // silent no-op then.
+    if(ok && becameCompleted && typeof srMarkCompletedByTicket === 'function'){
+      srMarkCompletedByTicket(id).catch(()=>{});
+    }
     dtRenderTechList();
   }
 
@@ -1786,6 +1857,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('dispatchView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
@@ -1828,6 +1900,7 @@
     $('messagesView').style.display = 'none';
     $('documentsView').style.display = 'none';
     $('customerHistoryView').style.display = 'none';
+    $('serviceRequestsView').style.display = 'none';
     $('leaveView').style.display = '';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';

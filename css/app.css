@@ -1296,6 +1296,17 @@
 .status-due-soon{background:#FBEFE4; color:var(--amber);}
 .status-overdue{background:#F7E2DC; color:var(--danger);}
 
+/* Service Requests (service-requests.js admin queue, customer-portal.js
+   "My Requests") — new/acknowledged reuse the due-soon amber since both
+   mean "awaiting action"; scheduled/in_progress reuse the ok green since
+   the customer's request has been picked up; completed is a calmer green;
+   cancelled and the urgent flag reuse existing danger/muted tones. */
+.status-sr-open{background:#FBEFE4; color:var(--amber);}
+.status-sr-active{background:var(--green-light); color:var(--green-dark);}
+.status-sr-done{background:#EEF1ED; color:var(--text-muted);}
+.status-sr-cancelled{background:#F7E2DC; color:var(--danger);}
+.status-sr-urgent{background:#F7E2DC; color:var(--danger);}
+
 .cp-stat-grid{
   display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px;
 }

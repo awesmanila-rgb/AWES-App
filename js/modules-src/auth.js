@@ -1020,6 +1020,8 @@
     stopIdleWatch();
     trackerStopBroadcasting();
     trackerAdminTeardown();
+    if(typeof srAdminTeardown === 'function') srAdminTeardown();
+    if(typeof cpTeardownRealtime === 'function') cpTeardownRealtime();
     // This used to only clear the app's OWN 'current-user' flag and never told
     // Supabase Auth to end the session. The real session cookie/token was left
     // fully valid, so the login screen showing right after tapping Logout was
