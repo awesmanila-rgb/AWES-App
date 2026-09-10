@@ -1,3 +1,12 @@
+// Bumped to v40 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js/css/app.css again — switches the
+// app-wide typeface from Fredoka to Plus Jakarta Sans (+ JetBrains Mono
+// for fixed-width figures), loaded from Google's font CDN (CDN_SHELL
+// below) and applied everywhere via app.css. Without this bump, devices
+// that already cached v39's index.html/app.css (with the old Fredoka
+// <link> baked in) would keep rendering Fredoka indefinitely, since the
+// only thing that forces a cache drop is this constant changing.
+//
 // Bumped to v39 to force every installed device to drop its old cache and
 // re-fetch index.html/app.bundle.js/css/app.css again — switches the
 // app-wide typeface from the system-font stack ("Google Sans" etc.) to
@@ -38,7 +47,7 @@
 // added it (picked from "Select Existing", or freshly typed via "+ Add
 // New") and carried forward as a real id from that point on — see
 // equipPickedId in app.bundle.js — never re-guessed from field content.
-const CACHE_NAME = 'awes-sr-v39';
+const CACHE_NAME = 'awes-sr-v40';
 
 // Split into two lists on purpose.
 //
@@ -73,14 +82,15 @@ const CDN_SHELL = [
   // precaching it on install would slow first load for everyone to help
   // only the technicians who use that one feature.
   //
-  // Fredoka (app-wide typeface, see app.css) — this precaches the CSS
-  // response only; the actual woff2 files it references get cached the
-  // first time the browser fetches them (via the generic cache-first
-  // fallback below, same as everything else here), since Google serves
-  // different font files per requesting browser/UA and precaching one
-  // fixed response here could serve the wrong format to a different
-  // browser than whichever one happened to install the service worker.
-  'https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap',
+  // Plus Jakarta Sans + JetBrains Mono (app-wide typefaces, see app.css) —
+  // this precaches the CSS response only; the actual woff2 files it
+  // references get cached the first time the browser fetches them (via
+  // the generic cache-first fallback below, same as everything else
+  // here), since Google serves different font files per requesting
+  // browser/UA and precaching one fixed response here could serve the
+  // wrong format to a different browser than whichever one happened to
+  // install the service worker.
+  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&family=JetBrains+Mono:wght@400;500;600&display=swap',
 ];
 
 function isAppShellDoc(url){
