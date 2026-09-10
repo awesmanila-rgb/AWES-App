@@ -1,0 +1,13 @@
+{
+  "name": "awes-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint js/modules-src/",
+    "build": "npm run lint && python3 build.py && esbuild js/app.bundle.js --minify --sourcemap --outfile=js/app.bundle.js --allow-overwrite"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0"
+  }
+}
