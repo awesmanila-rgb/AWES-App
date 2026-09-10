@@ -1,3 +1,20 @@
+// Bumped to v39 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js/css/app.css again — switches the
+// app-wide typeface from the system-font stack ("Google Sans" etc.) to
+// Fredoka, loaded from Google's font CDN (added to CDN_SHELL below) and
+// applied everywhere via app.css. Also adds a font-family/font-weight
+// reset for form controls (button, input, select, textarea, optgroup) —
+// see the comment on that rule in app.css for why it was missing before
+// and why it matters now that a visually distinct font is in use.
+//
+// Bumped to v38 to force every installed device to drop its old cache and
+// re-fetch index.html/app.bundle.js again — tapping a photo (admin grid or
+// customer portal gallery) now opens a full-screen swipeable lightbox
+// instead of window.open() in a new tab, so browsing through a unit's
+// photos no longer means closing each tab to see the next one. New markup
+// (#equipPhotoLightbox etc.) in index.html and new lightbox functions in
+// equipment-photos.js that v37's cached copies don't have.
+//
 // Bumped to v37 to force every installed device to drop its old cache and
 // re-fetch index.html/app.bundle.js again — the customer portal's photo
 // gallery now always shows the folder name above each group of photos
@@ -21,7 +38,7 @@
 // added it (picked from "Select Existing", or freshly typed via "+ Add
 // New") and carried forward as a real id from that point on — see
 // equipPickedId in app.bundle.js — never re-guessed from field content.
-const CACHE_NAME = 'awes-sr-v37';
+const CACHE_NAME = 'awes-sr-v39';
 
 // Split into two lists on purpose.
 //
@@ -55,6 +72,15 @@ const CDN_SHELL = [
   // "Scan Nameplate", and it's multiple MB (JS + WASM + trained data) —
   // precaching it on install would slow first load for everyone to help
   // only the technicians who use that one feature.
+  //
+  // Fredoka (app-wide typeface, see app.css) — this precaches the CSS
+  // response only; the actual woff2 files it references get cached the
+  // first time the browser fetches them (via the generic cache-first
+  // fallback below, same as everything else here), since Google serves
+  // different font files per requesting browser/UA and precaching one
+  // fixed response here could serve the wrong format to a different
+  // browser than whichever one happened to install the service worker.
+  'https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap',
 ];
 
 function isAppShellDoc(url){

@@ -801,7 +801,7 @@
       const photo = photos.find(p=> String(p.id)===card.dataset.photoId);
       if(!photo) return;
       const viewEl = card.querySelector('[data-act="view"]');
-      if(viewEl) viewEl.addEventListener('click', ()=> { if(photo.signedUrl) window.open(photo.signedUrl, '_blank'); });
+      if(viewEl) viewEl.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
       const coverBtn = card.querySelector('[data-act="cover"]');
       if(coverBtn) coverBtn.addEventListener('click', async ()=>{
         coverBtn.disabled = true;

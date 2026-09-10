@@ -16,21 +16,48 @@
     --portal-green-dark:#245C10;
   }
   *{box-sizing:border-box;}
-  /* App-wide typeface: "Google Sans" first (used automatically wherever the
-     device/OS already has it installed, e.g. Android/ChromeOS), falling back
-     to Roboto — Google Sans' own metrics/shape are based on Roboto, so this
-     is the closest match on devices without the font itself — then the
-     platform system-font stack. Not loaded from a web font CDN on purpose:
-     Google Sans isn't published on Google Fonts for public embedding, and
-     this app works offline/on weak field signal (see loadAwesScript above),
-     so no version of it should require a network fetch just to render text.
+  /* Pre-existing gap, surfaced by the Fredoka change: browsers don't
+     inherit page typography into form controls by default, and this file
+     only ever patched font-family:inherit onto a handful of specific
+     inputs/buttons (search below for "font-family:inherit" to see which)
+     rather than resetting it once for the element types as a whole. That
+     meant every plain <button> in the app (.save-btn, .cancel-btn,
+     .menu-dropdown button, etc.) was already silently rendering in the
+     browser's default UA font, not "Google Sans" — invisible before since
+     most system UA button fonts and Google Sans/Roboto look similar
+     enough not to notice, but it would be an obvious mismatch with
+     Fredoka's distinct rounded shapes now that buttons sit next to text
+     that finally IS rendering in it. This is the standard reset for it. */
+  button, input, select, textarea, optgroup{ font-family:inherit; font-weight:inherit; }
+  /* App-wide typeface: Fredoka (a rounded, friendly Google Font, brand
+     choice — replaces the earlier system-font stack). Unlike "Google Sans"
+     below, Fredoka IS a proper open-source Google Font (SIL Open Font
+     License) — free to load from Google's font CDN and to self-host, no
+     licensing blocker either way. Loaded via <link> in index.html rather
+     than self-hosted purely because this sandbox couldn't fetch the woff2
+     binaries to bundle them; either way the browser's own HTTP cache plus
+     sw.js's generic cache-first fallback (the bottom block in its fetch
+     handler — the same one that already keeps the jsPDF/Supabase CDN
+     scripts in CDN_SHELL working offline) means Fredoka keeps rendering
+     offline after the first successful load, same reliability guarantee
+     as those libraries.
+     Falls back to the previous stack ("Google Sans" etc.) if the Fredoka
+     stylesheet hasn't loaded yet (e.g. very first load with no signal) —
+     nobody sees invisible text while it fetches.
+     Weight: Fredoka's regular (400) cut reads visibly lighter/thinner than
+     Google Sans/Roboto did at the same numeric weight, so body text is
+     bumped to weight 500 below to keep the same reading weight the app
+     had before. Fredoka's heaviest cut is 700 (no 800) — every prior
+     font-weight:800 rule in this file has been remapped to 700 to match;
+     don't reintroduce 800 while Fredoka is the active font.
      Applies everywhere via inheritance — nothing below sets its own family
-     except the few explicit font-family:inherit rules, which already inherit
-     this. */
-  html{ font-family:"Google Sans","Product Sans",Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+     except the few explicit font-family:inherit rules, which already
+     inherit this. */
+  html{ font-family:"Fredoka","Google Sans","Product Sans",Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
   body{
     margin:0;
     font-family:inherit;
+    font-weight:500;
     background:var(--bg);
     color:var(--text);
     -webkit-tap-highlight-color:transparent;
@@ -250,7 +277,7 @@
     font-size:12px; font-weight:700; letter-spacing:.3px; color:var(--text-muted); text-transform:uppercase;
   }
   .overview-stat-icon{font-size:22px; line-height:1; flex-shrink:0;}
-  .overview-stat-value{font-size:28px; font-weight:800; margin-top:10px; color:var(--text); line-height:1;}
+  .overview-stat-value{font-size:28px; font-weight:700; margin-top:10px; color:var(--text); line-height:1;}
   .overview-progress{height:6px; background:#EEF1EE; border-radius:4px; margin-top:10px; overflow:hidden;}
   .overview-progress-bar{height:100%; background:var(--green); border-radius:4px; transition:width .3s;}
   .overview-stat-sub{font-size:13px; color:var(--text-muted); margin-top:10px; line-height:1.4;}
@@ -327,7 +354,7 @@
   .field label .req{color:var(--danger);}
   input[type=text], input[type=email], input[type=password], input[type=date], input[type=time], input[type=number], textarea, select{
     width:100%; padding:10px 11px; border:1px solid var(--border); border-radius:8px;
-    font-size:15px; font-family:inherit; background:#fff; color:var(--text);
+    font-size:15px; font-family:inherit; font-weight:inherit; background:#fff; color:var(--text);
   }
   input:focus, textarea:focus, select:focus{outline:2px solid var(--green); outline-offset:0; border-color:var(--green);}
   textarea{resize:vertical; min-height:44px;}
@@ -542,7 +569,7 @@
   }
   .greet-attendance-item{display:flex; flex-direction:column; gap:3px;}
   .greet-attendance-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted);}
-  .greet-attendance-val{font-size:24px; font-weight:800; color:var(--green-dark); line-height:1.1;}
+  .greet-attendance-val{font-size:24px; font-weight:700; color:var(--green-dark); line-height:1.1;}
   .greet-attendance-val-missing{color:var(--amber);}
   .greet-summary-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin:0 0 8px;}
   .greet-summary-list{display:flex; flex-direction:column; gap:8px; margin:0 0 14px;}
@@ -570,18 +597,18 @@
     padding:14px; display:flex; flex-direction:column; gap:10px;
   }
   @media (max-width:700px){ .greet-today-jo{ flex:1 1 auto; max-width:none; } }
-  .greet-today-jo-title{font-size:12px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
+  .greet-today-jo-title{font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
   .greet-jo-empty{font-size:13px; color:var(--text-muted); font-style:italic;}
   .greet-jo-item{background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px; cursor:pointer;}
   .greet-jo-item:active{background:var(--green-light);}
   .greet-jo-item + .greet-jo-item{margin-top:8px;}
   .greet-jo-item-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}
-  .greet-jo-no{font-weight:800; font-size:13px; color:var(--text);}
+  .greet-jo-no{font-weight:700; font-size:13px; color:var(--text);}
   .greet-jo-cust{font-size:13px; color:var(--text); font-weight:600;}
   .greet-jo-time{font-size:12px; color:var(--text-muted); margin-top:2px;}
   .dtr-loc-tag{
     font-size:11px; color:var(--green-dark); background:none; border:none; padding:0; margin-top:2px;
-    display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit;
+    display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit; font-weight:inherit;
   }
   .dtr-loc-tag:active{color:var(--green);}
   .loc-modal-address{font-size:14px; font-weight:600; margin-bottom:4px;}
@@ -864,7 +891,7 @@
     align-items:center; justify-content:space-between; gap:16px;
     padding:18px 24px; background:var(--bg);
   }
-  .dt-greeting-title{ font-size:19px; font-weight:800; color:var(--text); }
+  .dt-greeting-title{ font-size:19px; font-weight:700; color:var(--text); }
   .dt-greeting-sub{ font-size:13px; color:var(--text-muted); margin-top:2px; }
   .dt-actions{ display:flex; align-items:center; gap:12px; flex-shrink:0; }
   .dt-search{
@@ -884,7 +911,7 @@
 
   /* Sidebar nav badge (e.g. unread Job Order messages) */
   .sidebar-badge{
-    background:var(--danger); color:#fff; font-size:10.5px; font-weight:800;
+    background:var(--danger); color:#fff; font-size:10.5px; font-weight:700;
     border-radius:999px; min-width:18px; height:18px; display:flex; align-items:center;
     justify-content:center; padding:0 5px; margin-left:auto;
   }
@@ -902,7 +929,7 @@
   .ann-item{ border:1px solid var(--border); border-radius:9px; padding:12px; margin-bottom:8px; }
   .ann-item-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
   .ann-badge-pinned{
-    background:var(--green-light); color:var(--green-dark); font-size:10px; font-weight:800;
+    background:var(--green-light); color:var(--green-dark); font-size:10px; font-weight:700;
     letter-spacing:.4px; text-transform:uppercase; border-radius:999px; padding:2px 8px;
   }
   .ann-date{ font-size:11px; color:var(--text-muted); }
@@ -1038,7 +1065,7 @@
   .jo-step.done .jo-step-line{ background:var(--green-dark); }
   .jo-step-dot{
     position:relative; z-index:1; width:22px; height:22px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;
     background:#fff; color:var(--text-muted); border:2px solid var(--border);
   }
   .jo-step.done .jo-step-dot{ background:var(--green-dark); border-color:var(--green-dark); color:#fff; }
@@ -1122,7 +1149,7 @@
   .cal-cell{
     position:relative; aspect-ratio:1/1; min-height:44px; border:1px solid var(--border); border-radius:8px;
     background:#fff; cursor:pointer; padding:5px 4px 4px; display:flex; flex-direction:column;
-    align-items:flex-start; justify-content:flex-start; font-family:inherit;
+    align-items:flex-start; justify-content:flex-start; font-family:inherit; font-weight:inherit;
   }
   .cal-cell:hover{ border-color:var(--green); }
   .cal-cell-muted{ background:var(--bg); border-color:transparent; cursor:default; }

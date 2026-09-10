@@ -203,3 +203,78 @@
       return map;
     }catch(e){ console.error('sign equipment photo urls failed', describeCloudError(e)); return {}; }
   }
+
+  // ---------- Photo Lightbox (shared: admin gallery + customer portal) ----------
+  // A single full-screen swipeable viewer used by both admin.js (the photo
+  // grid inside the equipment detail overlay) and
+  // customer-equipment-history.js (the read-only gallery). Previously each
+  // tapped photo opened window.open(signedUrl, '_blank'), which on mobile
+  // meant closing that new tab just to look at the next one. This keeps
+  // browsing in place: swipe left/right (touch), tap the arrow buttons, or
+  // use the keyboard's Left/Right/Escape, all without leaving the grid.
+  let lightboxPhotos = [];
+  let lightboxIndex = 0;
+  let lightboxTouchStartX = null;
+
+  function equipPhotoLightboxRender(){
+    const photo = lightboxPhotos[lightboxIndex];
+    if(!photo) return;
+    $('equipPhotoLightboxImg').src = photo.signedUrl || '';
+    $('equipPhotoLightboxCounter').textContent = (lightboxIndex+1)+' / '+lightboxPhotos.length;
+    const single = lightboxPhotos.length < 2;
+    $('equipPhotoLightboxPrev').style.display = single ? 'none' : '';
+    $('equipPhotoLightboxNext').style.display = single ? 'none' : '';
+  }
+  // photos: the full array of photo rows for this equipment (as returned by
+  // cloudListEquipmentPhotos — same order the caller is already displaying
+  // them in); tappedPhoto: the specific row that was tapped, used to find
+  // the starting position. Only photos with a signedUrl are viewable, so
+  // the array is filtered down first — matching by id rather than by
+  // position keeps the right photo open even if one earlier in the list
+  // failed to sign.
+  function openEquipmentPhotoLightbox(photos, tappedPhoto){
+    lightboxPhotos = (photos||[]).filter(p=> p && p.signedUrl);
+    if(lightboxPhotos.length===0) return;
+    const idx = tappedPhoto ? lightboxPhotos.findIndex(p=> p.id===tappedPhoto.id) : 0;
+    lightboxIndex = idx>-1 ? idx : 0;
+    equipPhotoLightboxRender();
+    $('equipPhotoLightbox').classList.add('open');
+  }
+  function closeEquipmentPhotoLightbox(){
+    $('equipPhotoLightbox').classList.remove('open');
+    $('equipPhotoLightboxImg').src = ''; // stop holding the last image in memory/network
+  }
+  function equipPhotoLightboxStep(delta){
+    if(lightboxPhotos.length < 2) return;
+    lightboxIndex = (lightboxIndex + delta + lightboxPhotos.length) % lightboxPhotos.length;
+    equipPhotoLightboxRender();
+  }
+  $('equipPhotoLightboxClose').addEventListener('click', closeEquipmentPhotoLightbox);
+  // Tapping the dark area around the photo (the stage, but not the image
+  // itself) closes it — the stage sits on top of the whole overlay via
+  // position:absolute; inset:0, so it's the stage's own clicks that need
+  // checking here, not the outer #equipPhotoLightbox div's (which the
+  // full-screen stage always covers).
+  $('equipPhotoLightboxStage').addEventListener('click', (e)=>{ if(e.target.id==='equipPhotoLightboxStage') closeEquipmentPhotoLightbox(); });
+  $('equipPhotoLightboxPrev').addEventListener('click', ()=> equipPhotoLightboxStep(-1));
+  $('equipPhotoLightboxNext').addEventListener('click', ()=> equipPhotoLightboxStep(1));
+  document.addEventListener('keydown', (e)=>{
+    if(!$('equipPhotoLightbox').classList.contains('open')) return;
+    if(e.key==='Escape') closeEquipmentPhotoLightbox();
+    else if(e.key==='ArrowLeft') equipPhotoLightboxStep(-1);
+    else if(e.key==='ArrowRight') equipPhotoLightboxStep(1);
+  });
+  // Swipe: a plain start/end touch-position check, not a live drag-follow —
+  // simple and reliable across devices without pulling in a gesture library
+  // for what is, functionally, just "next/previous".
+  $('equipPhotoLightboxStage').addEventListener('touchstart', (e)=>{
+    lightboxTouchStartX = e.touches[0].clientX;
+  }, {passive:true});
+  $('equipPhotoLightboxStage').addEventListener('touchend', (e)=>{
+    if(lightboxTouchStartX==null) return;
+    const dx = e.changedTouches[0].clientX - lightboxTouchStartX;
+    lightboxTouchStartX = null;
+    const SWIPE_THRESHOLD = 40; // px — small flicks shouldn't misfire as a swipe
+    if(dx > SWIPE_THRESHOLD) equipPhotoLightboxStep(-1);
+    else if(dx < -SWIPE_THRESHOLD) equipPhotoLightboxStep(1);
+  }, {passive:true});

@@ -902,6 +902,81 @@
     }catch(e){ console.error('sign equipment photo urls failed', describeCloudError(e)); return {}; }
   }
 
+  // ---------- Photo Lightbox (shared: admin gallery + customer portal) ----------
+  // A single full-screen swipeable viewer used by both admin.js (the photo
+  // grid inside the equipment detail overlay) and
+  // customer-equipment-history.js (the read-only gallery). Previously each
+  // tapped photo opened window.open(signedUrl, '_blank'), which on mobile
+  // meant closing that new tab just to look at the next one. This keeps
+  // browsing in place: swipe left/right (touch), tap the arrow buttons, or
+  // use the keyboard's Left/Right/Escape, all without leaving the grid.
+  let lightboxPhotos = [];
+  let lightboxIndex = 0;
+  let lightboxTouchStartX = null;
+
+  function equipPhotoLightboxRender(){
+    const photo = lightboxPhotos[lightboxIndex];
+    if(!photo) return;
+    $('equipPhotoLightboxImg').src = photo.signedUrl || '';
+    $('equipPhotoLightboxCounter').textContent = (lightboxIndex+1)+' / '+lightboxPhotos.length;
+    const single = lightboxPhotos.length < 2;
+    $('equipPhotoLightboxPrev').style.display = single ? 'none' : '';
+    $('equipPhotoLightboxNext').style.display = single ? 'none' : '';
+  }
+  // photos: the full array of photo rows for this equipment (as returned by
+  // cloudListEquipmentPhotos — same order the caller is already displaying
+  // them in); tappedPhoto: the specific row that was tapped, used to find
+  // the starting position. Only photos with a signedUrl are viewable, so
+  // the array is filtered down first — matching by id rather than by
+  // position keeps the right photo open even if one earlier in the list
+  // failed to sign.
+  function openEquipmentPhotoLightbox(photos, tappedPhoto){
+    lightboxPhotos = (photos||[]).filter(p=> p && p.signedUrl);
+    if(lightboxPhotos.length===0) return;
+    const idx = tappedPhoto ? lightboxPhotos.findIndex(p=> p.id===tappedPhoto.id) : 0;
+    lightboxIndex = idx>-1 ? idx : 0;
+    equipPhotoLightboxRender();
+    $('equipPhotoLightbox').classList.add('open');
+  }
+  function closeEquipmentPhotoLightbox(){
+    $('equipPhotoLightbox').classList.remove('open');
+    $('equipPhotoLightboxImg').src = ''; // stop holding the last image in memory/network
+  }
+  function equipPhotoLightboxStep(delta){
+    if(lightboxPhotos.length < 2) return;
+    lightboxIndex = (lightboxIndex + delta + lightboxPhotos.length) % lightboxPhotos.length;
+    equipPhotoLightboxRender();
+  }
+  $('equipPhotoLightboxClose').addEventListener('click', closeEquipmentPhotoLightbox);
+  // Tapping the dark area around the photo (the stage, but not the image
+  // itself) closes it — the stage sits on top of the whole overlay via
+  // position:absolute; inset:0, so it's the stage's own clicks that need
+  // checking here, not the outer #equipPhotoLightbox div's (which the
+  // full-screen stage always covers).
+  $('equipPhotoLightboxStage').addEventListener('click', (e)=>{ if(e.target.id==='equipPhotoLightboxStage') closeEquipmentPhotoLightbox(); });
+  $('equipPhotoLightboxPrev').addEventListener('click', ()=> equipPhotoLightboxStep(-1));
+  $('equipPhotoLightboxNext').addEventListener('click', ()=> equipPhotoLightboxStep(1));
+  document.addEventListener('keydown', (e)=>{
+    if(!$('equipPhotoLightbox').classList.contains('open')) return;
+    if(e.key==='Escape') closeEquipmentPhotoLightbox();
+    else if(e.key==='ArrowLeft') equipPhotoLightboxStep(-1);
+    else if(e.key==='ArrowRight') equipPhotoLightboxStep(1);
+  });
+  // Swipe: a plain start/end touch-position check, not a live drag-follow —
+  // simple and reliable across devices without pulling in a gesture library
+  // for what is, functionally, just "next/previous".
+  $('equipPhotoLightboxStage').addEventListener('touchstart', (e)=>{
+    lightboxTouchStartX = e.touches[0].clientX;
+  }, {passive:true});
+  $('equipPhotoLightboxStage').addEventListener('touchend', (e)=>{
+    if(lightboxTouchStartX==null) return;
+    const dx = e.changedTouches[0].clientX - lightboxTouchStartX;
+    lightboxTouchStartX = null;
+    const SWIPE_THRESHOLD = 40; // px — small flicks shouldn't misfire as a swipe
+    if(dx > SWIPE_THRESHOLD) equipPhotoLightboxStep(-1);
+    else if(dx < -SWIPE_THRESHOLD) equipPhotoLightboxStep(1);
+  }, {passive:true});
+
 
 // ---------- customer portal login helpers (table: customer_login_links) ----------
 // A customer login can be linked to more than one customers row (an account
@@ -3994,7 +4069,7 @@
       const photo = photos.find(p=> String(p.id)===card.dataset.photoId);
       if(!photo) return;
       const viewEl = card.querySelector('[data-act="view"]');
-      if(viewEl) viewEl.addEventListener('click', ()=> { if(photo.signedUrl) window.open(photo.signedUrl, '_blank'); });
+      if(viewEl) viewEl.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
       const coverBtn = card.querySelector('[data-act="cover"]');
       if(coverBtn) coverBtn.addEventListener('click', async ()=>{
         coverBtn.disabled = true;
@@ -12428,15 +12503,19 @@
       '<div style="flex-basis:100%; margin-bottom:8px;">'+
         '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>'+
         '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(p=>
-          '<div class="cp-photo-thumb" data-url="'+escapeHtml(p.signedUrl||'')+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
+          '<div class="cp-photo-thumb" data-photo-id="'+p.id+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
             (p.signedUrl ? '<img src="'+p.signedUrl+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">—</span>')+
           '</div>'
         ).join('')+
       '</div>'
     ).join('');
+    // Swipeable lightbox (equipment-photos.js) instead of window.open() —
+    // opening each photo in a new tab meant closing it just to see the
+    // next one; this lets the customer swipe/arrow through every photo on
+    // this unit without leaving the gallery.
     $$('.cp-photo-thumb', grid).forEach(el=>{
-      const url = el.dataset.url;
-      if(url) el.addEventListener('click', ()=> window.open(url, '_blank'));
+      const photo = photos.find(p=> String(p.id)===el.dataset.photoId);
+      if(photo && photo.signedUrl) el.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
     });
   }
 

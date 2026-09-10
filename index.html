@@ -133,6 +133,18 @@ window.awesCss = {
 </script>
 <link rel="stylesheet" href="css/app.css">
 
+<!-- App-wide typeface: Fredoka, loaded from Google's font CDN — see the
+     comment on the html{font-family:...} rule in app.css for why this is
+     loaded rather than self-hosted, and how sw.js keeps it available
+     offline after the first successful load. preconnect on both hosts
+     shaves the DNS/TLS handshake off the first request (the CSS comes
+     from fonts.googleapis.com, the actual font files from
+     fonts.gstatic.com); weights 400/500/600/700 cover every font-weight
+     value used anywhere in app.css. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+
 </head>
 <body>
 
@@ -2130,8 +2142,25 @@ window.awesCss = {
   </div>
 </div>
 
+<!-- Equipment Photo Lightbox — shared full-screen swipeable viewer for both
+     the admin photo grid above and the customer portal's read-only gallery
+     (customer-equipment-history.js). Previously tapping a photo opened
+     window.open() in a new tab, which on mobile meant closing that tab just
+     to see the next photo; this keeps browsing in place. See
+     openEquipmentPhotoLightbox() in equipment-photos.js. z-index above the
+     equipment detail overlay (56) since it can open from either that
+     overlay or the plain customer portal screen. -->
+<div class="overlay" id="equipPhotoLightbox" style="z-index:80; background:rgba(10,14,12,0.94); align-items:center;">
+  <button type="button" id="equipPhotoLightboxClose" aria-label="Close" style="position:absolute; top:14px; right:14px; z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; line-height:1; width:40px; height:40px; border-radius:20px; cursor:pointer;">&times;</button>
+  <div id="equipPhotoLightboxCounter" style="position:absolute; top:22px; left:16px; z-index:2; color:#fff; font-size:13px; opacity:.85;"></div>
+  <button type="button" id="equipPhotoLightboxPrev" aria-label="Previous photo" style="position:absolute; left:6px; top:50%; transform:translateY(-50%); z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; width:42px; height:64px; border-radius:8px; cursor:pointer;">&#8249;</button>
+  <button type="button" id="equipPhotoLightboxNext" aria-label="Next photo" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; width:42px; height:64px; border-radius:8px; cursor:pointer;">&#8250;</button>
+  <div id="equipPhotoLightboxStage" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; touch-action:pan-y;">
+    <img id="equipPhotoLightboxImg" src="" alt="Equipment photo" style="max-width:94vw; max-height:88vh; object-fit:contain; user-select:none;">
+  </div>
+</div>
 
-<!-- Cloud Setup sheet -->
+
 <div class="overlay" id="cloudOverlay" style="z-index:90;">
   <div class="sheet">
     <div class="sheet-head">

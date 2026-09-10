@@ -232,15 +232,19 @@
       '<div style="flex-basis:100%; margin-bottom:8px;">'+
         '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>'+
         '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(p=>
-          '<div class="cp-photo-thumb" data-url="'+escapeHtml(p.signedUrl||'')+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
+          '<div class="cp-photo-thumb" data-photo-id="'+p.id+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
             (p.signedUrl ? '<img src="'+p.signedUrl+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">—</span>')+
           '</div>'
         ).join('')+
       '</div>'
     ).join('');
+    // Swipeable lightbox (equipment-photos.js) instead of window.open() —
+    // opening each photo in a new tab meant closing it just to see the
+    // next one; this lets the customer swipe/arrow through every photo on
+    // this unit without leaving the gallery.
     $$('.cp-photo-thumb', grid).forEach(el=>{
-      const url = el.dataset.url;
-      if(url) el.addEventListener('click', ()=> window.open(url, '_blank'));
+      const photo = photos.find(p=> String(p.id)===el.dataset.photoId);
+      if(photo && photo.signedUrl) el.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
     });
   }
 
