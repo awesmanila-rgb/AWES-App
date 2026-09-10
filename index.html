@@ -133,17 +133,18 @@ window.awesCss = {
 </script>
 <link rel="stylesheet" href="css/app.css">
 
-<!-- App-wide typeface: Fredoka, loaded from Google's font CDN — see the
-     comment on the html{font-family:...} rule in app.css for why this is
-     loaded rather than self-hosted, and how sw.js keeps it available
-     offline after the first successful load. preconnect on both hosts
-     shaves the DNS/TLS handshake off the first request (the CSS comes
-     from fonts.googleapis.com, the actual font files from
-     fonts.gstatic.com); weights 400/500/600/700 cover every font-weight
-     value used anywhere in app.css. -->
+<!-- App-wide typefaces: Plus Jakarta Sans (UI text) + JetBrains Mono
+     (numbers/code), loaded from Google's font CDN — see the comment on the
+     html{font-family:...} rule in app.css for the family stack and
+     fallbacks, and how sw.js keeps fonts available offline after the first
+     successful load. preconnect on both hosts shaves the DNS/TLS handshake
+     off the first request (the CSS comes from fonts.googleapis.com, the
+     actual font files from fonts.gstatic.com); weights 400/500/600/700/800
+     cover every font-weight value used anywhere in app.css, with 600 on
+     JetBrains Mono for any bold monospace figures. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 
 </head>
 <body>

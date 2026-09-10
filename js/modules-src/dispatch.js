@@ -951,7 +951,7 @@
     // the admin equipment detail overlay's own read-only ID row, plus the
     // customer label alongside it (if set) so a technician sees both
     // without having to leave the dispatch ticket.
-    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span style="font-family:monospace;">'+escapeHtml(equipShortId(item))+'</span></div>'+
+    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span class="mono">'+escapeHtml(equipShortId(item))+'</span></div>'+
       (item.label ? '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span><span>'+escapeHtml(item.label)+'</span></div>' : '');
     const fieldRows = idRows + DT_EQUIP_DETAIL_KEYS.map(k=>{
       const val = (item[k]||'').toString().trim();

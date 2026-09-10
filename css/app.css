@@ -14,55 +14,63 @@
        than --green, used only behind the full-bleed login screen. */
     --portal-green:#2F7916;
     --portal-green-dark:#245C10;
+    /* App-wide typefaces (brand change — replaces the earlier Fredoka /
+       "Google Sans" stack). --font-sans covers all UI text; --font-mono is
+       available for anything that wants fixed-width figures (IDs, codes,
+       amounts) — nothing currently opts into it, but the .mono utility
+       class below is ready when something does. Both are proper
+       open-source Google Fonts (SIL Open Font License) — free to load from
+       Google's font CDN and to self-host, no licensing blocker either way.
+       Loaded via <link> in index.html rather than self-hosted purely
+       because this sandbox couldn't fetch the woff2 binaries to bundle
+       them; either way the browser's own HTTP cache plus sw.js's generic
+       cache-first fallback (the bottom block in its fetch handler — the
+       same one that already keeps the jsPDF/Supabase CDN scripts in
+       CDN_SHELL working offline) means both keep rendering offline after
+       the first successful load, same reliability guarantee as those
+       libraries. Each stack falls back to system UI fonts if the Google
+       Fonts stylesheet hasn't loaded yet (e.g. very first load with no
+       signal) — nobody sees invisible text while it fetches. */
+    --font-sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --font-mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box;}
-  /* Pre-existing gap, surfaced by the Fredoka change: browsers don't
-     inherit page typography into form controls by default, and this file
-     only ever patched font-family:inherit onto a handful of specific
-     inputs/buttons (search below for "font-family:inherit" to see which)
-     rather than resetting it once for the element types as a whole. That
-     meant every plain <button> in the app (.save-btn, .cancel-btn,
-     .menu-dropdown button, etc.) was already silently rendering in the
-     browser's default UA font, not "Google Sans" — invisible before since
-     most system UA button fonts and Google Sans/Roboto look similar
-     enough not to notice, but it would be an obvious mismatch with
-     Fredoka's distinct rounded shapes now that buttons sit next to text
-     that finally IS rendering in it. This is the standard reset for it. */
+  /* Pre-existing gap, surfaced by the Fredoka change and still relevant
+     here: browsers don't inherit page typography into form controls by
+     default, and this file only ever patched font-family:inherit onto a
+     handful of specific inputs/buttons (search below for
+     "font-family:inherit" to see which) rather than resetting it once for
+     the element types as a whole. That meant every plain <button> in the
+     app (.save-btn, .cancel-btn, .menu-dropdown button, etc.) was already
+     silently rendering in the browser's default UA font instead of the
+     app-wide typeface — invisible before since most system UA button
+     fonts and the old sans-serif stack looked similar enough not to
+     notice, but it's an obvious mismatch once buttons sit next to text
+     that finally IS rendering in a distinct typeface. This is the
+     standard reset for it. */
   button, input, select, textarea, optgroup{ font-family:inherit; font-weight:inherit; }
-  /* App-wide typeface: Fredoka (a rounded, friendly Google Font, brand
-     choice — replaces the earlier system-font stack). Unlike "Google Sans"
-     below, Fredoka IS a proper open-source Google Font (SIL Open Font
-     License) — free to load from Google's font CDN and to self-host, no
-     licensing blocker either way. Loaded via <link> in index.html rather
-     than self-hosted purely because this sandbox couldn't fetch the woff2
-     binaries to bundle them; either way the browser's own HTTP cache plus
-     sw.js's generic cache-first fallback (the bottom block in its fetch
-     handler — the same one that already keeps the jsPDF/Supabase CDN
-     scripts in CDN_SHELL working offline) means Fredoka keeps rendering
-     offline after the first successful load, same reliability guarantee
-     as those libraries.
-     Falls back to the previous stack ("Google Sans" etc.) if the Fredoka
-     stylesheet hasn't loaded yet (e.g. very first load with no signal) —
-     nobody sees invisible text while it fetches.
-     Weight: Fredoka's regular (400) cut reads visibly lighter/thinner than
-     Google Sans/Roboto did at the same numeric weight, so body text is
-     bumped to weight 500 below to keep the same reading weight the app
-     had before. Fredoka's heaviest cut is 700 (no 800) — every prior
-     font-weight:800 rule in this file has been remapped to 700 to match;
-     don't reintroduce 800 while Fredoka is the active font.
-     Applies everywhere via inheritance — nothing below sets its own family
-     except the few explicit font-family:inherit rules, which already
-     inherit this. */
-  html{ font-family:"Fredoka","Google Sans","Product Sans",Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  /* html{font-family} sets --font-sans as the base for the whole app —
+     see the --font-sans/--font-mono definitions and comment above for the
+     fallback chain and loading strategy. Plus Jakarta Sans's regular (400)
+     cut reads at a normal reading weight (unlike Fredoka's thinner 400),
+     so body text uses 400 here rather than the 500 compensation the
+     Fredoka era needed. Plus Jakarta Sans also has a proper 800 cut, so
+     font-weight:800 is safe to use again if needed; nothing currently
+     does since the 69 font-weight:700 rules below were left as-is rather
+     than bumped back up. Applies everywhere via inheritance — nothing
+     below sets its own family except the few explicit font-family:inherit
+     rules, which already inherit this, and the .mono utility class. */
+  html{ font-family:var(--font-sans); }
   body{
     margin:0;
     font-family:inherit;
-    font-weight:500;
+    font-weight:400;
     background:var(--bg);
     color:var(--text);
     -webkit-tap-highlight-color:transparent;
     padding-bottom:96px;
   }
+  .mono{ font-family:var(--font-mono); }
   header.app-top{
     position:sticky; top:0; z-index:30;
     background:var(--green-dark);
