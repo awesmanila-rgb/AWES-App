@@ -9,68 +9,41 @@
     --border:#DCE3DD;
     --danger:#B3402D;
     --amber:#B9791F;
+    /* Cool blue-teal — "scheduled / neutral / waiting, nothing wrong yet".
+       New addition for the customer-portal home redesign; picked to sit
+       next to the existing green/amber/red family rather than the
+       mockup's literal hex. Distinct from --green (which stays reserved
+       for "healthy/done") and from the tracker's unrelated bright-blue
+       accent (#2A6FDB, used for the technician map selection outline). */
+    --teal:#1F6F7A;
+    --teal-light:#E4F0F1;
     --radius:10px;
     /* Customer-portal sign-in backdrop — a brighter, more "brand poster" green
        than --green, used only behind the full-bleed login screen. */
     --portal-green:#2F7916;
     --portal-green-dark:#245C10;
-    /* App-wide typefaces (brand change — replaces the earlier Fredoka /
-       "Google Sans" stack). --font-sans covers all UI text; --font-mono is
-       available for anything that wants fixed-width figures (IDs, codes,
-       amounts) — nothing currently opts into it, but the .mono utility
-       class below is ready when something does. Both are proper
-       open-source Google Fonts (SIL Open Font License) — free to load from
-       Google's font CDN and to self-host, no licensing blocker either way.
-       Loaded via <link> in index.html rather than self-hosted purely
-       because this sandbox couldn't fetch the woff2 binaries to bundle
-       them; either way the browser's own HTTP cache plus sw.js's generic
-       cache-first fallback (the bottom block in its fetch handler — the
-       same one that already keeps the jsPDF/Supabase CDN scripts in
-       CDN_SHELL working offline) means both keep rendering offline after
-       the first successful load, same reliability guarantee as those
-       libraries. Each stack falls back to system UI fonts if the Google
-       Fonts stylesheet hasn't loaded yet (e.g. very first load with no
-       signal) — nobody sees invisible text while it fetches. */
-    --font-sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    --font-mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box;}
-  /* Pre-existing gap, surfaced by the Fredoka change and still relevant
-     here: browsers don't inherit page typography into form controls by
-     default, and this file only ever patched font-family:inherit onto a
-     handful of specific inputs/buttons (search below for
-     "font-family:inherit" to see which) rather than resetting it once for
-     the element types as a whole. That meant every plain <button> in the
-     app (.save-btn, .cancel-btn, .menu-dropdown button, etc.) was already
-     silently rendering in the browser's default UA font instead of the
-     app-wide typeface — invisible before since most system UA button
-     fonts and the old sans-serif stack looked similar enough not to
-     notice, but it's an obvious mismatch once buttons sit next to text
-     that finally IS rendering in a distinct typeface. This is the
-     standard reset for it. */
-  button, input, select, textarea, optgroup{ font-family:inherit; font-weight:inherit; }
-  /* html{font-family} sets --font-sans as the base for the whole app —
-     see the --font-sans/--font-mono definitions and comment above for the
-     fallback chain and loading strategy. Plus Jakarta Sans's regular (400)
-     cut reads at a normal reading weight (unlike Fredoka's thinner 400),
-     so body text uses 400 here rather than the 500 compensation the
-     Fredoka era needed. Plus Jakarta Sans also has a proper 800 cut, so
-     font-weight:800 is safe to use again if needed; nothing currently
-     does since the 69 font-weight:700 rules below were left as-is rather
-     than bumped back up. Applies everywhere via inheritance — nothing
-     below sets its own family except the few explicit font-family:inherit
-     rules, which already inherit this, and the .mono utility class. */
-  html{ font-family:var(--font-sans); }
+  /* App-wide typeface: "Google Sans" first (used automatically wherever the
+     device/OS already has it installed, e.g. Android/ChromeOS), falling back
+     to Roboto — Google Sans' own metrics/shape are based on Roboto, so this
+     is the closest match on devices without the font itself — then the
+     platform system-font stack. Not loaded from a web font CDN on purpose:
+     Google Sans isn't published on Google Fonts for public embedding, and
+     this app works offline/on weak field signal (see loadAwesScript above),
+     so no version of it should require a network fetch just to render text.
+     Applies everywhere via inheritance — nothing below sets its own family
+     except the few explicit font-family:inherit rules, which already inherit
+     this. */
+  html{ font-family:"Google Sans","Product Sans",Roboto,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
   body{
     margin:0;
     font-family:inherit;
-    font-weight:400;
     background:var(--bg);
     color:var(--text);
     -webkit-tap-highlight-color:transparent;
     padding-bottom:96px;
   }
-  .mono{ font-family:var(--font-mono); }
   header.app-top{
     position:sticky; top:0; z-index:30;
     background:var(--green-dark);
@@ -285,7 +258,7 @@
     font-size:12px; font-weight:700; letter-spacing:.3px; color:var(--text-muted); text-transform:uppercase;
   }
   .overview-stat-icon{font-size:22px; line-height:1; flex-shrink:0;}
-  .overview-stat-value{font-size:28px; font-weight:700; margin-top:10px; color:var(--text); line-height:1;}
+  .overview-stat-value{font-size:28px; font-weight:800; margin-top:10px; color:var(--text); line-height:1;}
   .overview-progress{height:6px; background:#EEF1EE; border-radius:4px; margin-top:10px; overflow:hidden;}
   .overview-progress-bar{height:100%; background:var(--green); border-radius:4px; transition:width .3s;}
   .overview-stat-sub{font-size:13px; color:var(--text-muted); margin-top:10px; line-height:1.4;}
@@ -362,7 +335,7 @@
   .field label .req{color:var(--danger);}
   input[type=text], input[type=email], input[type=password], input[type=date], input[type=time], input[type=number], textarea, select{
     width:100%; padding:10px 11px; border:1px solid var(--border); border-radius:8px;
-    font-size:15px; font-family:inherit; font-weight:inherit; background:#fff; color:var(--text);
+    font-size:15px; font-family:inherit; background:#fff; color:var(--text);
   }
   input:focus, textarea:focus, select:focus{outline:2px solid var(--green); outline-offset:0; border-color:var(--green);}
   textarea{resize:vertical; min-height:44px;}
@@ -577,7 +550,7 @@
   }
   .greet-attendance-item{display:flex; flex-direction:column; gap:3px;}
   .greet-attendance-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted);}
-  .greet-attendance-val{font-size:24px; font-weight:700; color:var(--green-dark); line-height:1.1;}
+  .greet-attendance-val{font-size:24px; font-weight:800; color:var(--green-dark); line-height:1.1;}
   .greet-attendance-val-missing{color:var(--amber);}
   .greet-summary-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin:0 0 8px;}
   .greet-summary-list{display:flex; flex-direction:column; gap:8px; margin:0 0 14px;}
@@ -605,18 +578,18 @@
     padding:14px; display:flex; flex-direction:column; gap:10px;
   }
   @media (max-width:700px){ .greet-today-jo{ flex:1 1 auto; max-width:none; } }
-  .greet-today-jo-title{font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
+  .greet-today-jo-title{font-size:12px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#8A5A00;}
   .greet-jo-empty{font-size:13px; color:var(--text-muted); font-style:italic;}
   .greet-jo-item{background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px; cursor:pointer;}
   .greet-jo-item:active{background:var(--green-light);}
   .greet-jo-item + .greet-jo-item{margin-top:8px;}
   .greet-jo-item-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}
-  .greet-jo-no{font-weight:700; font-size:13px; color:var(--text);}
+  .greet-jo-no{font-weight:800; font-size:13px; color:var(--text);}
   .greet-jo-cust{font-size:13px; color:var(--text); font-weight:600;}
   .greet-jo-time{font-size:12px; color:var(--text-muted); margin-top:2px;}
   .dtr-loc-tag{
     font-size:11px; color:var(--green-dark); background:none; border:none; padding:0; margin-top:2px;
-    display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit; font-weight:inherit;
+    display:block; text-align:left; text-decoration:underline; cursor:pointer; font-family:inherit;
   }
   .dtr-loc-tag:active{color:var(--green);}
   .loc-modal-address{font-size:14px; font-weight:600; margin-bottom:4px;}
@@ -899,7 +872,7 @@
     align-items:center; justify-content:space-between; gap:16px;
     padding:18px 24px; background:var(--bg);
   }
-  .dt-greeting-title{ font-size:19px; font-weight:700; color:var(--text); }
+  .dt-greeting-title{ font-size:19px; font-weight:800; color:var(--text); }
   .dt-greeting-sub{ font-size:13px; color:var(--text-muted); margin-top:2px; }
   .dt-actions{ display:flex; align-items:center; gap:12px; flex-shrink:0; }
   .dt-search{
@@ -919,7 +892,7 @@
 
   /* Sidebar nav badge (e.g. unread Job Order messages) */
   .sidebar-badge{
-    background:var(--danger); color:#fff; font-size:10.5px; font-weight:700;
+    background:var(--danger); color:#fff; font-size:10.5px; font-weight:800;
     border-radius:999px; min-width:18px; height:18px; display:flex; align-items:center;
     justify-content:center; padding:0 5px; margin-left:auto;
   }
@@ -937,7 +910,7 @@
   .ann-item{ border:1px solid var(--border); border-radius:9px; padding:12px; margin-bottom:8px; }
   .ann-item-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
   .ann-badge-pinned{
-    background:var(--green-light); color:var(--green-dark); font-size:10px; font-weight:700;
+    background:var(--green-light); color:var(--green-dark); font-size:10px; font-weight:800;
     letter-spacing:.4px; text-transform:uppercase; border-radius:999px; padding:2px 8px;
   }
   .ann-date{ font-size:11px; color:var(--text-muted); }
@@ -1073,7 +1046,7 @@
   .jo-step.done .jo-step-line{ background:var(--green-dark); }
   .jo-step-dot{
     position:relative; z-index:1; width:22px; height:22px; border-radius:50%;
-    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800;
     background:#fff; color:var(--text-muted); border:2px solid var(--border);
   }
   .jo-step.done .jo-step-dot{ background:var(--green-dark); border-color:var(--green-dark); color:#fff; }
@@ -1157,7 +1130,7 @@
   .cal-cell{
     position:relative; aspect-ratio:1/1; min-height:44px; border:1px solid var(--border); border-radius:8px;
     background:#fff; cursor:pointer; padding:5px 4px 4px; display:flex; flex-direction:column;
-    align-items:flex-start; justify-content:flex-start; font-family:inherit; font-weight:inherit;
+    align-items:flex-start; justify-content:flex-start; font-family:inherit;
   }
   .cal-cell:hover{ border-color:var(--green); }
   .cal-cell-muted{ background:var(--bg); border-color:transparent; cursor:default; }
@@ -1297,15 +1270,33 @@
 .status-overdue{background:#F7E2DC; color:var(--danger);}
 
 /* Service Requests (service-requests.js admin queue, customer-portal.js
-   "My Requests") — new/acknowledged reuse the due-soon amber since both
-   mean "awaiting action"; scheduled/in_progress reuse the ok green since
-   the customer's request has been picked up; completed is a calmer green;
-   cancelled and the urgent flag reuse existing danger/muted tones. */
-.status-sr-open{background:#FBEFE4; color:var(--amber);}
-.status-sr-active{background:var(--green-light); color:var(--green-dark);}
-.status-sr-done{background:#EEF1ED; color:var(--text-muted);}
-.status-sr-cancelled{background:#F7E2DC; color:var(--danger);}
+   "My Requests") — colors follow the same meaning as the home-screen hero
+   (see cpReqStatusPillClass in customer-portal.js for exactly which status
+   lands in which bucket):
+     status-sr-open      teal   — in the queue / waiting on someone, nothing wrong
+     status-sr-urgent    red    — a quotation is ready, customer action needed now
+     status-sr-active    amber  — a technician is actively on the job right now
+     status-sr-done      green  — completed
+     status-sr-cancelled gray   — closed; not an open problem for the customer
+   Previously this was backwards — dispatched/in_progress (active work) was
+   colored green and a brand-new, untouched request was colored amber. */
+.status-sr-open{background:var(--teal-light); color:var(--teal);}
 .status-sr-urgent{background:#F7E2DC; color:var(--danger);}
+.status-sr-active{background:#FBEFE4; color:var(--amber);}
+.status-sr-done{background:var(--green-light); color:var(--green-dark);}
+.status-sr-cancelled{background:#EEF1ED; color:var(--text-muted);}
+
+/* Notification bell (customer home header) — see cpNotifBell in index.html,
+   cpRefreshNotifBell() in customer-portal.js. */
+.cp-notif-bell{
+  position:relative; background:none; border:none; color:#fff; font-size:18px;
+  cursor:pointer; padding:2px 4px; line-height:1;
+}
+.cp-notif-bell .sidebar-badge{
+  position:absolute; top:-4px; right:-6px; font-size:10px; min-width:16px; height:16px;
+  line-height:16px; padding:0 4px;
+}
+
 
 .cp-stat-grid{
   display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px;
@@ -1337,8 +1328,9 @@
 .cp-equip-card-top{display:flex; align-items:flex-start; justify-content:space-between;}
 .cp-equip-icon{
   width:30px; height:30px; border-radius:8px; background:var(--green-light);
-  display:flex; align-items:center; justify-content:center; font-size:14px;
+  display:flex; align-items:center; justify-content:center; color:var(--green-dark);
 }
+.cp-equip-icon svg{ width:17px; height:17px; }
 .cp-unit-name{font-size:13px; font-weight:700; margin-top:9px;}
 .cp-unit-loc{font-size:11.5px; color:var(--text-muted); margin-top:2px;}
 .cp-unit-date{font-size:11px; color:var(--text-muted); margin-top:8px; padding-top:8px; border-top:1px solid var(--border);}
@@ -1395,3 +1387,295 @@
   border-radius:8px; padding:9px 14px; font-size:12.5px; font-weight:700; cursor:pointer;
 }
 .cp-visit-pdf-btn:hover{border-color:var(--green);}
+
+/* =======================================================================
+   Customer portal redesign (Home / Units / History / Tools / Profile)
+   ---------------------------------------------------------------------
+   Customer role gets its OWN shell — bottom tab bar on narrow screens,
+   top nav bar on wide screens (à la Grab/Shopee) — instead of plugging
+   into the admin/tech left-sidebar shell used elsewhere in the app.
+   That shared shell is fully detached for role-customer below; nothing
+   here touches role-admin/role-tech.
+
+   Theme: "wesmanila-option-a-with-tools" mockup — soft green gradient
+   background, elevated white cards, photo-led unit cards, decorative
+   header blobs. Colors are reconciled onto the app's REAL brand tokens
+   (--green-dark/--green/--amber/--danger/--teal, all defined near the
+   top of this file) rather than the mockup's own literal hex values, so
+   the customer portal stays the same brand green as the header/sidebar
+   used everywhere else in the app — see the design-consistency notes
+   from the redesign build for why.
+   ======================================================================= */
+
+/* ---- Detach role-customer from the shared admin/tech sidebar shell ---- */
+body.role-customer .admin-sidebar,
+body.role-customer #menuBtn,
+body.role-customer header.app-top,
+body.role-customer .dashboard-topbar,
+body.role-customer .sidebar-backdrop{ display:none !important; }
+body.role-customer .main-wrap{ margin-left:0 !important; }
+body.role-customer .footer-bar{ left:0 !important; }
+
+/* Reserve space for the fixed nav bar (bottom on mobile, top on desktop)
+   so page content never sits underneath it. */
+body.role-customer .main-wrap{ padding-bottom:64px; }
+@media (min-width:1000px){ body.role-customer .main-wrap{ padding-bottom:0; padding-top:64px; } }
+
+.cp-screen{
+  min-height:100vh; margin:-16px; padding:0 0 24px;
+  background:
+    radial-gradient(circle at 10% 0, rgba(31,122,80,.10) 0, transparent 33%),
+    linear-gradient(145deg, var(--green-light), #f7faf9);
+}
+:root{
+  --cp-shadow:0 16px 40px rgba(21,77,52,.13);
+  --cp-soft:0 7px 20px rgba(21,77,52,.08);
+}
+
+/* ---- Shared nav bar: bottom tabs (mobile) / top bar (desktop) ---- */
+.cp-nav{
+  position:fixed; left:0; right:0; bottom:0; z-index:200;
+  display:flex; background:var(--surface); border-top:1px solid var(--border);
+  padding:8px 2px 10px;
+}
+.cp-nav-btn{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+  color:var(--text-muted); font-size:10px; background:none; border:none; cursor:pointer; padding:4px;
+}
+.cp-nav-btn svg{ width:20px; height:20px; }
+.cp-nav-btn.active{ color:var(--green-dark); }
+@media (min-width:1000px){
+  .cp-nav{
+    top:0; bottom:auto; flex-direction:row; justify-content:flex-start; gap:4px;
+    align-items:center; padding:10px 24px; border-top:none; border-bottom:1px solid var(--border);
+    box-shadow:0 1px 6px rgba(0,0,0,.04);
+  }
+  .cp-nav-brand{ display:flex; align-items:center; gap:10px; font-weight:700; color:var(--green-dark); margin-right:20px; }
+  .cp-nav-brand img{ height:26px; }
+  .cp-nav-btn{ flex:none; flex-direction:row; font-size:13px; font-weight:600; padding:8px 14px; border-radius:8px; gap:7px; }
+  .cp-nav-btn.active{ background:var(--green-light); }
+  .cp-nav-spacer{ flex:1; }
+}
+
+/* ---- Home screen header — decorative radial "blobs" like the mockup ---- */
+.cp-header{
+  padding:22px 18px 34px; position:relative; overflow:hidden;
+  background:linear-gradient(135deg, var(--green-dark), var(--green));
+}
+.cp-header:before, .cp-header:after{ content:''; position:absolute; border-radius:50%; pointer-events:none; }
+.cp-header:before{ width:190px; height:190px; right:-70px; top:-100px; background:radial-gradient(circle, rgba(255,255,255,.16), transparent 67%); }
+.cp-header:after{ width:150px; height:150px; left:-65px; bottom:-90px; background:radial-gradient(circle, rgba(255,255,255,.18), transparent 70%); }
+.cp-header-inner{ position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; }
+.cp-greet{ color:#fff; font-size:18px; font-weight:700; margin:0; letter-spacing:-.02em; }
+.cp-greet-sub{ color:rgba(255,255,255,.8); font-size:12.5px; margin:4px 0 0; }
+.cp-header-actions{ display:flex; align-items:center; gap:9px; position:relative; z-index:1; }
+.cp-icon-btn{
+  width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.2);
+  color:#fff; display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer;
+}
+.cp-icon-btn svg{ width:18px; height:18px; }
+.cp-badge-dot{ position:absolute; top:1px; right:0; width:9px; height:9px; border-radius:50%; background:#ff754d; border:2px solid var(--green-dark); }
+.cp-avatar{
+  width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.2);
+  color:#fff; font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.cp-switcher-field{ padding:12px 16px 0; }
+
+.cp-content{ max-width:1100px; margin:0 auto; }
+
+/* ---- Active-service hero card ---- */
+.cp-hero{
+  margin:-23px 16px 0; background:var(--surface); border-radius:18px;
+  box-shadow:var(--cp-shadow); border:1px solid rgba(21,77,52,.06); overflow:hidden; position:relative; z-index:2; cursor:pointer;
+}
+@media (min-width:1000px){ .cp-hero{ margin:18px auto 0; max-width:720px; } }
+.cp-hero-head{ padding:16px 18px 12px; display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.cp-hero-eyebrow{
+  display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:7px;
+  font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+}
+.cp-hero-eyebrow.amber{ background:#fff6e3; color:var(--amber); border:1px solid #f0d18c; }
+.cp-hero-eyebrow.danger{ background:#fbeaea; color:var(--danger); border:1px solid #f0c3c3; }
+.cp-hero-eyebrow.teal{ background:var(--teal-light); color:var(--teal); border:1px solid #bcdadf; }
+.cp-hero-name{ font-size:17px; font-weight:700; margin:8px 0 3px; letter-spacing:-.015em; }
+.cp-hero-sub{ font-size:13px; color:var(--text-muted); margin:0; }
+.cp-hero-eta{ text-align:right; flex:0 0 auto; }
+.cp-hero-eta .n{ font-size:21px; font-weight:700; color:var(--green-dark); letter-spacing:-.04em; line-height:1.1; display:block; }
+.cp-hero-eta .l{ font-size:10px; color:var(--text-muted); }
+.cp-hero-techs{ display:flex; align-items:center; gap:6px; margin:2px 18px 0; }
+.cp-hero-tech-avatar{
+  width:22px; height:22px; border-radius:50%; color:#fff; font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; border:2px solid #fff; margin-left:-6px;
+}
+.cp-hero-tech-avatar:first-child{ margin-left:0; }
+.cp-hero-track{ display:flex; align-items:center; padding:9px 20px 11px; }
+.cp-hero-track .pt{ width:10px; height:10px; border-radius:50%; background:#dfe8e4; flex:0 0 auto; }
+.cp-hero-track .pt.on{ background:var(--green); box-shadow:0 0 0 3px rgba(31,122,80,.13); }
+.cp-hero-track .pt.now{ background:var(--green-dark); box-shadow:0 0 0 5px rgba(21,77,52,.15); }
+.cp-hero-track .seg{ height:3px; flex:1; background:#dfe8e4; }
+.cp-hero-track .seg.on{ background:var(--green); }
+.cp-hero-labels{ display:flex; justify-content:space-between; padding:0 20px 15px; font-size:10px; font-weight:600; color:var(--text-muted); }
+.cp-hero-labels .cur{ color:var(--green-dark); }
+.cp-hero-foot{
+  border-top:1px solid var(--border); padding:12px 16px; display:flex; align-items:center; justify-content:space-between;
+  gap:8px; background:#fbfdfc; font-size:12px; color:var(--text-muted);
+}
+.cp-hero-foot .loc{ display:flex; gap:7px; align-items:center; }
+.cp-hero-foot svg{ width:16px; height:16px; color:var(--teal); flex-shrink:0; }
+.cp-hero-foot a{
+  display:flex; align-items:center; gap:5px; color:var(--teal); font-weight:700; text-decoration:none;
+  flex-shrink:0; background:var(--teal-light); padding:7px 10px; border-radius:8px; font-size:11.5px; cursor:pointer;
+}
+.cp-hero-allclear{ padding:20px 18px; display:flex; align-items:center; gap:14px; }
+.cp-hero-allclear .ic{ width:46px; height:46px; border-radius:50%; background:var(--green-light); color:var(--green); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.cp-hero-scheduled{ padding:18px 18px 15px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.cp-hero-scheduled .ic{ width:46px; height:46px; border-radius:13px; background:var(--teal-light); color:var(--teal); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.cp-hero-danger{ box-shadow:0 6px 18px rgba(179,64,45,.12); border:1px solid #eeb3b3; }
+.cp-hero-danger-body{ padding:18px 18px 12px; display:flex; align-items:flex-start; gap:13px; }
+.cp-hero-danger .ic{ width:42px; height:42px; border-radius:11px; background:#fbeaea; color:var(--danger); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.cp-hero-danger-cta{ padding:0 18px 18px; }
+.cp-hero-btn{ width:100%; border:none; padding:12px; border-radius:10px; font-size:13.5px; font-weight:700; cursor:pointer; color:#fff; box-shadow:0 6px 14px rgba(179,64,45,.19); }
+.cp-hero-btn.danger{ background:var(--danger); }
+.cp-hero-muted-note{ font-size:12px; color:var(--text-muted); padding:0 18px 18px; }
+
+.cp-section{ padding:24px 18px 0; }
+@media (min-width:1000px){ .cp-section{ max-width:1100px; margin:0 auto; } }
+.cp-section-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.cp-section-head h2{ font-size:15px; font-weight:700; margin:0; letter-spacing:-.01em; }
+.cp-section-head a{ font-size:12px; color:var(--teal); text-decoration:none; font-weight:700; cursor:pointer; }
+
+/* ---- Unit cards — vertical stack, photo-left (replaces the old
+   horizontal carousel to match this theme's layout) ---- */
+.cp-unit-stack{ display:grid; gap:12px; }
+.cp-unit-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:16px; overflow:hidden;
+  box-shadow:var(--cp-soft); display:grid; grid-template-columns:110px 1fr; min-height:120px;
+  cursor:pointer; transition:transform .15s ease, box-shadow .15s ease;
+}
+.cp-unit-card:hover{ transform:translateY(-2px); box-shadow:0 12px 24px rgba(21,77,52,.12); }
+.cp-unit-card .img-wrap{ position:relative; background:var(--green-light); overflow:hidden; }
+.cp-unit-card .img-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+.cp-unit-card .img-wrap .fallback-ic{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:var(--green-dark); }
+.cp-unit-card .img-wrap .fallback-ic svg{ width:44px; height:44px; }
+.cp-unit-card.state-active .img-wrap{ background:#fdf1de; } .cp-unit-card.state-active .fallback-ic{ color:var(--amber); }
+.cp-unit-card.state-danger .img-wrap{ background:#fbeaea; } .cp-unit-card.state-danger .fallback-ic{ color:var(--danger); }
+.cp-unit-card.state-teal .img-wrap{ background:var(--teal-light); } .cp-unit-card.state-teal .fallback-ic{ color:var(--teal); }
+.cp-unit-badge-corner{
+  position:absolute; left:8px; top:8px; background:#fff; padding:4px 8px; border-radius:12px;
+  font-size:9px; text-transform:uppercase; letter-spacing:.05em; font-weight:800; box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+.cp-unit-badge-corner.state-good{ color:var(--green); } .cp-unit-badge-corner.state-teal{ color:var(--teal); }
+.cp-unit-badge-corner.state-active{ color:var(--amber); } .cp-unit-badge-corner.state-danger{ color:var(--danger); }
+.cp-unit-card .body{ padding:15px 14px; display:flex; flex-direction:column; justify-content:center; }
+.cp-unit-card .name{ font-size:13.5px; font-weight:700; margin:0 0 3px; }
+.cp-unit-card .meta{ font-size:11px; color:var(--text-muted); margin:0 0 11px; }
+.cp-unit-card .foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.cp-unit-badge{ font-size:10px; font-weight:700; padding:5px 8px; border-radius:7px; }
+.cp-unit-badge.state-good{ background:var(--green-light); color:var(--green-dark); }
+.cp-unit-badge.state-teal{ background:var(--teal-light); color:var(--teal); }
+.cp-unit-badge.state-active{ background:#fdf1de; color:var(--amber); }
+.cp-unit-badge.state-danger{ background:#fbeaea; color:var(--danger); }
+.cp-unit-card .view-link{ color:var(--teal); font-size:11px; font-weight:700; text-decoration:none; flex-shrink:0; }
+@media (min-width:640px){ .cp-unit-card{ grid-template-columns:150px 1fr; } }
+
+/* ---- Recent activity ---- */
+.cp-card-list{ background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--cp-soft); overflow:hidden; }
+.cp-activity-row{ display:flex; align-items:center; gap:11px; padding:14px 15px; border-bottom:1px solid var(--border); cursor:pointer; }
+.cp-activity-row:last-child{ border-bottom:none; }
+.cp-activity-dot{ width:9px; height:9px; border-radius:50%; background:var(--teal); flex-shrink:0; }
+.cp-activity-dot.warn{ background:var(--amber); }
+.cp-activity-row .t{ font-size:13px; font-weight:700; margin:0; }
+.cp-activity-row .s{ font-size:11px; color:var(--text-muted); margin:2px 0 0; }
+.cp-activity-row .date{ font-size:11px; color:var(--text-muted); font-weight:600; flex-shrink:0; margin-left:auto; }
+
+/* ---- Quick actions (2x2) ---- */
+.cp-quick-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.cp-quick-tile{
+  border:1px solid var(--border); border-radius:15px; background:var(--surface); min-height:104px;
+  padding:16px 13px; text-align:left; cursor:pointer; transition:.15s ease;
+}
+.cp-quick-tile:hover{ border-color:#9ccedb; transform:translateY(-2px); box-shadow:var(--cp-soft); }
+.cp-quick-tile svg{ width:24px; height:24px; color:var(--teal); margin-bottom:13px; }
+.cp-quick-tile .t{ font-size:12.5px; font-weight:700; margin:0; }
+.cp-quick-tile .s{ font-size:10.5px; color:var(--text-muted); margin:2px 0 0; }
+
+/* ---- Booking banner (primary CTA) ---- */
+.cp-booking-banner{
+  margin:22px 18px 0; padding:18px; border-radius:16px; display:flex; justify-content:space-between; align-items:center; gap:14px;
+  background:linear-gradient(135deg, var(--green-light), #dcf0e3); border:1px solid #cbe6d5;
+}
+@media (min-width:1000px){ .cp-booking-banner{ max-width:1100px; margin:22px auto 0; } }
+.cp-booking-banner h2{ font-size:14.5px; color:var(--green-dark); margin:0 0 3px; }
+.cp-booking-banner p{ font-size:11.5px; color:var(--text-muted); margin:0; }
+.cp-booking-banner button{
+  flex-shrink:0; border:none; border-radius:11px; background:var(--green-dark); color:#fff; padding:12px 14px;
+  font-size:12.5px; font-weight:700; cursor:pointer; box-shadow:0 6px 14px rgba(21,77,52,.19);
+}
+@media (max-width:390px){ .cp-booking-banner{ flex-direction:column; align-items:flex-start; } .cp-booking-banner button{ width:100%; } }
+
+/* ---- Billing card — only rendered when there's a real fee amount to
+   show (see renderCustomerHome in customer-portal.js); never fabricated. ---- */
+.cp-billing-card{
+  margin:20px 18px 0; border:1px solid #f0d18c; background:linear-gradient(135deg,#fff9ea,#fffcf6);
+  border-radius:15px; padding:15px;
+}
+@media (min-width:1000px){ .cp-billing-card{ max-width:1100px; margin:20px auto 0; } }
+.cp-billing-card small{ display:block; text-transform:uppercase; letter-spacing:.06em; font-size:9.5px; font-weight:800; color:var(--amber); }
+.cp-billing-card b{ display:block; margin:5px 0 13px; font-size:15px; }
+.cp-billing-bottom{ display:flex; justify-content:space-between; align-items:center; }
+.cp-billing-bottom span{ font-size:11.5px; color:var(--text-muted); }
+.cp-billing-bottom button{ border:none; border-radius:9px; background:var(--green-dark); color:#fff; padding:9px 12px; font-weight:700; font-size:11.5px; cursor:pointer; }
+
+/* ---- Units screen (full grid) ---- */
+.cp-units-grid{ display:grid; grid-template-columns:1fr; gap:12px; padding:16px; }
+@media (min-width:640px){ .cp-units-grid{ grid-template-columns:repeat(2,1fr); } }
+@media (min-width:1000px){ .cp-units-grid{ max-width:1100px; margin:0 auto; grid-template-columns:repeat(3,1fr); } }
+
+/* ---- History screen (segmented Visits / Requests) ---- */
+.cp-history-head{ background:linear-gradient(135deg, var(--green-dark), var(--green)); padding:20px 18px; }
+.cp-history-head h1{ color:#fff; font-size:18px; font-weight:700; margin:0; }
+.cp-history-head p{ color:rgba(255,255,255,.8); font-size:12.5px; margin:4px 0 0; }
+.cp-seg{ display:flex; gap:8px; padding:16px 18px 0; }
+@media (min-width:1000px){ .cp-seg{ max-width:1100px; margin:0 auto; } }
+.cp-seg-btn{ flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px; font-size:12.5px; font-weight:700; color:var(--text-muted); cursor:pointer; }
+.cp-seg-btn.active{ background:var(--green-dark); border-color:var(--green-dark); color:#fff; }
+
+/* ---- Tools & learning ---- */
+.cp-tools-head{ background:linear-gradient(135deg, var(--green-dark), var(--green)); padding:20px 20px 18px; }
+.cp-tools-head h1{ color:#fff; font-size:18px; font-weight:700; margin:0; }
+.cp-tools-head p{ color:rgba(255,255,255,.8); font-size:12.5px; margin:4px 0 0; }
+.cp-search{ margin:16px 18px 0; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:11px 13px; display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:13px; box-shadow:var(--cp-soft); }
+@media (min-width:1000px){ .cp-search, .cp-tools-section{ max-width:1100px; margin-left:auto; margin-right:auto; } }
+.cp-search input{ border:none; outline:none; flex:1; font-size:13px; background:none; }
+.cp-tools-section{ padding:20px 18px 0; }
+.cp-tools-section h2{ font-size:13.5px; font-weight:700; color:var(--text-muted); margin:0 0 11px; }
+.cp-tool-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+@media (min-width:640px){ .cp-tool-grid{ grid-template-columns:repeat(3,1fr); } }
+@media (min-width:1000px){ .cp-tool-grid{ grid-template-columns:repeat(4,1fr); } }
+.cp-tool-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:15px; text-align:left; cursor:pointer; box-shadow:var(--cp-soft); }
+.cp-tool-card .ic{ width:38px; height:38px; border-radius:11px; background:var(--teal-light); color:var(--teal); display:flex; align-items:center; justify-content:center; margin-bottom:11px; }
+.cp-tool-card .t{ font-size:13px; font-weight:700; margin:0; }
+.cp-tool-card .d{ font-size:11px; color:var(--text-muted); margin:4px 0 0; line-height:1.4; }
+.cp-article-row{ display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:13px; margin-bottom:10px; cursor:pointer; text-align:left; width:100%; box-shadow:var(--cp-soft); }
+.cp-article-row .ic{ width:36px; height:36px; border-radius:10px; background:var(--teal-light); color:var(--teal); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.cp-article-row .t{ font-size:13px; font-weight:700; margin:0; }
+.cp-article-row .d{ font-size:11.5px; color:var(--text-muted); margin:2px 0 0; }
+.cp-article-row .chev{ color:var(--text-muted); margin-left:auto; flex-shrink:0; }
+
+/* ---- Calculator sub-screen ---- */
+.cp-calc-wrap{ padding:16px; max-width:480px; margin:0 auto; }
+.cp-calc-back{ background:none; border:none; color:var(--teal); font-size:13px; font-weight:700; cursor:pointer; padding:0 0 14px; }
+.cp-calc-card{ background:var(--surface); border-radius:16px; padding:18px; box-shadow:var(--cp-soft); }
+.cp-calc-result{ margin-top:14px; background:var(--teal-light); border-radius:11px; padding:15px; }
+.cp-calc-result .n{ font-size:23px; font-weight:700; color:var(--teal); margin:0; }
+.cp-calc-result .l{ font-size:12px; color:var(--text-muted); margin:2px 0 0; }
+
+/* ---- Profile screen ---- */
+.cp-profile-head{ background:linear-gradient(135deg, var(--green-dark), var(--green)); padding:26px 18px; text-align:center; }
+.cp-profile-avatar{ width:66px; height:66px; border-radius:50%; background:rgba(255,255,255,.18); color:#fff; font-weight:800; font-size:23px; display:flex; align-items:center; justify-content:center; margin:0 auto 11px; }
+.cp-profile-head h1{ color:#fff; font-size:17px; font-weight:700; margin:0; }
+.cp-profile-head p{ color:rgba(255,255,255,.8); font-size:12.5px; margin:4px 0 0; }
+.cp-profile-list{ padding:16px; max-width:560px; margin:0 auto; }
+.cp-profile-row{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:14px 15px; margin-bottom:10px; cursor:pointer; box-shadow:var(--cp-soft); }
+.cp-profile-row .t{ font-size:13.5px; font-weight:700; margin:0; }
+.cp-profile-row .s{ font-size:11.5px; color:var(--text-muted); margin:2px 0 0; }

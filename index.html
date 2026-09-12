@@ -133,19 +133,6 @@ window.awesCss = {
 </script>
 <link rel="stylesheet" href="css/app.css">
 
-<!-- App-wide typefaces: Plus Jakarta Sans (UI text) + JetBrains Mono
-     (numbers/code), loaded from Google's font CDN — see the comment on the
-     html{font-family:...} rule in app.css for the family stack and
-     fallbacks, and how sw.js keeps fonts available offline after the first
-     successful load. preconnect on both hosts shaves the DNS/TLS handshake
-     off the first request (the CSS comes from fonts.googleapis.com, the
-     actual font files from fonts.gstatic.com); weights 400/500/600/700/800
-     cover every font-weight value used anywhere in app.css, with 600 on
-     JetBrains Mono for any bold monospace figures. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-
 </head>
 <body>
 
@@ -372,14 +359,6 @@ window.awesCss = {
           <div class="overview-stat-value" id="ovMyLiqValue">—</div>
           <div class="overview-stat-sub" id="ovMyLiqSub">—</div>
         </div>
-        <!-- Cash currently out and not yet liquidated — see home.js
-             renderHomeTechOverview()'s "Finance" block. Was previously
-             missing from this grid, which threw on every tech Home load. -->
-        <div class="overview-stat ov-green">
-          <div class="overview-stat-head"><span class="overview-stat-title">Finance</span><span class="overview-stat-icon ov-icon-chip">💰</span></div>
-          <div class="overview-stat-value" id="ovMyFinanceValue">—</div>
-          <div class="overview-stat-sub" id="ovMyFinanceSub">—</div>
-        </div>
         <div class="overview-stat ov-teal">
           <div class="overview-stat-head"><span class="overview-stat-title">Next Job Order</span><span class="overview-stat-icon ov-icon-chip">📅</span></div>
           <div class="overview-stat-value" id="ovMyNextJoValue">—</div>
@@ -543,81 +522,181 @@ window.awesCss = {
 </div>
 
 <!-- Customer Portal — shown instead of #homeScreen when currentUser.role === 'customer'. -->
-<div id="customerHomeScreen" class="home-screen" style="display:none;">
+<div id="customerHomeScreen" class="home-screen cp-screen" style="display:none;">
 
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-head"><span>👋 Welcome Back</span></div>
-    <div class="card-body">
-      <div>Hi <b id="cpGreetingName">there</b> — here's the status of your equipment and recent service activity.</div>
-      <!-- Shown only when this login is linked to more than one customer
-           record (see cpRenderSwitcher() in customer-portal.js) — lets them
-           pick which one the rest of this screen (and Equipment / Reports)
-           is scoped to. -->
-      <div class="field" id="cpSwitcherField" style="display:none; margin:12px 0 0;">
-        <label>Viewing</label>
-        <select id="cpCustomerSwitcher"></select>
-      </div>
-    </div>
-  </div>
-
-  <div class="cp-stat-grid">
-    <div class="cp-stat-card">
-      <div class="cp-stat-num" id="cpStatUnits">—</div>
-      <div class="cp-stat-label">Units enrolled</div>
-    </div>
-    <div class="cp-stat-card cp-stat-flag">
-      <div class="cp-stat-num" id="cpStatFlagged">—</div>
-      <div class="cp-stat-label">PM due</div>
-    </div>
-    <div class="cp-stat-card">
-      <div class="cp-stat-num" id="cpStatOpenReports">—</div>
-      <div class="cp-stat-label">Reports in progress</div>
-    </div>
-  </div>
-
-  <div class="cp-alert-banner" id="cpAlertBanner" style="display:none;">
-    <div class="cp-alert-dot"></div>
-    <div>
-      <b>Preventive maintenance due</b>
-      <span id="cpAlertText"></span>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-head"><span>❄️ Your Equipment</span></div>
-    <div class="card-body">
-      <div class="cp-equip-grid" id="cpEquipGrid">
-        <div class="empty-state">Loading…</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-head">
-      <span>📄 Recent Service Reports</span>
-      <button type="button" id="cpViewAllReportsBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">View All ›</button>
-    </div>
-    <div class="card-body">
-      <div id="cpReportsList"><div class="empty-state">Loading…</div></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+  <div class="cp-header">
+    <div class="cp-header-inner">
       <div>
-        <div style="font-weight:700; font-size:14px;">Something not running right?</div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">Submit a request and we'll get a technician assigned.</div>
+        <p class="cp-greet">Hi, <span id="cpGreetingName">there</span></p>
+        <p class="cp-greet-sub" id="cpGreetSub">Loading your units…</p>
       </div>
-      <button type="button" id="cpRequestServiceBtn" class="btn-primary">＋ Request Service</button>
+      <div class="cp-header-actions">
+        <!-- Notification bell doubles as the global chat entry point — see
+             cpRefreshNotifBell() in customer-portal.js. Opens My Requests
+             (where per-job messaging lives) rather than a separate inbox;
+             see the "chat model" note in cpNotifBell's click handler. -->
+        <button type="button" id="cpNotifBell" class="cp-icon-btn" style="display:none;" aria-label="Messages" title="Messages"></button>
+        <button type="button" id="cpAvatarBtn" class="cp-avatar" title="Profile">?</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shown only when this login is linked to more than one customer
+       record (see cpRenderSwitcher() in customer-portal.js). -->
+  <div class="cp-switcher-field field" id="cpSwitcherField" style="display:none;">
+    <label>Viewing</label>
+    <select id="cpCustomerSwitcher"></select>
+  </div>
+
+  <div class="cp-content">
+    <!-- Hero — filled by renderCustomerHero() with one of: all-clear,
+         scheduled, active (single/multi tech), needs-attention (overdue /
+         quotation pending / quotation ready), or the many-units summary
+         card. Layout skeleton below never changes, only this block. -->
+    <div class="cp-hero" id="cpHero"></div>
+
+    <div class="cp-section">
+      <div class="cp-section-head">
+        <h2 id="cpUnitsSectionTitle">Your units</h2>
+        <a id="cpUnitsViewAllLink">Manage units</a>
+      </div>
+      <div class="cp-unit-stack" id="cpUnitScroll"></div>
+    </div>
+
+    <!-- Primary CTA — matches this theme's "booking banner" treatment. -->
+    <div class="cp-booking-banner">
+      <div>
+        <h2>Need service for another unit?</h2>
+        <p>Book a visit at a time that works for you.</p>
+      </div>
+      <button type="button" id="cpRequestServiceBtn">Book a service</button>
+    </div>
+
+    <!-- Billing — only shown when a real fee amount exists on one of this
+         customer's requests (see renderCustomerHome in customer-portal.js).
+         "Pay now" is a placeholder — no payment gateway is wired up yet. -->
+    <div class="cp-billing-card" id="cpBillingCard" style="display:none;">
+      <small>Service fee</small>
+      <b id="cpBillingLabel">—</b>
+      <div class="cp-billing-bottom">
+        <span id="cpBillingSub"></span>
+        <button type="button" id="cpBillingPayBtn">Pay now</button>
+      </div>
+    </div>
+
+    <div class="cp-section">
+      <div class="cp-section-head"><h2>Quick actions</h2></div>
+      <div class="cp-quick-grid">
+        <button type="button" class="cp-quick-tile" id="cpQuickUnits"></button>
+        <button type="button" class="cp-quick-tile" id="cpQuickQuotes"></button>
+        <button type="button" class="cp-quick-tile" id="cpQuickHistory"></button>
+        <button type="button" class="cp-quick-tile" id="cpQuickHelp"></button>
+      </div>
+    </div>
+
+    <div class="cp-section" style="padding-bottom:20px;">
+      <div class="cp-section-head">
+        <h2>Recent activity</h2>
+        <a id="cpActivityFullHistoryLink">Full history</a>
+      </div>
+      <div class="cp-card-list" id="cpRecentActivity"></div>
     </div>
   </div>
 
 </div>
 
+<!-- Units — full list of enrolled equipment (tapping a unit still opens
+     customerEquipmentDetailScreen, unchanged). -->
+<div id="customerUnitsScreen" class="home-screen cp-screen" style="display:none;">
+  <div class="cp-tools-head"><h1>Your units</h1><p id="cpUnitsScreenSub">&nbsp;</p></div>
+  <div class="cp-units-grid" id="cpUnitsGrid"><div class="empty-state">Loading…</div></div>
+</div>
+
+<!-- History — segmented Visits (service reports) / Requests (My Requests,
+     which is also where quotes/invoices live via the fee-proposal flow). -->
+<div id="customerHistoryScreen" class="home-screen cp-screen" style="display:none;">
+  <div class="cp-history-head"><h1>History</h1><p>Past visits and service requests</p></div>
+  <div class="cp-seg">
+    <button type="button" class="cp-seg-btn active" id="cpHistTabVisits">Visits</button>
+    <button type="button" class="cp-seg-btn" id="cpHistTabRequests">Requests</button>
+  </div>
+  <div id="cpHistVisitsPanel" style="padding:14px 16px 0;">
+    <div class="cp-card-list" id="cpHistVisitsList"><div class="empty-state">Loading…</div></div>
+  </div>
+  <div id="cpHistRequestsPanel" style="display:none; padding:14px 16px 0;">
+    <div class="cp-card-list" id="cpHistRequestsList"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Tools & learning — calculators + guides, kept separate from Home so it
+     never competes with service status. -->
+<div id="customerToolsScreen" class="home-screen cp-screen" style="display:none;">
+  <div class="cp-tools-head">
+    <h1>Tools &amp; learning</h1>
+    <p>Calculators and guides to help you get the most from your units</p>
+  </div>
+  <div class="cp-search"><span></span><input type="text" id="cpToolsSearch" placeholder="Search tools and articles"></div>
+  <div class="cp-tools-section">
+    <h2>Calculators</h2>
+    <div class="cp-tool-grid" id="cpCalcGrid"></div>
+  </div>
+  <div class="cp-tools-section" style="padding-bottom:18px;">
+    <h2>Guides &amp; tips</h2>
+    <div id="cpArticleList"></div>
+  </div>
+</div>
+
+<!-- A single calculator sub-screen whose body swaps per tool (see
+     cpOpenCalc() in customer-portal.js) rather than one screen per tool —
+     content stays easy to extend without adding a new screen each time. -->
+<div id="customerCalcScreen" class="home-screen cp-screen" style="display:none;">
+  <div class="cp-calc-wrap">
+    <button type="button" class="cp-calc-back" id="cpCalcBackBtn">‹ Back to Tools</button>
+    <div class="cp-calc-card" id="cpCalcBody"></div>
+  </div>
+</div>
+
+<!-- Profile — account info, the multi-customer switcher (moved out of the
+     header so it doesn't clutter the common single-property case), and
+     logout. -->
+<div id="customerProfileScreen" class="home-screen cp-screen" style="display:none;">
+  <div class="cp-profile-head">
+    <div class="cp-profile-avatar" id="cpProfileAvatar">?</div>
+    <h1 id="cpProfileName">—</h1>
+    <p id="cpProfileSub">&nbsp;</p>
+  </div>
+  <div class="cp-profile-list">
+    <div class="field" id="cpProfileSwitcherField" style="display:none; margin-bottom:14px;">
+      <label>Viewing (property/account)</label>
+      <select id="cpProfileSwitcher"></select>
+    </div>
+    <div class="cp-profile-row" id="cpProfileRowRequests">
+      <div><p class="t">My service requests</p><p class="s">Status, quotes, and messages</p></div>
+      <span>›</span>
+    </div>
+    <div class="cp-profile-row" id="cpProfileRowLogout">
+      <div><p class="t">Log out</p></div>
+      <span>›</span>
+    </div>
+  </div>
+</div>
+
+<!-- Shared bottom-tab-bar (mobile) / top-nav-bar (desktop) for every
+     customer screen — see cpShowScreen() in customer-portal.js. -->
+<nav class="cp-nav" id="cpNav" style="display:none;">
+  <div class="cp-nav-brand"><img src="logo.png" alt=""><span>Wesmanila AC</span></div>
+  <button type="button" class="cp-nav-btn active" data-screen="Home" id="cpNavHome"></button>
+  <button type="button" class="cp-nav-btn" data-screen="Units" id="cpNavUnits"></button>
+  <button type="button" class="cp-nav-btn" data-screen="History" id="cpNavHistory"></button>
+  <button type="button" class="cp-nav-btn" data-screen="Tools" id="cpNavTools"></button>
+  <button type="button" class="cp-nav-btn" data-screen="Profile" id="cpNavProfile"></button>
+  <div class="cp-nav-spacer"></div>
+</nav>
+
 <!-- Customer Portal — Request Service (new + history), reached via
      custNavRequests or cpRequestServiceBtn above. See customer-portal.js
      cpShowRequestsScreen()/cpSubmitRequest()/cpRenderMyRequests(). -->
-<div id="customerRequestsScreen" class="home-screen" style="display:none;">
+<div id="customerRequestsScreen" class="home-screen cp-screen" style="display:none;">
 
   <button type="button" id="cpReqBackBtn" class="cp-back-btn">‹ Back to Home</button>
 
@@ -631,7 +710,7 @@ window.awesCss = {
       <div class="card-head"><span>🛠️ Request Service</span></div>
       <div class="card-body">
         <div class="field">
-          <label>Which equipment? <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+          <label>Which equipment? <span class="req">*</span></label>
           <select id="cpReqEquipment">
             <option value="">General inquiry (not a specific unit)</option>
           </select>
@@ -653,6 +732,26 @@ window.awesCss = {
             <input type="date" id="cpReqDate">
           </div>
         </div>
+        <div class="field">
+          <label>Access Requirements</label>
+          <label class="chk"><input type="checkbox" id="cpReqAccessGatePass"><span>Gate Pass</span></label>
+          <label class="chk"><input type="checkbox" id="cpReqAccessLadder"><span>Ladder</span></label>
+          <label class="chk"><input type="checkbox" id="cpReqAccessWorkPermit"><span>Work Permit</span></label>
+          <label class="chk"><input type="checkbox" id="cpReqAccessOthers"><span>Others</span></label>
+          <div class="field" id="cpReqAccessOthersDetailWrap" style="display:none; margin-top:8px;">
+            <input type="text" id="cpReqAccessOthersDetail" placeholder="Specify other requirement">
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Contact Person at Site</label>
+            <input type="text" id="cpReqContactPerson" placeholder="Name">
+          </div>
+          <div class="field">
+            <label>Contact Number</label>
+            <input type="text" id="cpReqContactNumber" placeholder="Mobile number">
+          </div>
+        </div>
         <div class="leave-note">Your request will be sent to our office for review. You'll see its status under "My Requests".</div>
         <button type="button" class="btn-primary" id="cpReqSubmitBtn" style="margin-top:12px;">Submit Request</button>
       </div>
@@ -671,7 +770,7 @@ window.awesCss = {
 </div>
 
 <!-- Customer Portal — equipment detail / full service history for one unit. -->
-<div id="customerEquipmentDetailScreen" class="home-screen" style="display:none;">
+<div id="customerEquipmentDetailScreen" class="home-screen cp-screen" style="display:none;">
 
   <button type="button" id="cpDetailBackBtn" class="cp-back-btn">‹ Back to Home</button>
 
@@ -716,6 +815,11 @@ window.awesCss = {
       </div>
     </div>
   </div>
+
+  <!-- Opens the New Request form with this exact unit pre-selected — see
+       cpRequestServiceForEquip() in customer-portal.js. Placed at the
+       bottom of the page rather than up top with the specs. -->
+  <button type="button" id="cpDetailRequestServiceBtn" class="btn-primary" style="width:100%; margin-bottom:16px;">＋ Request Service for This Unit</button>
 
 </div>
 
@@ -1039,6 +1143,37 @@ window.awesCss = {
       <div style="display:flex; gap:8px; margin-top:8px;">
         <input type="text" id="dtMsgInput" placeholder="Ask a question about this Job Order…" style="flex:1;">
         <button type="button" class="btn btn-primary" id="dtMsgSendBtn" style="flex:none; padding:10px 16px;">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Service Request detail — shared by both roles (admin's queue and the
+     customer's My Requests both open this same overlay; content and
+     available actions are built dynamically per currentUser.role by
+     srOpenDetail() in service-requests.js). Covers viewing full details,
+     the fee-approval and schedule-confirmation workflow, cancellation,
+     and the per-request message thread. -->
+<div class="overlay" id="srDetailOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="srDetailTitle">Service Request</h3>
+      <button class="sheet-close" id="closeSrDetailOverlay">&times;</button>
+    </div>
+    <div id="srDetailStatusWrap" style="margin-bottom:10px;"></div>
+    <div id="srDetailSummary"></div>
+    <div id="srDetailFeeSection" style="display:none; margin-top:14px;"></div>
+    <div id="srDetailScheduleSection" style="display:none; margin-top:14px;"></div>
+    <div id="srDetailProgressSection" style="display:none; margin-top:14px;"></div>
+    <div id="srDetailAdminActions" style="display:none; margin-top:14px;"></div>
+    <div id="srDetailCancelSection" style="display:none; margin-top:14px;"></div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Messages</label>
+      <div id="srMsgList" class="dt-msg-list"><div class="empty-state">Loading…</div></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <input type="text" id="srMsgInput" placeholder="Send a message about this request…" style="flex:1;">
+        <button type="button" class="btn btn-primary" id="srMsgSendBtn" style="flex:none; padding:10px 16px;">Send</button>
       </div>
     </div>
   </div>
@@ -1625,6 +1760,44 @@ window.awesCss = {
   </div>
 </main>
 
+<!-- Service Requests — admin-only inbox of customer-filed requests (see
+     js/modules-src/service-requests.js). Not reachable by technicians;
+     the sidebar item that opens this is inside #sidebarAdminGroup. Kept
+     live via a realtime channel — srAdminInit() in service-requests.js —
+     so a new submission appears here without a manual refresh. -->
+<main id="serviceRequestsView" style="display:none; max-width:800px; margin:0 auto; padding:16px;">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head">
+      <span>🚩 Flag an Issue</span>
+      <button type="button" id="srFlagToggleBtn" style="color:#fff; background:none; border:none; font-size:12px; font-weight:700; cursor:pointer;">+ New</button>
+    </div>
+    <div class="card-body" id="srFlagFormBody" style="display:none;">
+      <div class="leave-note" style="margin-bottom:10px;">
+        Stand-in for noting an issue found on a completed visit, until the Service Report form has its own "flag an issue" field. Creates a request the customer sees on their home screen, same as if they'd filed it themselves.
+      </div>
+      <div class="field">
+        <label>Customer <span class="req">*</span></label>
+        <select id="srFlagCustomer"><option value="">Select customer…</option></select>
+      </div>
+      <div class="field">
+        <label>Equipment (optional)</label>
+        <select id="srFlagEquipment"><option value="">Not tied to a specific unit</option></select>
+      </div>
+      <div class="field">
+        <label>What did the technician find? <span class="req">*</span></label>
+        <textarea id="srFlagSummary" rows="3" placeholder="e.g. Compressor showing early signs of wear — recommend replacement within 2 months."></textarea>
+      </div>
+      <button type="button" class="btn-primary" id="srFlagSubmitBtn">Create Flagged Request</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-head"><span>🛠️ Service Requests</span></div>
+    <div class="card-body">
+      <div id="srQueueList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
 <main id="serviceReportView" style="display:none;">
 
   <div class="seg-tabs" id="srSegTabs">
@@ -2181,20 +2354,6 @@ window.awesCss = {
   </div>
 </main>
 
-<!-- Service Requests — admin-only inbox of customer-filed requests (see
-     js/modules-src/service-requests.js). Not reachable by technicians;
-     the sidebar item that opens this is inside #sidebarAdminGroup. Kept
-     live via a realtime channel — srAdminInit() in service-requests.js —
-     so a new submission appears here without a manual refresh. -->
-<main id="serviceRequestsView" style="display:none; max-width:800px; margin:0 auto; padding:16px;">
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-head"><span>🛠️ Service Requests</span></div>
-    <div class="card-body">
-      <div id="srQueueList"><div class="empty-state">Loading…</div></div>
-    </div>
-  </div>
-</main>
-
 <!-- Equipment full-detail overlay (Manage Equipment List → View All) — tapping
      a row opens this clean label/value view instead of an inline accordion,
      matching the same layout used by the Dispatch Ticket equipment detail
@@ -2237,25 +2396,8 @@ window.awesCss = {
   </div>
 </div>
 
-<!-- Equipment Photo Lightbox — shared full-screen swipeable viewer for both
-     the admin photo grid above and the customer portal's read-only gallery
-     (customer-equipment-history.js). Previously tapping a photo opened
-     window.open() in a new tab, which on mobile meant closing that tab just
-     to see the next photo; this keeps browsing in place. See
-     openEquipmentPhotoLightbox() in equipment-photos.js. z-index above the
-     equipment detail overlay (56) since it can open from either that
-     overlay or the plain customer portal screen. -->
-<div class="overlay" id="equipPhotoLightbox" style="z-index:80; background:rgba(10,14,12,0.94); align-items:center;">
-  <button type="button" id="equipPhotoLightboxClose" aria-label="Close" style="position:absolute; top:14px; right:14px; z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; line-height:1; width:40px; height:40px; border-radius:20px; cursor:pointer;">&times;</button>
-  <div id="equipPhotoLightboxCounter" style="position:absolute; top:22px; left:16px; z-index:2; color:#fff; font-size:13px; opacity:.85;"></div>
-  <button type="button" id="equipPhotoLightboxPrev" aria-label="Previous photo" style="position:absolute; left:6px; top:50%; transform:translateY(-50%); z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; width:42px; height:64px; border-radius:8px; cursor:pointer;">&#8249;</button>
-  <button type="button" id="equipPhotoLightboxNext" aria-label="Next photo" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); z-index:2; background:rgba(255,255,255,0.12); border:none; color:#fff; font-size:24px; width:42px; height:64px; border-radius:8px; cursor:pointer;">&#8250;</button>
-  <div id="equipPhotoLightboxStage" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; touch-action:pan-y;">
-    <img id="equipPhotoLightboxImg" src="" alt="Equipment photo" style="max-width:94vw; max-height:88vh; object-fit:contain; user-select:none;">
-  </div>
-</div>
 
-
+<!-- Cloud Setup sheet -->
 <div class="overlay" id="cloudOverlay" style="z-index:90;">
   <div class="sheet">
     <div class="sheet-head">

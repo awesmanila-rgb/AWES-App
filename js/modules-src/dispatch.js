@@ -846,30 +846,55 @@
       if(cust){
         $('dtCustName').value = cust.name || '';
         $('dtCustName').dataset.customerId = cust.id;
+        // Site address only ever comes from the customer's own record —
+        // service_requests has no separate address field of its own.
+        $('dtSiteAddress').value = cust.address || '';
+        // Contact name/number: the request's own on-site contact (if the
+        // customer filled it in) is more relevant to THIS job than the
+        // customer's general on-file contact, so it takes priority.
+        $('dtContactName').value = request.contactPerson || cust.contactPerson || '';
+        $('dtContactNo').value = request.contactNumber || cust.contactNo || '';
         await dtLoadCustomerEquipment(cust.id);
-        // If the request named a specific unit (not a general inquiry),
-        // add it to the ticket now — same shape dtAddSelectedExistingEquip
-        // builds for an "already on file" pick — so admin doesn't have to
-        // re-find and re-add by hand what the customer already told us.
-        // Falls through silently if the unit isn't in the cache (e.g. it
-        // was removed from file since the request was filed); admin can
-        // still add equipment manually the normal way.
-        if(request.equipmentId){
-          const e = dtCurrentEquipmentCache.find(x=> String(x.id)===String(request.equipmentId));
-          if(e){
-            const item = Object.assign({id: dtGenEquipId(), equipmentId: e.id}, dtPickEquipFields(e));
-            dtDraftEquipItems.push(item);
-            dtAppendEquipItemCard(item);
-            dtSetEquipTab('existing');
-            dtRenderEquipPicker();
-          }
-        }
       }
     }
     if(request.requestedDate) $('dtDate').value = request.requestedDate;
+    // Reason for service — the request's description, as-is (no extra
+    // narrative wrapping); the urgency tag stays since it's easy to miss
+    // otherwise once this is sitting in a plain remarks box.
     const urgentPrefix = request.urgency==='urgent' ? '[URGENT] ' : '';
-    $('dtRemarks').value = urgentPrefix + 'From customer service request: ' + (request.description||'');
+    $('dtRemarks').value = urgentPrefix + (request.description||'');
+    // Access requirements the customer already flagged when filing the
+    // request carry straight over — no reason to make admin re-enter them.
+    $('dtReqGatePass').checked = !!request.accessGatePass;
+    $('dtReqWorkPermit').checked = !!request.accessWorkPermit;
+    $('dtReqOthers').checked = !!request.accessOthers;
+    if(request.accessOthers){
+      $('dtReqOthersDetail').value = request.accessOthersDetail || (request.accessLadder ? 'Ladder' : '');
+      $('dtReqOthersDetailWrap').style.display = '';
+    } else if(request.accessLadder){
+      // Dispatch's requirement checklist has no dedicated "Ladder" option
+      // (only Work Permit / Gate Pass / Safety / Others) — fold it into
+      // Others rather than silently dropping it.
+      $('dtReqOthers').checked = true;
+      $('dtReqOthersDetail').value = 'Ladder';
+      $('dtReqOthersDetailWrap').style.display = '';
+    }
     toast('Review the pre-filled details, then create the ticket');
+  }
+
+  // Assigned technician names for one ticket — already denormalized right
+  // onto the ticket's own JSON blob (assignedWorkerNames, set at creation —
+  // see dtCreateTicket below), so this is a single-row fetch with no join
+  // to a users table needed. Used by the customer portal's home-screen
+  // "Active service" hero to show who's on the job.
+  async function dtFetchTicketTechNames(ticketId){
+    if(!ticketId || !(await ensureCloud())) return [];
+    try{
+      const { data, error } = await db.from('dispatch_tickets')
+        .select('data').eq('id', ticketId).maybeSingle();
+      if(error) throw error;
+      return (data && data.data && data.data.assignedWorkerNames) || [];
+    }catch(e){ console.error('fetch ticket technicians failed', describeCloudError(e)); return []; }
   }
 
   async function dtCreateTicket(){
@@ -928,9 +953,10 @@
     // If this ticket was created from a customer's service request (see
     // dtPrefillCreateFromServiceRequest above), link the two so the
     // request's status follows the ticket from here on (srLinkTicket sets
-    // it to 'scheduled' now; dtComplete's completion hook takes it to
-    // 'completed' later). Best-effort — an ordinary ticket with no source
-    // request just leaves this as a no-op.
+    // it to 'dispatched' now; dtAcknowledge's hook takes it to
+    // 'in_progress' once a technician acknowledges, and dtComplete's
+    // completion hook takes it to 'completed' later). Best-effort — an
+    // ordinary ticket with no source request just leaves this as a no-op.
     if(dtSourceServiceRequestId && typeof srLinkTicket === 'function'){
       srLinkTicket(dtSourceServiceRequestId, id).catch(()=>{});
     }
@@ -1011,7 +1037,7 @@
     // the admin equipment detail overlay's own read-only ID row, plus the
     // customer label alongside it (if set) so a technician sees both
     // without having to leave the dispatch ticket.
-    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span class="mono">'+escapeHtml(equipShortId(item))+'</span></div>'+
+    const idRows = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span><span style="font-family:monospace;">'+escapeHtml(equipShortId(item))+'</span></div>'+
       (item.label ? '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span><span>'+escapeHtml(item.label)+'</span></div>' : '');
     const fieldRows = idRows + DT_EQUIP_DETAIL_KEYS.map(k=>{
       const val = (item[k]||'').toString().trim();
@@ -1430,6 +1456,7 @@
     }
   }
   async function dtAcknowledge(id){
+    let becameAcknowledged = false;
     const ok = await dtApplyWorkerChange(id, (rec, assigned)=>{
       const ackBy = new Set(rec.acknowledgedBy||[]);
       if(ackBy.has(currentUser.id)){ toast('You already acknowledged this'); return null; }
@@ -1439,9 +1466,17 @@
       // assigned has confirmed; before that it stays open so the remaining
       // technicians still see the Acknowledge button.
       const everyone = assigned.length>0 && assigned.every(w=> list.includes(w));
+      if(everyone) becameAcknowledged = true;
       return { acknowledgedBy: list, status: everyone ? 'acknowledged' : (rec.status||'open') };
     });
     if(ok) toast('Acknowledged');
+    // If this ticket originated from a customer's service request, move
+    // that request from 'dispatched' to 'in_progress' now that work has
+    // actually started — see srMarkInProgressByTicket in
+    // service-requests.js and the homepage progress tracker it feeds.
+    if(ok && becameAcknowledged && typeof srMarkInProgressByTicket === 'function'){
+      srMarkInProgressByTicket(id).catch(()=>{});
+    }
     dtRenderTechList();
   }
   async function dtComplete(id){

@@ -610,7 +610,7 @@
       card.innerHTML =
         '<div class="user-card-head"'+(equipListTab==='edit' ? ' data-act="toggle" style="cursor:pointer;"' : '')+'><div>'+
           '<div class="u-name">'+escapeHtml(e.equipLocation || '(no location)')+'</div>'+
-          '<div class="u-status mono">'+idLine+photoBadge+'</div>'+
+          '<div class="u-status" style="font-family:monospace;">'+idLine+photoBadge+'</div>'+
           '<div class="u-status">'+escapeHtml(rest)+'</div>'+
           (serials ? '<div class="u-status">'+escapeHtml(serials)+'</div>' : '')+
           '<div class="u-status">'+escapeHtml(pmLine)+'</div>'+
@@ -660,7 +660,7 @@
     //    here so admin can see it, but deliberately not editable from this
     //    overlay; naming the unit is the customer's call, not admin's.
     const idRow = '<div class="equip-detail-row"><span class="equip-detail-label">Equipment ID</span>'+
-      '<span class="mono">'+escapeHtml(equipShortId(record))+'</span></div>';
+      '<span style="font-family:monospace;">'+escapeHtml(equipShortId(record))+'</span></div>';
     const labelRow = '<div class="equip-detail-row"><span class="equip-detail-label">Customer Label</span>'+
       '<span>'+(record.label ? escapeHtml(record.label) : '<span style="color:var(--text-muted);">Not set by customer yet</span>')+'</span></div>';
     return idRow + labelRow + EQUIP_DETAIL_KEYS.map(k=>{
@@ -801,7 +801,7 @@
       const photo = photos.find(p=> String(p.id)===card.dataset.photoId);
       if(!photo) return;
       const viewEl = card.querySelector('[data-act="view"]');
-      if(viewEl) viewEl.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
+      if(viewEl) viewEl.addEventListener('click', ()=> { if(photo.signedUrl) window.open(photo.signedUrl, '_blank'); });
       const coverBtn = card.querySelector('[data-act="cover"]');
       if(coverBtn) coverBtn.addEventListener('click', async ()=>{
         coverBtn.disabled = true;

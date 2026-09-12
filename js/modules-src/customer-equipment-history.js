@@ -232,19 +232,15 @@
       '<div style="flex-basis:100%; margin-bottom:8px;">'+
         '<div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;">'+escapeHtml(f)+'</div>'+
         '<div style="display:flex; flex-wrap:wrap; gap:8px;">'+byFolder[f].map(p=>
-          '<div class="cp-photo-thumb" data-photo-id="'+p.id+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
+          '<div class="cp-photo-thumb" data-url="'+escapeHtml(p.signedUrl||'')+'" style="width:100px; height:100px; border-radius:8px; overflow:hidden; cursor:'+(p.signedUrl?'pointer':'default')+'; background:var(--bg-alt,#eee); display:flex; align-items:center; justify-content:center;">'+
             (p.signedUrl ? '<img src="'+p.signedUrl+'" style="width:100%; height:100%; object-fit:cover;">' : '<span style="font-size:11px; color:var(--text-muted);">—</span>')+
           '</div>'
         ).join('')+
       '</div>'
     ).join('');
-    // Swipeable lightbox (equipment-photos.js) instead of window.open() —
-    // opening each photo in a new tab meant closing it just to see the
-    // next one; this lets the customer swipe/arrow through every photo on
-    // this unit without leaving the gallery.
     $$('.cp-photo-thumb', grid).forEach(el=>{
-      const photo = photos.find(p=> String(p.id)===el.dataset.photoId);
-      if(photo && photo.signedUrl) el.addEventListener('click', ()=> openEquipmentPhotoLightbox(photos, photo));
+      const url = el.dataset.url;
+      if(url) el.addEventListener('click', ()=> window.open(url, '_blank'));
     });
   }
 
@@ -261,9 +257,14 @@
   // after readings, install data, signatures), so this re-fetches the
   // report fresh via cloudGetReport() rather than reusing the cpReports
   // entry directly.
-  async function openCustomerReportPreview(sr){
+  async function openCustomerReportPreview(sr, reportId){
     try{
-      const d = await cloudGetReport(sr);
+      // sr_no is the normal lookup, but falls back to the row's own id if
+      // that comes back empty — see the click handler in
+      // customer-portal.js for why (duplicate/edited sr_no elsewhere can
+      // break the single-row assumption cloudGetReport relies on).
+      let d = sr ? await cloudGetReport(sr) : null;
+      if(!d && reportId) d = await cloudGetReportById(reportId);
       if(!d){ toast('Could not open this report'); return; }
       const doc = await buildPdf(d);
       $('previewOverlay').querySelector('h3').textContent = d.custName ? d.custName : 'Report';
@@ -298,35 +299,44 @@
     $('homeScreen').style.display = 'none';
     $('customerEquipmentDetailScreen').style.display = 'none';
     $('customerRequestsScreen').style.display = 'none';
+    // New redesigned screens — see cpShowScreen() in customer-portal.js,
+    // which calls this first (to hide everything above) and then swaps in
+    // whichever of these five the person actually asked for.
+    $('customerUnitsScreen').style.display = 'none';
+    $('customerHistoryScreen').style.display = 'none';
+    $('customerToolsScreen').style.display = 'none';
+    $('customerCalcScreen').style.display = 'none';
+    $('customerProfileScreen').style.display = 'none';
     $('footerBar').style.display = 'none';
     $('metaBar').style.display = 'none';
     $('homeBtn').style.display = 'none';
     setSidebarActive('custNavHome');
     setHeaderTitle('Customer Portal', "Your equipment & service history");
     $('customerHomeScreen').style.display = '';
+    if($('cpNav')) $('cpNav').style.display = '';
+    if(typeof cpSetNavActive === 'function') cpSetNavActive('Home');
     initCustomerHomeScreen();
     window.scrollTo({top:0});
   }
 
   $('custNavHome').addEventListener('click', ()=>{ closeMainMenu(); showCustomerHome(); });
   $('custNavEquipment').addEventListener('click', ()=>{
-    closeMainMenu(); setSidebarActive('custNavEquipment'); showCustomerHome();
-    const el = $('cpEquipGrid'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    closeMainMenu(); setSidebarActive('custNavEquipment');
+    if(typeof cpShowScreen === 'function') cpShowScreen('Units');
   });
   $('custNavReports').addEventListener('click', ()=>{
-    closeMainMenu(); setSidebarActive('custNavReports'); showCustomerHome();
-    const el = $('cpReportsList'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    closeMainMenu(); setSidebarActive('custNavReports');
+    if(typeof cpShowScreen === 'function') cpShowScreen('History');
   });
   // custNavRequests / cpRequestServiceBtn open the Request Service screen
   // (New Request + My Requests) — see cpShowRequestsScreen() in
-  // customer-portal.js. Account settings still has no screen, so it keeps
-  // the "coming soon" convention used elsewhere (tile_materialRequest in
-  // home.js).
+  // customer-portal.js.
   $('custNavRequests').addEventListener('click', ()=>{
     closeMainMenu(); setSidebarActive('custNavRequests');
     if(typeof cpShowRequestsScreen === 'function') cpShowRequestsScreen();
   });
-  $('custNavAccount').addEventListener('click', ()=>{ closeMainMenu(); setSidebarActive('custNavAccount'); toast('Account settings — coming soon'); });
-  $('cpRequestServiceBtn').addEventListener('click', ()=>{ if(typeof cpShowRequestsScreen === 'function') cpShowRequestsScreen(); });
-  $('cpViewAllReportsBtn').addEventListener('click', ()=> toast('Full report list — coming soon'));
+  $('custNavAccount').addEventListener('click', ()=>{
+    closeMainMenu(); setSidebarActive('custNavAccount');
+    if(typeof cpShowScreen === 'function') cpShowScreen('Profile');
+  });
   $('cpDetailBackBtn').addEventListener('click', closeCustomerEquipmentDetail);

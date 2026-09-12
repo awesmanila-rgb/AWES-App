@@ -32,6 +32,20 @@
     const d = new Date(iso+'T00:00:00');
     return d.toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'});
   }
+  // For full timestamptz values (e.g. created_at) — NOT plain date columns.
+  // fmtDate() above assumes a bare "YYYY-MM-DD" string and appends
+  // 'T00:00:00' itself; feeding it an already-complete ISO timestamp (with
+  // its own time + offset, e.g. "2026-09-10T09:23:45.123+00:00") produces
+  // a malformed "...+00:00T00:00:00" string that new Date() can't parse,
+  // which is why service-requests.js's "created" timestamps were showing
+  // as Invalid Date before this existed.
+  function fmtDateTime(iso){
+    if(!iso) return '—';
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-PH', {year:'numeric', month:'short', day:'numeric'})
+      +' '+d.toLocaleTimeString('en-PH', {hour:'numeric', minute:'2-digit'});
+  }
   // Matches a piece of equipment to its own service-report visit history out
   // of a customer's full report list. Shared by the customer portal's
   // equipment detail screen (customer-equipment-history.js) and the admin
@@ -361,6 +375,20 @@
       if(error) throw error;
       return rowToReport(data);
     }catch(e){ console.error('cloud get report failed', srNo, describeCloudError(e)); return null; }
+  }
+  // Fallback lookup by primary key — used by the customer portal's
+  // "Recent Service Reports" tile when a row's sr_no didn't resolve a
+  // match via cloudGetReport (e.g. a duplicate/edited sr_no elsewhere in
+  // the table breaking maybeSingle()'s single-row assumption). id is
+  // always present and unique, so this path always finds the row if it
+  // still exists.
+  async function cloudGetReportById(id){
+    if(!id || !(await ensureCloud())) return null;
+    try{
+      const { data, error } = await db.from('service_reports').select('*').eq('id', id).maybeSingle();
+      if(error) throw error;
+      return rowToReport(data);
+    }catch(e){ console.error('cloud get report by id failed', id, describeCloudError(e)); return null; }
   }
   // History used to be hard-capped at the newest 150 reports with no indication
   // that anything had been cut off, so older jobs simply became invisible in the
